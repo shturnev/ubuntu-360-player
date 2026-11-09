@@ -1,0 +1,90 @@
+import Vue from 'vue'
+
+import './styles/quasar.styl'
+import '@quasar/extras/roboto-font/roboto-font.css'
+import '@quasar/extras/material-icons/material-icons.css'
+
+import {
+  ClosePopup,
+  Dialog,
+  Notify,
+  QAvatar,
+  QBanner,
+  QBreadcrumbs,
+  QBreadcrumbsEl,
+  QBtn,
+  QCard,
+  QCardActions,
+  QCardSection,
+  QDialog,
+  QDrawer,
+  QFooter,
+  QHeader,
+  QIcon,
+  QItem,
+  QItemLabel,
+  QItemSection,
+  QLayout,
+  QLinearProgress,
+  QList,
+  QPage,
+  QPageContainer,
+  QRouteTab,
+  QSeparator,
+  QSlider,
+  QSlideTransition,
+  QSpace,
+  QTab,
+  QTabs,
+  QToolbar,
+  QToolbarTitle,
+  QTooltip,
+  Quasar,
+  QToggle
+} from 'quasar'
+
+Vue.use(Quasar, {
+  config: {},
+  components: {
+    QLayout,
+    QAvatar,
+    QBanner,
+    QBreadcrumbs,
+    QBreadcrumbsEl,
+    QCard,
+    QCardSection,
+    QCardActions,
+    QDialog,
+    QFooter,
+    QHeader,
+    QDrawer,
+    QPageContainer,
+    QPage,
+    QLinearProgress,
+    QSlideTransition,
+    QToolbar,
+    QToolbarTitle,
+    QBtn,
+    QIcon,
+    QList,
+    QItem,
+    QItemSection,
+    QItemLabel,
+    QTabs,
+    QTooltip,
+    QTab,
+    QRouteTab,
+    QSpace,
+    QSeparator,
+    QSlider,
+    QToggle
+  },
+  directives: {
+    ClosePopup,
+  },
+  plugins: {
+    Notify,
+    Dialog,
+  },
+  animations: 'all'
+})

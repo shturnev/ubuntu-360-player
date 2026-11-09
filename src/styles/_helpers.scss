@@ -1,0 +1,28 @@
+/*-----------------------------------
+m p w h
+-----------------------------------*/
+$classes: (
+  //mt: margin-top,
+  //mb: margin-bottom,
+  //mr: margin-right,
+  ml: margin-left,
+  //pt: padding-top,
+  //pb: padding-bottom,
+  //pr: padding-right,
+  //pl: padding-left,
+  //w: width,
+  //h: height,
+);
+
+
+$i: 0; $s: 5; $max: 100;
+@while $i <= $max {
+
+  @each $key, $val in $classes{
+    .#{$key}#{$i}{
+      #{$val}: $i + px;
+    }
+  }
+
+  $i: $i + $s;
+}

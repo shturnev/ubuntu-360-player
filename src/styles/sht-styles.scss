@@ -1,0 +1,23 @@
+@import "helpers";
+
+//standard colors
+$primary   : #027BE3;
+$secondary : #26A69A;
+$accent    : #9C27B0;
+
+$positive  : #21BA45;
+$negative  : #C10015;
+$info      : #31CCEC;
+$warning   : #F2C037;
+
+//custom-colors
+$dark-grey: #212121;
+
+
+
+.op-50{
+  opacity: .5;
+  &:hover{
+    opacity: 1;
+  }
+}
