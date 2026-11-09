@@ -1,113 +1,100 @@
-import fs from 'fs'
-import path from 'path'
-import {exec} from 'child_process'
-
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { exec } = require('child_process');
 const gm = require('gm');
-const homedir = require('os').homedir() + '/.sht-vr-player';
 
+const getStorageRoot = () => {
+  const base = process.env.SHT_VR_HOME || process.env.HOME || os.homedir();
+  return path.join(base, '.sht-vr-player');
+};
 
-export class Media {
-
+class Media {
   static saveImage(filePath, win) {
-    let newFileName = getNewFileName(filePath);
+    const newFileName = getNewFileName(filePath);
     createLink(filePath, newFileName);
 
-    //now we need check for existing thump
-    let thumpName = newFileName,
-      thumpPath = homedir + '/static/small/' + thumpName,
-      res = {
-        error: null,
-        type: 'image',
-        origPath: filePath,
-        thumpName,
-        bigName: newFileName
-      };
+    const thumpName = newFileName;
+    const thumpPath = path.join(getStorageRoot(), 'static', 'small', thumpName);
+    const res = {
+      error: null,
+      type: 'image',
+      origPath: filePath,
+      thumpName,
+      bigName: newFileName
+    };
 
     try {
       fs.statSync(thumpPath);
-      win.webContents.send('read-media-file', res);
-      console.log('image saved:');
-      console.log(res);
-
+      if (win && win.webContents) win.webContents.send('read-media-file', res);
+      return res;
     } catch (e) {
-
       gm(filePath).resize(450).autoOrient().write(thumpPath, (err) => {
         if (err) {
           res.error = err;
-          console.log(err.message);
         }
-        win.webContents.send('read-media-file', res);
-        console.log('image saved:');
-        console.log(res);
+        if (win && win.webContents) win.webContents.send('read-media-file', res);
       });
-
+      return res;
     }
   }
-
 
   static saveVideo(filePath, win) {
-    let newFileName = getNewFileName(filePath);
+    const newFileName = getNewFileName(filePath);
     createLink(filePath, newFileName);
 
-    //now we need check for existing video thump
-    let thumpName = path.parse(newFileName).name + '.jpg',
-      thumpPath = homedir + '/static/small/' + thumpName,
-      res = {
-        error: null,
-        type: 'video',
-        origPath: filePath,
-        thumpName,
-        bigName: newFileName
-      };
+    const thumpName = path.parse(newFileName).name + '.jpg';
+    const thumpPath = path.join(getStorageRoot(), 'static', 'small', thumpName);
+    const res = {
+      error: null,
+      type: 'video',
+      origPath: filePath,
+      thumpName,
+      bigName: newFileName
+    };
 
     try {
-
       fs.statSync(thumpPath);
-      win.webContents.send('read-media-file', res)
-      console.log('video saved:');
-      console.log(res);
-
+      if (win && win.webContents) win.webContents.send('read-media-file', res);
+      return res;
     } catch (e) {
-
       exec(`ffmpeg -i ${filePath} -s 450x225 -vframes 1 ${thumpPath} -y`, (error, stdout, stderr) => {
         if (error) {
-          res.error = error
+          res.error = error;
         }
         if (stderr && stderr.search('deprecated pixel format used') === -1) {
-          res.error = {message: stderr}
+          res.error = { message: stderr };
         }
-        win.webContents.send('read-media-file', res);
-        console.log('video saved:');
-        console.log(res);
-
-      })
-
+        if (win && win.webContents) win.webContents.send('read-media-file', res);
+      });
+      return res;
     }
   }
-
 }
 
-/*----------------------------------
-Helpers
-----------------------------------*/
 function createLink(origPath, newFileName) {
-  let linksDir = homedir + '/static/big',
-    linkPath = linksDir + '/' + newFileName;
+  const linksDir = path.join(getStorageRoot(), 'static', 'big');
+  const linkPath = path.join(linksDir, newFileName);
+
+  fs.mkdirSync(linksDir, { recursive: true });
 
   try {
     fs.statSync(linkPath);
     return;
   } catch (e) {
-    //else, create symbolic link
-    fs.symlinkSync(origPath, linkPath)
+    fs.symlinkSync(origPath, linkPath);
   }
-
 }
 
 function getNewFileName(origPath) {
-
-  let stats = fs.statSync(origPath),
-    parsed = path.parse(origPath);
+  const stats = fs.statSync(origPath);
+  const parsed = path.parse(origPath);
 
   return parsed.name + '-' + stats.size + parsed.ext;
 }
+
+module.exports = { Media };
+Object.defineProperty(module.exports, 'default', {
+  value: Media,
+  enumerable: false
+});
