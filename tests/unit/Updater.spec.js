@@ -1,12 +1,17 @@
-const request = require('request');
 const Updater = require('../../src/models/Updater');
 const BaseConfig = require('../../project.config');
 
-jest.mock('request', () => ({
-  post: jest.fn()
-}));
-
 describe('Updater', () => {
+  const nativeFetch = global.fetch;
+
+  afterEach(() => {
+    if (nativeFetch) {
+      global.fetch = nativeFetch;
+    } else {
+      delete global.fetch;
+    }
+  });
+
   test('returns false when updates are disabled', async () => {
     const result = await Updater.check({ ...BaseConfig, checkUpdates: false });
     expect(result).toBe(false);
@@ -20,12 +25,31 @@ describe('Updater', () => {
       }
     };
 
-    request.post.mockImplementation((_options, callback) => {
-      callback(null, {}, JSON.stringify(response));
+    global.fetch = jest.fn().mockResolvedValue({
+      text: jest.fn().mockResolvedValue(JSON.stringify(response))
     });
 
     const result = await Updater.check(BaseConfig);
     expect(result).toHaveProperty('filename_orig', response.data.filename_orig);
     expect(result).toHaveProperty('hash', 'abc123');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://upfiler.sht-server.cf/api/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: expect.stringContaining('action=file_get_last_in_album'),
+        redirect: 'error'
+      })
+    );
+  });
+
+  test('rejects updater redirects', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('redirect blocked'));
+
+    await expect(Updater.check(BaseConfig)).rejects.toThrow('redirect blocked');
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ redirect: 'error' })
+    );
   });
 });

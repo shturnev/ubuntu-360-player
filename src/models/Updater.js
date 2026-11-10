@@ -1,4 +1,3 @@
-const request = require('request');
 const querystring = require('querystring');
 
 const apiUrl = 'https://upfiler.sht-server.cf/api/';
@@ -12,29 +11,18 @@ class Updater {
       album_hash: configData.albumId
     };
 
-    const resData = await new Promise((resolve, reject) => {
-      request.post({
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        url: apiUrl,
-        body: querystring.stringify(forSend)
-      }, (error, response, body) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        try {
-          const res = JSON.parse(body || '{}');
-          if (res && res.error_desc) {
-            reject(new Error(res.error_desc));
-            return;
-          }
-          resolve(res && res.data ? res.data : false);
-        } catch (parseError) {
-          reject(parseError);
-        }
-      });
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: querystring.stringify(forSend),
+      redirect: 'error'
     });
+    const body = await response.text();
+    const res = JSON.parse(body || '{}');
+    if (res && res.error_desc) {
+      throw new Error(res.error_desc);
+    }
+    const resData = res && res.data ? res.data : false;
 
     if (!resData || !resData.filename_orig) return false;
     const serverVersion = resData.filename_orig.split('_')[1];
