@@ -2,9 +2,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+jest.mock('electron', () => ({
+  dialog: { showOpenDialogSync: jest.fn() },
+  ipcMain: { on: jest.fn() }
+}));
+
+const { dialog } = require('electron');
+
 jest.mock('trash', () => jest.fn(async () => true));
 
 const { MainModelClass, removeFilesHelper } = require('../../src/models/MainModelClass');
+const { Media } = require('../../src/models/Media');
 
 describe('MainModelClass', () => {
   let tempDir;
@@ -23,6 +31,7 @@ describe('MainModelClass', () => {
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
   });
 
   test('deleteSelected removes files and returns true', async () => {
@@ -58,5 +67,57 @@ describe('MainModelClass', () => {
 
     expect(fs.existsSync(path.join(smallDir, 'keep.png'))).toBe(true);
     expect(fs.existsSync(path.join(smallDir, 'remove.png'))).toBe(false);
+  });
+
+  test('readDir processes each supported media file once and reports the matching total', async () => {
+    const sourceDir = path.join(tempDir, 'media');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, 'first.jpg'), 'image');
+    fs.writeFileSync(path.join(sourceDir, 'second.png'), 'image');
+    fs.writeFileSync(path.join(sourceDir, 'third.mp4'), 'video');
+    fs.writeFileSync(path.join(sourceDir, 'ignored.txt'), 'text');
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation(() => {});
+    const saveVideo = jest.spyOn(Media, 'saveVideo').mockImplementation(() => {});
+
+    await new Promise((resolve) => {
+      send.mockImplementation((channel) => {
+        if (channel === 'start-read-dir') resolve();
+      });
+      mainModelClass.readDir(sourceDir);
+    });
+
+    expect(send).toHaveBeenCalledWith('start-read-dir', 3);
+    expect(saveImage.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual(['first.jpg', 'second.png']);
+    expect(saveVideo.mock.calls.map(([file]) => path.basename(file))).toEqual(['third.mp4']);
+  });
+
+  test('readDir keeps the empty-directory behavior when no media files are supported', async () => {
+    const sourceDir = path.join(tempDir, 'empty-media');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, 'notes.txt'), 'text');
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+
+    await new Promise((resolve) => {
+      send.mockImplementation((channel) => {
+        if (channel === 'open-dir') resolve();
+      });
+      mainModelClass.readDir(sourceDir);
+    });
+
+    expect(send).toHaveBeenCalledWith('open-dir', false);
+    expect(send).not.toHaveBeenCalledWith('start-read-dir', expect.anything());
+  });
+
+  test('openDir preserves the cancellation behavior without reading a directory', () => {
+    jest.spyOn(dialog, 'showOpenDialogSync').mockReturnValue(undefined);
+    const event = { reply: jest.fn() };
+    const readDir = jest.spyOn(mainModelClass, 'readDir');
+
+    expect(mainModelClass.openDir(event)).toBe(false);
+    expect(event.reply).toHaveBeenCalledWith('open-dir', false);
+    expect(readDir).not.toHaveBeenCalled();
   });
 });

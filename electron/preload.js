@@ -29,8 +29,10 @@ contextBridge.exposeInMainWorld('shtVR', {
   },
   on(channel, listener) {
     if (allowedChannels.includes(channel)) {
-      ipcRenderer.on(channel, (_event, ...args) => listener(_event, ...args));
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
     }
+    return () => {};
   },
   removeListener(channel, listener) {
     if (allowedChannels.includes(channel)) {
