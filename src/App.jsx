@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import PanoramaViewer from './PanoramaViewer.jsx';
 
 const EMPTY_PROGRESS = { show: false, total: 0, complete: 0 };
 
@@ -8,8 +9,10 @@ function App() {
   const [maxSizePx, setMaxSizePx] = useState(150);
   const [loadingProgress, setLoadingProgress] = useState(EMPTY_PROGRESS);
   const [showingItem, setShowingItem] = useState(null);
+  const [flatView, setFlatView] = useState(false);
   const [cacheSize, setCacheSize] = useState(0);
   const [configData, setConfigData] = useState({ version: '1.0.5', checkUpdates: true, downloadLink: '' });
+  const [updateInfo, setUpdateInfo] = useState(null);
   const [canOpenDir, setCanOpenDir] = useState(true);
   const [canSelect, setCanSelect] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
@@ -44,7 +47,10 @@ function App() {
           const complete = prev.complete + 1;
           const next = { ...prev, complete };
           if (prev.total > 0 && complete >= prev.total) {
-            setTimeout(() => setLoadingProgress(EMPTY_PROGRESS), 600);
+            setTimeout(() => {
+              setLoadingProgress(EMPTY_PROGRESS);
+              setCanOpenDir(true);
+            }, 600);
           }
           return next;
         });
@@ -75,7 +81,7 @@ function App() {
       },
       'need-to-update': (_, payload) => {
         if (!payload) return;
-        setErrorMessage(`New version available: ${payload.filename_orig || 'latest'}`);
+        setUpdateInfo(payload);
       }
     };
 
@@ -91,11 +97,15 @@ function App() {
   }, [api]);
 
   const openExternalLink = async (url) => {
-    if (api && typeof api.openExternal === 'function') {
-      await api.openExternal(url);
-      return;
+    try {
+      if (api && typeof api.openExternal === 'function') {
+        await api.openExternal(url);
+        return;
+      }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setErrorMessage(error && error.message ? error.message : 'Unable to open external link');
     }
-    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const request = (channel, payload) => {
@@ -117,8 +127,7 @@ function App() {
     setCanSelect(false);
   };
 
-  const deleteFiles = () => {
-    const selectedItems = items.filter((item) => item.selected);
+  const deleteFiles = (selectedItems = items.filter((item) => item.selected)) => {
     if (!selectedItems.length) return;
     request('delete-selected', selectedItems);
     setCanSelect(false);
@@ -128,19 +137,13 @@ function App() {
     const targetIndex = item
       ? items.findIndex((entry) => entry.thumpName === item.thumpName && entry.bigName === item.bigName)
       : -1;
-
-    if (item && targetIndex >= 0) {
-      toggleSelection(targetIndex);
-    }
+    const selectedItems = items.filter((entry, index) => entry.selected || (item && index === targetIndex));
 
     const confirmed = window.confirm(
-      item ? 'Delete this selected media item?' : `Delete ${totalSelected > 1 ? `${totalSelected} selected files` : 'this file'}?`
+      item ? 'Delete this selected media item?' : `Delete ${selectedItems.length > 1 ? `${selectedItems.length} selected files` : 'this file'}?`
     );
 
-    if (!confirmed) {
-      if (item && targetIndex >= 0) toggleSelection(targetIndex);
-      return;
-    }
+    if (!confirmed) return;
 
     if (item && targetIndex >= 0) {
       const nextIndex = items[targetIndex + 1] ? targetIndex + 1 : items[targetIndex - 1] ? targetIndex - 1 : null;
@@ -151,7 +154,7 @@ function App() {
       }
     }
 
-    deleteFiles();
+    deleteFiles(selectedItems);
   };
 
   const deleteCache = () => {
@@ -169,6 +172,20 @@ function App() {
   };
 
   const viewerSrc = showingItem ? `${serverUrl}big/${showingItem.bigName}` : '';
+  const updateFilenameVersion = updateInfo && updateInfo.filename_orig
+    ? updateInfo.filename_orig.split('_')[1]
+    : null;
+  const updateVersion = updateFilenameVersion
+    ? updateFilenameVersion.replace(/\.[^.]+$/, '')
+    : updateInfo?.filename_orig || 'latest';
+
+  const downloadUpdate = () => {
+    if (!configData.downloadLink || !updateInfo || !updateInfo.hash) {
+      setErrorMessage('Update download link is unavailable');
+      return;
+    }
+    openExternalLink(`${configData.downloadLink}${updateInfo.hash}`);
+  };
 
   return (
     <div className="app-shell">
@@ -188,6 +205,14 @@ function App() {
         <div className="notice error">
           {errorMessage}
           <button type="button" onClick={() => setErrorMessage('')}>Dismiss</button>
+        </div>
+      )}
+
+      {updateInfo && (
+        <div className="notice update-notice">
+          <span>New version available: v{updateVersion} (installed v{configData.version || '1.0.5'})</span>
+          <button type="button" onClick={downloadUpdate}>Download update</button>
+          <button type="button" onClick={() => setUpdateInfo(null)}>Dismiss</button>
         </div>
       )}
 
@@ -243,12 +268,15 @@ function App() {
         <div className="viewer-overlay" onClick={() => setShowingItem(null)}>
           <div className="viewer-panel" onClick={(event) => event.stopPropagation()}>
             <button type="button" className="close-viewer" onClick={() => setShowingItem(null)}>✕</button>
-            {showingItem.type === 'video' ? (
+            {flatView && showingItem.type === 'video' ? (
               <video controls autoPlay src={viewerSrc} />
-            ) : (
-              <img src={viewerSrc} alt={showingItem.bigName} />
-            )}
+            ) : flatView
+              ? <img src={viewerSrc} alt={showingItem.bigName} />
+              : <PanoramaViewer source={viewerSrc} type={showingItem.type} alt={showingItem.bigName} />}
             <div className="viewer-controls">
+              <button type="button" onClick={() => setFlatView((current) => !current)}>
+                {flatView ? '360° view' : 'Flat view'}
+              </button>
               <button type="button" onClick={() => {
                 const previousIndex = showingItem.index - 1;
                 if (items[previousIndex]) setShowingItem({ ...items[previousIndex], index: previousIndex });
