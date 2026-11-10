@@ -94,14 +94,24 @@ function App() {
       }
     };
 
-    Object.entries(handlers).forEach(([channel, listener]) => api.on(channel, listener));
+    const subscriptions = Object.entries(handlers).map(([channel, listener]) => ({
+      channel,
+      listener,
+      unsubscribe: api.on(channel, listener)
+    }));
 
     api.send('get-config', null);
     api.send('check-for-update', null);
     api.send('get-cache-size', null);
 
     return () => {
-      Object.entries(handlers).forEach(([channel, listener]) => api.removeListener(channel, listener));
+      subscriptions.forEach(({ channel, listener, unsubscribe }) => {
+        if (typeof unsubscribe === 'function') {
+          unsubscribe();
+        } else {
+          api.removeListener(channel, listener);
+        }
+      });
     };
   }, [api]);
 

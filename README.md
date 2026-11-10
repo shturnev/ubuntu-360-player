@@ -24,6 +24,17 @@ npm run build
 npm run electron:build
 ```
 
+### Available npm scripts
+
+- `npm run dev` — starts the Vite renderer and Electron app together. Electron starts after Vite is listening on port `5173`; both processes stop if either one exits.
+- `npm run dev:renderer` — starts the Vite development server, listening on all network interfaces (`0.0.0.0`).
+- `npm run dev:electron` — waits for the Vite server on port `5173`, then launches Electron.
+- `npm run build` — builds the production renderer into `dist/`.
+- `npm run preview` — serves the built renderer locally for preview. Run `npm run build` first.
+- `npm test` — runs the Jest test suite serially.
+- `npm run electron:build` — builds the renderer, then packages the app with the targets configured in `electron-builder.json`.
+- `npm run electron:dist` — packages the app as a Linux `.deb`. This command does not build the renderer, so run `npm run build` first to include the latest renderer changes.
+
 ![sht-vr-player screencast](media-sources/vr-overview_1.mp4)
 
 

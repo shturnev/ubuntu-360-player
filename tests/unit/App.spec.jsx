@@ -1,5 +1,6 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { StrictMode } from 'react';
 import App from '../../src/App.jsx';
 
 jest.mock('../../src/PanoramaViewer.jsx', () => function PanoramaViewer({ source, type }) {
@@ -18,7 +19,12 @@ describe('App', () => {
     listeners = {};
     api = {
       send: jest.fn(),
-      on: jest.fn((channel, listener) => { listeners[channel] = listener; }),
+      on: jest.fn((channel, listener) => {
+        listeners[channel] = listener;
+        return () => {
+          if (listeners[channel] === listener) delete listeners[channel];
+        };
+      }),
       removeListener: jest.fn(),
       openExternal: jest.fn().mockResolvedValue(undefined)
     };
@@ -68,6 +74,22 @@ describe('App', () => {
     expect(container.querySelector('img[alt="photo-1000.jpg"]').getAttribute('src')).toBe('http://localhost:3000/big/photo-1000.jpg');
     click(button('360° view'));
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+  });
+
+  test('subscribes once to media events when StrictMode replays effects', () => {
+    act(() => root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    ));
+
+    act(() => {
+      listeners['start-read-dir']({}, 2);
+      listeners['read-media-file']({}, media);
+      listeners['read-media-file']({}, { ...media, thumpName: 'second.jpg', bigName: 'second-2000.jpg' });
+    });
+
+    expect(container.querySelectorAll('.media-card')).toHaveLength(2);
   });
 
   test('deletes the item requested from the viewer even if it was not selected first', () => {
