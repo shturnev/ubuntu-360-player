@@ -31,6 +31,29 @@ class MainModelClass {
     ipcMain.on('open-dir', (event) => this.openDir(event));
     ipcMain.on('get-server-url', (event) => event.reply('start-file-server', this.serverUrl));
     ipcMain.on('delete-selected', (event, arg) => this.deleteSelected(arg));
+    ipcMain.on('convert-video', async (event, payload) => {
+      const inputPath = payload && payload.filePath ? payload.filePath : payload;
+      if (!inputPath) {
+        event.reply('video-conversion-result', { success: false, message: 'No video file was provided for conversion.' });
+        return;
+      }
+
+      try {
+        const result = await Media.convertVideoFor360(inputPath, this.win);
+        event.reply('video-conversion-result', {
+          success: true,
+          ...result
+        });
+      } catch (error) {
+        const message = error && error.message ? error.message : 'Unable to convert this video for 360° playback.';
+        if (this.win && this.win.webContents) this.win.webContents.send('show-error', new Error(message));
+        event.reply('video-conversion-result', {
+          success: false,
+          origPath: inputPath,
+          message
+        });
+      }
+    });
     ipcMain.on('get-cache-size', (event) => {
       getFolderSize(this.static_dir, (err, size) => {
         const result = err ? 0 : (size / 1024 / 1024).toFixed(2);
@@ -144,10 +167,6 @@ class MainModelClass {
             return;
           }
         });
-      }
-
-      if (Helper.isFileExists(item.origPath)) {
-        await trash(item.origPath, { glob: false });
       }
 
       if (this.win && this.win.webContents) this.win.webContents.send('file-deleted', item);

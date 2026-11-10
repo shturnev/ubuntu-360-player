@@ -1,7 +1,23 @@
 import PanoramaViewer from '../PanoramaViewer.jsx';
 import './PanoramaViewer.scss';
 
-function ViewerOverlay({ showingItem, items, viewerSrc, flatView, onClose, onToggleFlatView, onDelete, onPrevious, onNext, onOpenExternal }) {
+function ViewerOverlay({
+  showingItem,
+  items,
+  viewerSrc,
+  flatView,
+  conversionProgress,
+  hasConvertedVideo,
+  onConvertVideo,
+  onClose,
+  onToggleFlatView,
+  onDelete,
+  onPrevious,
+  onNext,
+  onOpenExternal
+}) {
+  const convertButton = showingItem.type === 'video' && onConvertVideo && !conversionProgress?.active && !hasConvertedVideo;
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -11,7 +27,30 @@ function ViewerOverlay({ showingItem, items, viewerSrc, flatView, onClose, onTog
         ) : flatView ? (
           <img src={viewerSrc} alt={showingItem.bigName} />
         ) : (
-          <PanoramaViewer source={viewerSrc} type={showingItem.type} alt={showingItem.bigName} onOpenExternal={onOpenExternal} />
+          <PanoramaViewer
+            source={viewerSrc}
+            type={showingItem.type}
+            alt={showingItem.bigName}
+            onOpenExternal={onOpenExternal}
+            onConvertVideo={onConvertVideo}
+            conversionProgress={conversionProgress}
+          />
+        )}
+        {showingItem.type === 'video' && conversionProgress?.active && (
+          <div className="conversion-progress" role="status" aria-live="polite">
+            <strong>{conversionProgress.message || 'Converting video…'}</strong>
+            <div className="conversion-bar" aria-label="video conversion progress">
+              <span style={{ width: `${Math.min(100, Math.max(0, Number(conversionProgress.percent) || 0))}%` }} />
+            </div>
+            <small>
+              {Math.round(Number(conversionProgress.percent) || 0)}% • {Math.round((Number(conversionProgress.elapsedMs) || 0) / 1000)}s elapsed • ETA {conversionProgress.etaMs == null ? 'unknown' : `${Math.round((Number(conversionProgress.etaMs) || 0) / 1000)}s`}
+            </small>
+          </div>
+        )}
+        {convertButton && (
+          <div className="viewer-convert-actions">
+            <button type="button" onClick={onConvertVideo}>Convert / fix video</button>
+          </div>
         )}
         <div className="viewer-controls">
           <button type="button" onClick={onToggleFlatView}>

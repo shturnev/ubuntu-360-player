@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import PanoramaViewer from '../../src/components/PanoramaViewer.jsx';
+import ViewerOverlay from '../../src/components/ViewerOverlay.jsx';
 
 describe('PanoramaViewer', () => {
   const makeWebGL = () => {
@@ -101,7 +102,13 @@ describe('PanoramaViewer', () => {
 
   test('reports a missing video frame even when playback starts', async () => {
     jest.useFakeTimers();
-    render(<PanoramaViewer source="http://localhost:3000/big/audio-only-video.mp4" type="video" alt="audio-only-video.mp4" />);
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/audio-only-video.mp4"
+        type="video"
+        alt="audio-only-video.mp4"
+      />
+    );
 
     const video = document.querySelector('.panorama-source');
     Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
@@ -124,6 +131,54 @@ describe('PanoramaViewer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Video playback started but no video frame was decoded');
     expect(screen.getByRole('status')).toHaveTextContent('ffprobe -v error');
     expect(screen.getByRole('status')).toHaveTextContent('ubuntu-restricted-extras');
+    expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
+  });
+
+  test('does not offer conversion for a network or missing file error', () => {
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/missing-video.mp4"
+        type="video"
+        alt="missing-video.mp4"
+      />
+    );
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'error', {
+      value: { code: 2, message: 'MEDIA_ERR_NETWORK' },
+      configurable: true
+    });
+    fireEvent.error(video);
+
+    expect(screen.getByRole('status')).toHaveTextContent('local media server');
+    expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
+  });
+
+  test('shows a single conversion progress summary during transcoding', () => {
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'hevc-video.mp4', origPath: '/tmp/hevc-video.mp4', index: 0 }}
+        items={[{ type: 'video', bigName: 'hevc-video.mp4', origPath: '/tmp/hevc-video.mp4', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/hevc-video.mp4"
+        flatView={false}
+        conversionProgress={{ active: true, percent: 42, elapsedMs: 1234, etaMs: 567, status: 'running', message: 'Converting video…' }}
+        hasConvertedVideo={false}
+        onConvertVideo={jest.fn()}
+        onClose={jest.fn()}
+        onToggleFlatView={jest.fn()}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+        onOpenExternal={jest.fn()}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
+    const conversionStatus = screen.getAllByRole('status').find((node) => node.textContent.includes('Converting video…'));
+    expect(conversionStatus).toHaveTextContent('Converting video…');
+    expect(conversionStatus).toHaveTextContent('42%');
+    expect(conversionStatus).toHaveTextContent('elapsed');
+    expect(conversionStatus).toHaveTextContent('ETA');
   });
 
   test('explains unsupported video codecs and offers the FFmpeg help page', () => {

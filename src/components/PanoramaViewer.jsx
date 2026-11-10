@@ -110,7 +110,7 @@ function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
   return `Unable to play this video.${detail ? ` Browser detail: ${detail}` : ''}`;
 }
 
-function PanoramaViewer({ source, type, alt, onOpenExternal }) {
+function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, conversionProgress }) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
@@ -262,7 +262,11 @@ function PanoramaViewer({ source, type, alt, onOpenExternal }) {
         disposed = true;
         window.cancelAnimationFrame(animationFrame);
         if (type === 'video') {
-          media.pause();
+          try {
+            media.pause();
+          } catch (error) {
+            // Some environments do not implement native media pause behavior.
+          }
           media.removeAttribute('src');
         }
         media.removeEventListener('load', uploadMedia);
@@ -282,7 +286,11 @@ function PanoramaViewer({ source, type, alt, onOpenExternal }) {
       return () => {
         disposed = true;
         if (type === 'video') {
-          media.pause();
+          try {
+            media.pause();
+          } catch (error) {
+            // Some environments do not implement native media pause behavior.
+          }
           media.removeAttribute('src');
         }
         if (buffer) gl.deleteBuffer(buffer);

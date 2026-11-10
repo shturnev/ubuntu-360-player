@@ -18,7 +18,10 @@ const allowedChannels = [
   'delete-cache-finish',
   'show-error',
   'need-to-update',
-  'cache-size'
+  'cache-size',
+  'convert-video',
+  'video-conversion-progress',
+  'video-conversion-result'
 ];
 
 contextBridge.exposeInMainWorld('shtVR', {

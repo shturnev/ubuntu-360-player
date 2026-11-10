@@ -34,7 +34,7 @@ describe('MainModelClass', () => {
     jest.restoreAllMocks();
   });
 
-  test('deleteSelected removes files and returns true', async () => {
+  test('deleteSelected clears cache files without deleting the original media', async () => {
     const targetDir = mainModelClass.static_dir;
     const thumpFile = path.join(targetDir, 'small', 'thumb.png');
     const bigFile = path.join(targetDir, 'big', 'big.png');
@@ -56,6 +56,7 @@ describe('MainModelClass', () => {
     expect(result).toBe(true);
     expect(fs.existsSync(thumpFile)).toBe(false);
     expect(fs.existsSync(bigFile)).toBe(false);
+    expect(fs.existsSync(originalFile)).toBe(true);
   });
 
   test('removeFilesHelper keeps files that are still present in the selected list', () => {
