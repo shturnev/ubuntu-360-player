@@ -125,6 +125,7 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
+  const renderRequest = useRef(() => {});
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
@@ -179,16 +180,44 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
     let program;
     let texture;
     let buffer;
-    let animationFrame;
+    let animationFrame = null;
+    let renderQueued = false;
     let failed = false;
     let disposed = false;
     let hasVideoFrame = false;
+    let render = () => {};
     let noFrameTimer;
+    let resizeObserver;
+    let handleResize;
+    const needsImageUpload = { current: true };
 
     const setFailed = (message) => {
       if (disposed) return;
       failed = true;
       setFallbackMessage(message);
+    };
+
+    const requestRender = () => {
+      if (failed || disposed) return;
+
+      if (type === 'video') {
+        if (animationFrame === null) {
+          animationFrame = window.requestAnimationFrame(render);
+        }
+        return;
+      }
+
+      if (renderQueued) return;
+      renderQueued = true;
+      animationFrame = window.requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+      });
+    };
+
+    const scheduleImageUpload = () => {
+      needsImageUpload.current = true;
+      requestRender();
     };
 
     try {
@@ -221,12 +250,19 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
 
         try {
           gl.bindTexture(gl.TEXTURE_2D, texture);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
-          if (type === 'video' && media.readyState >= 2 && media.videoWidth > 0 && media.videoHeight > 0) {
-            hasVideoFrame = true;
-            clearTimeout(noFrameTimer);
-            setVideoReady(true);
+          if (type === 'video') {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
+            if (media.readyState >= 2 && media.videoWidth > 0 && media.videoHeight > 0) {
+              hasVideoFrame = true;
+              clearTimeout(noFrameTimer);
+              setVideoReady(true);
+            }
+            return;
           }
+
+          if (!media) return;
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
+          needsImageUpload.current = false;
         } catch (error) {
           setFailed(`360° viewing failed: ${error && error.message ? error.message : 'Unable to upload the media texture'}`);
         }
@@ -243,7 +279,7 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         gl.viewport(0, 0, width, height);
       };
 
-      const render = () => {
+      render = () => {
         if (failed || disposed) return;
 
         resize();
@@ -253,11 +289,19 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         gl.uniform1f(gl.getUniformLocation(program, 'fieldOfView'), fieldOfView);
         gl.uniform1f(gl.getUniformLocation(program, 'aspectRatio'), canvas.width / canvas.height);
 
-        if (type !== 'video' || media.readyState >= 2) {
+        if (type === 'video') {
+          if (media.readyState >= 2) {
+            uploadMedia();
+          }
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          animationFrame = window.requestAnimationFrame(render);
+          return;
+        }
+
+        if (needsImageUpload.current) {
           uploadMedia();
         }
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        animationFrame = window.requestAnimationFrame(render);
       };
 
       const handleMediaError = () => {
@@ -290,17 +334,33 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         media.addEventListener('pause', handlePause);
         media.addEventListener('ended', handlePause);
       } else {
-        media.addEventListener('load', uploadMedia);
+        media.addEventListener('load', scheduleImageUpload);
         media.addEventListener('error', handleMediaError);
       }
 
       media.crossOrigin = 'anonymous';
       media.src = source;
-      animationFrame = window.requestAnimationFrame(render);
+      renderRequest.current = requestRender;
+      if (type === 'video') {
+        animationFrame = window.requestAnimationFrame(render);
+      } else {
+        scheduleImageUpload();
+      }
+
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => {
+          requestRender();
+        });
+        resizeObserver.observe(canvas);
+      }
+      handleResize = () => requestRender();
+      window.addEventListener('resize', handleResize);
 
       return () => {
         disposed = true;
-        window.cancelAnimationFrame(animationFrame);
+        if (animationFrame !== null) {
+          window.cancelAnimationFrame(animationFrame);
+        }
         if (type === 'video') {
           try {
             media.pause();
@@ -309,7 +369,7 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
           }
           media.removeAttribute('src');
         }
-        media.removeEventListener('load', uploadMedia);
+        media.removeEventListener('load', scheduleImageUpload);
         media.removeEventListener('error', handleMediaError);
         media.removeEventListener('loadeddata', uploadMedia);
         media.removeEventListener('canplay', uploadMedia);
@@ -317,6 +377,8 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         media.removeEventListener('pause', handlePause);
         media.removeEventListener('ended', handlePause);
         clearTimeout(noFrameTimer);
+        if (resizeObserver) resizeObserver.disconnect();
+        if (handleResize) window.removeEventListener('resize', handleResize);
         if (buffer) gl.deleteBuffer(buffer);
         if (program) gl.deleteProgram(program);
         if (texture) gl.deleteTexture(texture);
@@ -333,6 +395,8 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
           }
           media.removeAttribute('src');
         }
+        if (resizeObserver) resizeObserver.disconnect();
+        if (handleResize) window.removeEventListener('resize', handleResize);
         if (buffer) gl.deleteBuffer(buffer);
         if (program) gl.deleteProgram(program);
         if (texture) gl.deleteTexture(texture);
@@ -356,6 +420,7 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
 
   const handlePointerDown = (event) => {
     camera.current.drag = { x: event.clientX, y: event.clientY };
+    renderRequest.current();
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
@@ -366,6 +431,7 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
     camera.current.yaw -= (event.clientX - drag.x) * 0.005;
     camera.current.pitch = Math.max(-1.5, Math.min(1.5, camera.current.pitch - (event.clientY - drag.y) * 0.005));
     camera.current.drag = { x: event.clientX, y: event.clientY };
+    renderRequest.current();
   };
 
   const handleSeek = (event) => {
@@ -389,6 +455,7 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
 
   const handleWheel = (event) => {
     camera.current.fieldOfView = Math.max(0.45, Math.min(1.9, camera.current.fieldOfView + event.deltaY * 0.001));
+    renderRequest.current();
   };
 
   if (fallbackMessage) {
