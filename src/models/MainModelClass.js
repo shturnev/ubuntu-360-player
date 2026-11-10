@@ -102,7 +102,10 @@ class MainModelClass {
       });
 
       if (!mediaFiles.length) {
-        if (this.win && this.win.webContents) this.win.webContents.send('open-dir', false);
+        if (this.win && this.win.webContents) {
+          this.win.webContents.send('start-read-dir', 0);
+          this.win.webContents.send('open-dir', false);
+        }
         return;
       }
 
@@ -154,23 +157,31 @@ class MainModelClass {
   }
 
   deleteCache(event, items = []) {
-    if (!items.length) {
-      if (Helper.isFileExists(this.static_dir)) {
-        rimraf(this.static_dir, (err) => {
-          if (err) {
-            event.reply('delete-error', err);
-            event.reply('delete-cache-finish', true);
-            return;
-          }
-        });
+    const clearEverything = !Array.isArray(items) || !items.length;
+
+    if (clearEverything) {
+      if (!Helper.isFileExists(this.static_dir)) {
+        event.reply('delete-cache-finish', true);
+        return;
       }
 
-      event.reply('delete-cache-finish', true);
+      try {
+        rimraf.sync(this.static_dir, { glob: false });
+        event.reply('delete-cache-finish', true);
+      } catch (err) {
+        event.reply('delete-error', err);
+      }
       return;
     }
 
-    removeFilesHelper(path.join(this.static_dir, 'small'), items.map((item) => item.thumpName));
-    removeFilesHelper(path.join(this.static_dir, 'big'), items.map((item) => item.bigName));
+    const smallDeleted = removeFilesHelper(path.join(this.static_dir, 'small'), items.map((item) => item.thumpName));
+    const bigDeleted = removeFilesHelper(path.join(this.static_dir, 'big'), items.map((item) => item.bigName));
+
+    if (!smallDeleted || !bigDeleted) {
+      event.reply('delete-error', new Error('Unable to clear the selected cache files'));
+      return;
+    }
+
     event.reply('delete-cache-finish', true);
   }
 }
