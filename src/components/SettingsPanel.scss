@@ -1,0 +1,25 @@
+@use '../styles/variables' as *;
+
+.settings-panel {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid $border-soft;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+}
+
+.donate-box {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: $bg-surface-soft;
+  border-radius: 10px;
+}
+
+.ghost-button.full {
+  width: 100%;
+}

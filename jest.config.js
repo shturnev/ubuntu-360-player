@@ -4,7 +4,8 @@ module.exports = {
     '^.+\\.[jt]sx?$': 'babel-jest'
   },
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1'
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '\\.(css|scss)$': '<rootDir>/tests/unit/styleMock.js'
   },
   testMatch: ['**/tests/unit/**/*.spec.[jt]s?(x)'],
   moduleFileExtensions: ['js', 'jsx', 'json']

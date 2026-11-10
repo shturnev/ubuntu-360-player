@@ -1,0 +1,7 @@
+@use '../styles/variables' as *;
+
+.empty-state {
+  min-height: 52vh;
+  display: grid;
+  place-items: center;
+}

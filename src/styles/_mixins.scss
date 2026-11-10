@@ -1,0 +1,11 @@
+@use './variables' as *;
+
+@mixin button-shell {
+  border: 1px solid $border-strong;
+  border-radius: 8px;
+  background: $bg-surface;
+  color: $text-primary;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
