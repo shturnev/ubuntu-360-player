@@ -333,15 +333,6 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
   };
 
   if (fallbackMessage) {
-    const showConvertButton = type === 'video'
-      && typeof onConvertVideo === 'function'
-      && !conversionProgress?.active
-      && (
-        fallbackMessage.includes('no video frame')
-        || fallbackMessage.includes('decoder could not decode')
-        || fallbackMessage.includes('does not support one of this MP4')
-      );
-
     return (
       <div className="panorama-fallback">
         <p role="status">{fallbackMessage}</p>
@@ -349,20 +340,6 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
           ? (
             <>
               <video controls autoPlay crossOrigin="anonymous" src={source} />
-              {showConvertButton && (
-                <button type="button" onClick={onConvertVideo}>Convert for 360° playback</button>
-              )}
-              {conversionProgress?.active && (
-                <div className="video-conversion-progress" role="status" aria-live="polite">
-                  <strong>{conversionProgress.message || 'Converting video…'}</strong>
-                  <div className="conversion-bar" aria-label="video conversion progress">
-                    <span style={{ width: `${Math.min(100, Math.max(0, Number(conversionProgress.percent) || 0))}%` }} />
-                  </div>
-                  <small>
-                    {Math.round(Number(conversionProgress.percent) || 0)}% • {Math.round((Number(conversionProgress.elapsedMs) || 0) / 1000)}s elapsed • ETA {conversionProgress.etaMs == null ? 'unknown' : `${Math.round((Number(conversionProgress.etaMs) || 0) / 1000)}s`}
-                  </small>
-                </div>
-              )}
               {onOpenExternal && (
                 <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
                   FFmpeg downloads and documentation

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import PanoramaViewer from '../../src/components/PanoramaViewer.jsx';
+import ViewerOverlay from '../../src/components/ViewerOverlay.jsx';
 
 describe('PanoramaViewer', () => {
   const makeWebGL = () => {
@@ -101,13 +102,11 @@ describe('PanoramaViewer', () => {
 
   test('reports a missing video frame even when playback starts', async () => {
     jest.useFakeTimers();
-    const onConvertVideo = jest.fn();
     render(
       <PanoramaViewer
         source="http://localhost:3000/big/audio-only-video.mp4"
         type="video"
         alt="audio-only-video.mp4"
-        onConvertVideo={onConvertVideo}
       />
     );
 
@@ -132,8 +131,7 @@ describe('PanoramaViewer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Video playback started but no video frame was decoded');
     expect(screen.getByRole('status')).toHaveTextContent('ffprobe -v error');
     expect(screen.getByRole('status')).toHaveTextContent('ubuntu-restricted-extras');
-    fireEvent.click(screen.getByRole('button', { name: 'Convert for 360° playback' }));
-    expect(onConvertVideo).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
   });
 
   test('does not offer conversion for a network or missing file error', () => {
@@ -142,7 +140,6 @@ describe('PanoramaViewer', () => {
         source="http://localhost:3000/big/missing-video.mp4"
         type="video"
         alt="missing-video.mp4"
-        onConvertVideo={jest.fn()}
       />
     );
 
@@ -154,42 +151,34 @@ describe('PanoramaViewer', () => {
     fireEvent.error(video);
 
     expect(screen.getByRole('status')).toHaveTextContent('local media server');
-    expect(screen.queryByRole('button', { name: 'Convert for 360° playback' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
   });
 
-  test('shows a conversion progress summary during transcoding', async () => {
-    jest.useFakeTimers();
+  test('shows a single conversion progress summary during transcoding', () => {
     render(
-      <PanoramaViewer
-        source="http://localhost:3000/big/hevc-video.mp4"
-        type="video"
-        alt="hevc-video.mp4"
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'hevc-video.mp4', origPath: '/tmp/hevc-video.mp4', index: 0 }}
+        items={[{ type: 'video', bigName: 'hevc-video.mp4', origPath: '/tmp/hevc-video.mp4', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/hevc-video.mp4"
+        flatView={false}
         conversionProgress={{ active: true, percent: 42, elapsedMs: 1234, etaMs: 567, status: 'running', message: 'Converting video…' }}
+        hasConvertedVideo={false}
+        onConvertVideo={jest.fn()}
+        onClose={jest.fn()}
+        onToggleFlatView={jest.fn()}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+        onOpenExternal={jest.fn()}
       />
     );
 
-    const video = document.querySelector('.panorama-source');
-    Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
-    Object.defineProperty(video, 'videoWidth', { value: 0, configurable: true });
-    Object.defineProperty(video, 'videoHeight', { value: 0, configurable: true });
-    Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
-    video.play = jest.fn(() => Promise.resolve());
-    video.pause = jest.fn();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Play video' }));
-      await Promise.resolve();
-    });
-    fireEvent(video, new Event('playing'));
-    act(() => {
-      jest.advanceTimersByTime(4000);
-    });
-
-    const status = screen.getAllByRole('status').at(-1);
-    expect(status).toHaveTextContent('Converting video…');
-    expect(status).toHaveTextContent('42%');
-    expect(status).toHaveTextContent('elapsed');
-    expect(status).toHaveTextContent('ETA');
+    expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
+    const conversionStatus = screen.getAllByRole('status').find((node) => node.textContent.includes('Converting video…'));
+    expect(conversionStatus).toHaveTextContent('Converting video…');
+    expect(conversionStatus).toHaveTextContent('42%');
+    expect(conversionStatus).toHaveTextContent('elapsed');
+    expect(conversionStatus).toHaveTextContent('ETA');
   });
 
   test('explains unsupported video codecs and offers the FFmpeg help page', () => {

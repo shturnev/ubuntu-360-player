@@ -7,6 +7,7 @@ function ViewerOverlay({
   viewerSrc,
   flatView,
   conversionProgress,
+  hasConvertedVideo,
   onConvertVideo,
   onClose,
   onToggleFlatView,
@@ -15,7 +16,7 @@ function ViewerOverlay({
   onNext,
   onOpenExternal
 }) {
-  const convertButton = showingItem.type === 'video' && onConvertVideo && !conversionProgress?.active;
+  const convertButton = showingItem.type === 'video' && onConvertVideo && !conversionProgress?.active && !hasConvertedVideo;
 
   return (
     <div className="viewer-overlay" onClick={onClose}>
@@ -48,7 +49,7 @@ function ViewerOverlay({
         )}
         {convertButton && (
           <div className="viewer-convert-actions">
-            <button type="button" onClick={onConvertVideo}>Convert for 360° playback</button>
+            <button type="button" onClick={onConvertVideo}>Convert / fix video</button>
           </div>
         )}
         <div className="viewer-controls">
