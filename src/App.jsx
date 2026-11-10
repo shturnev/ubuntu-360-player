@@ -253,6 +253,10 @@ function App() {
   };
 
   const viewerSrc = showingItem ? `${serverUrl}big/${showingItem.bigName}` : '';
+  const hasConvertedVideo = Boolean(showingItem && (
+    convertedVideos.has(showingItem.origPath)
+    || /-\d+-h264\.mp4$/i.test(showingItem.bigName || '')
+  ));
   const updateFilenameVersion = updateInfo && updateInfo.filename_orig
     ? updateInfo.filename_orig.split('_')[1]
     : null;
@@ -327,7 +331,7 @@ function App() {
           viewerSrc={viewerSrc}
           flatView={flatView}
           conversionProgress={conversionProgress}
-          hasConvertedVideo={Boolean(showingItem && convertedVideos.has(showingItem.origPath))}
+          hasConvertedVideo={hasConvertedVideo}
           onConvertVideo={convertCurrentVideo}
           onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}
