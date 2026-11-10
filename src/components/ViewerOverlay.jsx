@@ -1,7 +1,7 @@
 import PanoramaViewer from '../PanoramaViewer.jsx';
 import './PanoramaViewer.scss';
 
-function ViewerOverlay({ showingItem, items, viewerSrc, flatView, onClose, onToggleFlatView, onDelete, onPrevious, onNext }) {
+function ViewerOverlay({ showingItem, items, viewerSrc, flatView, onClose, onToggleFlatView, onDelete, onPrevious, onNext, onOpenExternal }) {
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -11,7 +11,7 @@ function ViewerOverlay({ showingItem, items, viewerSrc, flatView, onClose, onTog
         ) : flatView ? (
           <img src={viewerSrc} alt={showingItem.bigName} />
         ) : (
-          <PanoramaViewer source={viewerSrc} type={showingItem.type} alt={showingItem.bigName} />
+          <PanoramaViewer source={viewerSrc} type={showingItem.type} alt={showingItem.bigName} onOpenExternal={onOpenExternal} />
         )}
         <div className="viewer-controls">
           <button type="button" onClick={onToggleFlatView}>

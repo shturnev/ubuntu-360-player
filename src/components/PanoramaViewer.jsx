@@ -81,12 +81,49 @@ function createProgram(gl) {
   return program;
 }
 
-function PanoramaViewer({ source, type, alt }) {
+const VIDEO_CODEC_GUIDANCE = 'Check the file codecs with: ffprobe -v error -show_entries stream=codec_type,codec_name -of default=noprint_wrappers=1 input.mp4. On Ubuntu, try sudo apt install ubuntu-restricted-extras and restart the app. Electron may use its own codecs; if it still fails, convert to H.264/AVC + AAC: ffmpeg -i input.mp4 -c:v libx264 -pix_fmt yuv420p -c:a aac output.mp4.';
+
+function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
+  const mediaError = video.error;
+  const mediaCode = mediaError && mediaError.code;
+  const detail = (mediaError && mediaError.message) || (playbackError && playbackError.message);
+
+  if (noVideoFrame) {
+    return `Video playback started but no video frame was decoded. Audio may work even when the video codec is unsupported.\n\n${VIDEO_CODEC_GUIDANCE}${detail ? `\n\nBrowser detail: ${detail}` : ''}`;
+  }
+
+  if (mediaCode === 3 || mediaCode === 4 || (playbackError && playbackError.name === 'NotSupportedError')) {
+    const reason = mediaCode === 3
+      ? 'The video decoder could not decode this file.'
+      : "This Electron/Chromium build does not support one of this MP4's codecs.";
+    return `${reason} ${VIDEO_CODEC_GUIDANCE}${detail ? ` Browser detail: ${detail}` : ''}`;
+  }
+
+  if (mediaCode === 2) {
+    return `The video could not be loaded from the local media server. Check that the file is still available.${detail ? ` Browser detail: ${detail}` : ''}`;
+  }
+
+  if (playbackError && playbackError.name === 'NotAllowedError') {
+    return 'Playback was blocked by the browser. Press Play video to try again.';
+  }
+
+  return `Unable to play this video.${detail ? ` Browser detail: ${detail}` : ''}`;
+}
+
+function PanoramaViewer({ source, type, alt, onOpenExternal }) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
+
+  useEffect(() => {
+    setFallbackMessage('');
+    setIsPlaying(false);
+    setVideoReady(false);
+    camera.current = { yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null };
+  }, [source, type]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -104,6 +141,15 @@ function PanoramaViewer({ source, type, alt }) {
     let buffer;
     let animationFrame;
     let failed = false;
+    let disposed = false;
+    let hasVideoFrame = false;
+    let noFrameTimer;
+
+    const setFailed = (message) => {
+      if (disposed) return;
+      failed = true;
+      setFallbackMessage(message);
+    };
 
     try {
       program = createProgram(gl);
@@ -131,12 +177,18 @@ function PanoramaViewer({ source, type, alt }) {
       gl.uniform1i(gl.getUniformLocation(program, 'panorama'), 0);
 
       const uploadMedia = () => {
+        if (failed) return;
+
         try {
           gl.bindTexture(gl.TEXTURE_2D, texture);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
+          if (type === 'video' && media.readyState >= 2 && media.videoWidth > 0 && media.videoHeight > 0) {
+            hasVideoFrame = true;
+            clearTimeout(noFrameTimer);
+            setVideoReady(true);
+          }
         } catch (error) {
-          failed = true;
-          setFallbackMessage(`360° viewing failed: ${error.message}`);
+          setFailed(`360° viewing failed: ${error && error.message ? error.message : 'Unable to upload the media texture'}`);
         }
       };
 
@@ -152,7 +204,8 @@ function PanoramaViewer({ source, type, alt }) {
       };
 
       const render = () => {
-        if (failed) return;
+        if (failed || disposed) return;
+
         resize();
         const { yaw, pitch, fieldOfView } = camera.current;
         gl.uniform1f(gl.getUniformLocation(program, 'yaw'), yaw);
@@ -160,33 +213,78 @@ function PanoramaViewer({ source, type, alt }) {
         gl.uniform1f(gl.getUniformLocation(program, 'fieldOfView'), fieldOfView);
         gl.uniform1f(gl.getUniformLocation(program, 'aspectRatio'), canvas.width / canvas.height);
 
-        if (type !== 'video' || media.readyState >= 2) uploadMedia();
+        if (type !== 'video' || media.readyState >= 2) {
+          uploadMedia();
+        }
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         animationFrame = window.requestAnimationFrame(render);
       };
 
+      const handleMediaError = () => {
+        if (type === 'video') {
+          setFailed(`${getVideoFailureMessage(media)} Showing the flat video instead.`);
+          return;
+        }
+        setFailed('Unable to load this image; showing it flat.');
+      };
+
+      const handlePause = () => {
+        setIsPlaying(false);
+        clearTimeout(noFrameTimer);
+      };
+
+      const handlePlaying = () => {
+        setIsPlaying(true);
+        if (type === 'video' && !hasVideoFrame && !noFrameTimer) {
+          noFrameTimer = setTimeout(() => {
+            setFailed(`${getVideoFailureMessage(media, null, true)} Showing the flat video instead.`);
+          }, 4000);
+        }
+      };
+
       if (type === 'video') {
         media.addEventListener('loadeddata', uploadMedia);
+        media.addEventListener('canplay', uploadMedia);
+        media.addEventListener('error', handleMediaError);
+        media.addEventListener('playing', handlePlaying);
+        media.addEventListener('pause', handlePause);
+        media.addEventListener('ended', handlePause);
       } else {
-        media.onload = uploadMedia;
-        media.onerror = () => setFallbackMessage('Unable to load this image; showing it flat.');
-        media.src = source;
+        media.addEventListener('load', uploadMedia);
+        media.addEventListener('error', handleMediaError);
       }
 
+      media.crossOrigin = 'anonymous';
+      media.src = source;
       animationFrame = window.requestAnimationFrame(render);
 
       return () => {
+        disposed = true;
         window.cancelAnimationFrame(animationFrame);
-        if (type === 'video') media.pause();
+        if (type === 'video') {
+          media.pause();
+          media.removeAttribute('src');
+        }
+        media.removeEventListener('load', uploadMedia);
+        media.removeEventListener('error', handleMediaError);
         media.removeEventListener('loadeddata', uploadMedia);
+        media.removeEventListener('canplay', uploadMedia);
+        media.removeEventListener('playing', handlePlaying);
+        media.removeEventListener('pause', handlePause);
+        media.removeEventListener('ended', handlePause);
+        clearTimeout(noFrameTimer);
         if (buffer) gl.deleteBuffer(buffer);
         if (program) gl.deleteProgram(program);
         if (texture) gl.deleteTexture(texture);
       };
     } catch (error) {
-      setFallbackMessage(`360° viewing failed: ${error.message}`);
+      setFailed(`360° viewing failed: ${error && error.message ? error.message : 'Unable to initialize the 360° viewer'}`);
       return () => {
-        if (type === 'video') media.pause();
+        disposed = true;
+        if (type === 'video') {
+          media.pause();
+          media.removeAttribute('src');
+        }
         if (buffer) gl.deleteBuffer(buffer);
         if (program) gl.deleteProgram(program);
         if (texture) gl.deleteTexture(texture);
@@ -201,7 +299,7 @@ function PanoramaViewer({ source, type, alt }) {
     if (video.paused) {
       video.play()
         .then(() => setIsPlaying(true))
-        .catch((error) => setFallbackMessage(`Unable to play this video in 360°: ${error.message}`));
+        .catch((error) => setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`));
     } else {
       video.pause();
       setIsPlaying(false);
@@ -231,7 +329,16 @@ function PanoramaViewer({ source, type, alt }) {
       <div className="panorama-fallback">
         <p role="status">{fallbackMessage}</p>
         {type === 'video'
-          ? <video controls autoPlay src={source} />
+          ? (
+            <>
+              <video controls autoPlay crossOrigin="anonymous" src={source} />
+              {onOpenExternal && (
+                <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
+                  FFmpeg downloads and documentation
+                </button>
+              )}
+            </>
+          )
           : <img src={source} alt={alt} />}
       </div>
     );
@@ -240,9 +347,14 @@ function PanoramaViewer({ source, type, alt }) {
   return (
     <div className="panorama-viewer">
       {type === 'video' && (
-        <video ref={mediaRef} className="panorama-source" src={source} playsInline />
+        <video ref={mediaRef} className="panorama-source" playsInline />
       )}
       {type !== 'video' && <img ref={mediaRef} className="panorama-source" alt="" />}
+      {type === 'video' && !videoReady && (
+        <p className="panorama-message" role="status">
+          {isPlaying ? 'Starting video; waiting for its first frame…' : 'Press Play video to start 360° playback.'}
+        </p>
+      )}
       <canvas
         ref={canvasRef}
         aria-label={`360° view of ${alt}`}
