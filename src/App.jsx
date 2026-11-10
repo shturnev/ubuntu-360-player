@@ -27,6 +27,11 @@ function App() {
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  const closeViewer = () => {
+    setShowingItem(null);
+    setFlatView(false);
+  };
+
   const api = typeof window !== 'undefined' ? window.shtVR : null;
 
   const totalSelected = useMemo(() => items.filter((item) => item.selected).length, [items]);
@@ -48,8 +53,17 @@ function App() {
         setCanOpenDir(false);
       },
       'start-read-dir': (_, total) => {
-        setLoadingProgress({ show: true, total: Number(total) || 0, complete: 0 });
+        const totalFiles = Number(total) || 0;
+        if (totalFiles <= 0) {
+          setLoadingProgress(EMPTY_PROGRESS);
+          setItems([]);
+          setCanSelect(false);
+          return;
+        }
+
+        setLoadingProgress({ show: true, total: totalFiles, complete: 0 });
         setItems([]);
+        setCanSelect(false);
       },
       'read-media-file': (_, data) => {
         setLoadingProgress((prev) => {
@@ -80,6 +94,10 @@ function App() {
       'cache-size': (_, value) => setCacheSize(Number(value) || 0),
       'delete-cache-finish': () => {
         setCacheSize(0);
+        setItems([]);
+        setCanSelect(false);
+        setShowingItem(null);
+        setFlatView(false);
         setCanOpenDir(true);
       },
       'delete-error': (_, err) => {
@@ -152,6 +170,13 @@ function App() {
     setCanSelect(false);
   };
 
+  useEffect(() => {
+    if (items.length === 0) {
+      setCanSelect(false);
+      closeViewer();
+    }
+  }, [items.length]);
+
   const handleDelete = (item = null) => {
     const targetIndex = item
       ? items.findIndex((entry) => entry.thumpName === item.thumpName && entry.bigName === item.bigName)
@@ -177,7 +202,7 @@ function App() {
   };
 
   const deleteCache = () => {
-    request('delete-cache', items);
+    request('delete-cache', []);
   };
 
   const updateCheckSetting = () => {
@@ -211,9 +236,11 @@ function App() {
       <AppHeader
         version={configData.version || '1.0.5'}
         canOpenDir={canOpenDir}
+        canSelectMedia={items.length > 0}
+        showCloseViewer={Boolean(showingItem)}
         onOpenDir={() => request('open-dir', true)}
         onToggleSelection={() => setCanSelect((value) => !value)}
-        onCloseViewer={() => setShowingItem(null)}
+        onCloseViewer={closeViewer}
       />
 
       {errorMessage && (
@@ -262,7 +289,7 @@ function App() {
           items={items}
           viewerSrc={viewerSrc}
           flatView={flatView}
-          onClose={() => setShowingItem(null)}
+          onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
@@ -284,7 +311,7 @@ function App() {
         onOpenExternal={openExternalLink}
       />
 
-      <ThumbnailSlider value={maxSizePx} onChange={setMaxSizePx} />
+      <ThumbnailSlider value={maxSizePx} onChange={setMaxSizePx} disabled={items.length === 0} />
     </div>
   );
 }

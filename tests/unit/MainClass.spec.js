@@ -107,8 +107,23 @@ describe('MainModelClass', () => {
       mainModelClass.readDir(sourceDir);
     });
 
+    expect(send).toHaveBeenCalledWith('start-read-dir', 0);
     expect(send).toHaveBeenCalledWith('open-dir', false);
-    expect(send).not.toHaveBeenCalledWith('start-read-dir', expect.anything());
+  });
+
+  test('deleteCache removes the cache directory and only reports completion on success', async () => {
+    const smallDir = path.join(mainModelClass.static_dir, 'small');
+    const bigDir = path.join(mainModelClass.static_dir, 'big');
+    fs.writeFileSync(path.join(smallDir, 'thumb.png'), 'thumb');
+    fs.writeFileSync(path.join(bigDir, 'full.png'), 'full');
+
+    const event = { reply: jest.fn() };
+    mainModelClass.deleteCache(event, []);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(fs.existsSync(mainModelClass.static_dir)).toBe(false);
+    expect(event.reply).toHaveBeenCalledWith('delete-cache-finish', true);
   });
 
   test('openDir preserves the cancellation behavior without reading a directory', () => {

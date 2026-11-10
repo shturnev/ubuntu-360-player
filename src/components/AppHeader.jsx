@@ -1,6 +1,6 @@
 import './AppHeader.scss';
 
-function AppHeader({ version, canOpenDir, onOpenDir, onToggleSelection, onCloseViewer }) {
+function AppHeader({ version, canOpenDir, canSelectMedia, showCloseViewer, onOpenDir, onToggleSelection, onCloseViewer }) {
   return (
     <header className="topbar">
       <div className="title-group">
@@ -9,8 +9,12 @@ function AppHeader({ version, canOpenDir, onOpenDir, onToggleSelection, onCloseV
       </div>
       <div className="toolbar-actions">
         <button type="button" className="primary-button" onClick={onOpenDir} disabled={!canOpenDir}>Open folder</button>
-        <button type="button" className="ghost-button" onClick={onToggleSelection}>Selection</button>
-        <button type="button" className="ghost-button" onClick={onCloseViewer}>Close viewer</button>
+        {canSelectMedia && (
+          <button type="button" className="ghost-button" onClick={onToggleSelection}>Selection</button>
+        )}
+        {showCloseViewer && (
+          <button type="button" className="ghost-button" onClick={onCloseViewer}>Close viewer</button>
+        )}
       </div>
     </header>
   );
