@@ -30,7 +30,7 @@ describe('PanoramaViewer', () => {
       texImage2D: jest.fn(),
       deleteTexture: jest.fn(),
       uniform1i: jest.fn(),
-      getUniformLocation: jest.fn(() => 1),
+      getUniformLocation: jest.fn((program, name) => ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5 }[name] ?? 1)),
       uniform1f: jest.fn(),
       viewport: jest.fn(),
       drawArrays: jest.fn(),
@@ -49,6 +49,8 @@ describe('PanoramaViewer', () => {
 
   beforeEach(() => {
     makeWebGL();
+    Object.defineProperty(HTMLMediaElement.prototype, 'pause', { value: jest.fn(), configurable: true, writable: true });
+    Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true, writable: true });
   });
 
   afterEach(() => {
@@ -98,6 +100,62 @@ describe('PanoramaViewer', () => {
     expect(video.play).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
+  });
+
+  test('shows seeking and volume controls for 360° video playback', () => {
+    const gl = makeWebGL();
+    render(<PanoramaViewer source="http://localhost:3000/big/clip-1000.mp4" type="video" alt="clip-1000.mp4" />);
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(video, 'videoWidth', { value: 1920, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 960, configurable: true });
+    Object.defineProperty(video, 'duration', { value: 123.5, configurable: true });
+    Object.defineProperty(video, 'currentTime', { value: 12.75, writable: true, configurable: true });
+    Object.defineProperty(video, 'volume', { value: 0.45, writable: true, configurable: true });
+    Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
+    fireEvent(video, new Event('loadedmetadata'));
+
+    expect(screen.getByLabelText('Seek video playback')).toHaveAttribute('max', '123.5');
+    expect(screen.getByLabelText('Adjust video volume')).toHaveValue('0.45');
+    expect(screen.getByText('0:12 / 2:03')).toBeInTheDocument();
+  });
+
+  test('toggles full screen mode from the viewer controls', async () => {
+    const requestFullscreen = jest.fn();
+    const exitFullscreen = jest.fn();
+    Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true, writable: true });
+    Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', { value: requestFullscreen, configurable: true });
+    Object.defineProperty(document, 'exitFullscreen', { value: exitFullscreen, configurable: true });
+
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' }}
+        hasConvertedVideo={false}
+        onConvertVideo={jest.fn()}
+        onClose={jest.fn()}
+        onToggleFlatView={jest.fn()}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+        onOpenExternal={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+    expect(requestFullscreen).toHaveBeenCalledTimes(1);
+
+    const panel = document.querySelector('.viewer-panel');
+    Object.defineProperty(document, 'fullscreenElement', { value: panel, configurable: true, writable: true });
+    fireEvent(document, new Event('fullscreenchange'));
+    expect(screen.getByRole('button', { name: 'Exit full screen' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit full screen' }));
+    expect(exitFullscreen).toHaveBeenCalledTimes(1);
   });
 
   test('reports a missing video frame even when playback starts', async () => {

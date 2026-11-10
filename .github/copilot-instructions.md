@@ -88,6 +88,7 @@ The repo currently has no lint script configured in `package.json`.
 ## Key conventions and repo-specific patterns
 
 - Prompt files are stored in the repository-root `prompts/` directory. This directory is ignored by Git (`/.gitignore`), so files there are local-only unless the ignore rule is intentionally changed.
+- Create project-tracked tasks as GitHub Issues in `shturnev/ubuntu-360-player` and add them to the **Ubuntu 360 viewer** project: https://github.com/users/shturnev/projects/2/views/2. Use the `gh` CLI for GitHub operations; session-local Todos do not appear in this project.
 - The generated app data lives outside the repo root, usually under `~/.sht-vr-player` (or `SHT_VR_HOME` when set). Do not assume source files are the runtime data store.
 - Main-process I/O is the authoritative layer: directory reads, file deletion, media generation, and cache cleanup stay in the Electron main process; the React renderer should call `window.shtVR.send(...)` and react to events instead of directly touching the filesystem.
 - The app uses IPC events and a strict allowlist in `electron/preload.js`; new event channels should be added intentionally and remain in sync with both the preload bridge and the main-process listeners.
