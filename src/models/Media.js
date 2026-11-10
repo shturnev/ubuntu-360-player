@@ -42,7 +42,7 @@ class Media {
   }
 
   static saveVideo(filePath, win) {
-    const newFileName = getNewFileName(filePath);
+    const newFileName = getPreferredVideoName(filePath);
     createLink(filePath, newFileName);
 
     const thumpName = path.parse(newFileName).name + '.jpg';
@@ -287,6 +287,18 @@ function createLink(origPath, newFileName) {
 
   fs.mkdirSync(linksDir, { recursive: true });
 
+  if (newFileName !== getNewFileName(origPath)) {
+    const rawLinkPath = path.join(linksDir, getNewFileName(origPath));
+    if (fs.existsSync(rawLinkPath)) {
+      try {
+        fs.unlinkSync(rawLinkPath);
+      } catch (error) {
+        // Ignore stale duplicate links while keeping the converted output authoritative.
+      }
+    }
+    return;
+  }
+
   try {
     fs.statSync(linkPath);
     return;
@@ -299,6 +311,19 @@ function getConvertedVideoName(origPath) {
   const stats = fs.statSync(origPath);
   const parsed = path.parse(origPath);
   return `${parsed.name}-${stats.size}-h264${parsed.ext}`;
+}
+
+function getPreferredVideoName(origPath) {
+  const convertedName = getConvertedVideoName(origPath);
+  const convertedLinkPath = path.join(getBigDir(), convertedName);
+
+  fs.mkdirSync(getBigDir(), { recursive: true });
+
+  if (fs.existsSync(convertedLinkPath)) {
+    return convertedName;
+  }
+
+  return getNewFileName(origPath);
 }
 
 function getNewFileName(origPath) {
