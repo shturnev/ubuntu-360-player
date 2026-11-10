@@ -292,6 +292,7 @@ function App() {
           flatView={flatView}
           onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}
+          onOpenExternal={openExternalLink}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
             const previousIndex = showingItem.index - 1;
