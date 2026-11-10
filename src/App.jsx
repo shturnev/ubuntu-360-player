@@ -73,6 +73,7 @@ function App() {
             setTimeout(() => {
               setLoadingProgress(EMPTY_PROGRESS);
               setCanOpenDir(true);
+              request('get-cache-size', null);
             }, 600);
           }
           return next;

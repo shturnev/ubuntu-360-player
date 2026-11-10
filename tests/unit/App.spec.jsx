@@ -92,6 +92,23 @@ describe('App', () => {
     expect(container.querySelectorAll('.media-card')).toHaveLength(2);
   });
 
+  test('refreshes the cache size after the media import completes', () => {
+    jest.useFakeTimers();
+    renderApp();
+
+    act(() => {
+      listeners['start-read-dir']({}, 1);
+      listeners['read-media-file']({}, media);
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+
+    expect(api.send).toHaveBeenCalledWith('get-cache-size', null);
+    jest.useRealTimers();
+  });
+
   test('deletes the item requested from the viewer even if it was not selected first', () => {
     renderApp();
     loadMedia();
