@@ -76,6 +76,21 @@ describe('App', () => {
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
   });
 
+  test('does not offer conversion for a video that was already converted', () => {
+    media = {
+      type: 'video',
+      thumpName: 'clip-1000-h264.jpg',
+      bigName: 'clip-1000-h264.mp4',
+      origPath: '/media/clip.mp4'
+    };
+    renderApp();
+    loadMedia();
+
+    click(container.querySelector('.media-card'));
+
+    expect(button('Convert / fix video')).toBeUndefined();
+  });
+
   test('subscribes once to media events when StrictMode replays effects', () => {
     act(() => root.render(
       <StrictMode>

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import PanoramaViewer from '../PanoramaViewer.jsx';
 import './PanoramaViewer.scss';
 
@@ -16,11 +17,54 @@ function ViewerOverlay({
   onNext,
   onOpenExternal
 }) {
+  const panelRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const convertButton = showingItem.type === 'video' && onConvertVideo && !conversionProgress?.active && !hasConvertedVideo;
+
+  useEffect(() => {
+    const updateFullscreenState = () => {
+      setIsFullscreen(Boolean(panelRef.current && document.fullscreenElement === panelRef.current));
+    };
+
+    updateFullscreenState();
+    document.addEventListener('fullscreenchange', updateFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', updateFullscreenState);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && panelRef.current && document.fullscreenElement === panelRef.current && typeof document.exitFullscreen === 'function') {
+        document.exitFullscreen();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    try {
+      if (document.fullscreenElement === panel) {
+        if (typeof document.exitFullscreen === 'function') {
+          await document.exitFullscreen();
+        }
+        return;
+      }
+
+      if (typeof panel.requestFullscreen === 'function') {
+        await panel.requestFullscreen();
+      }
+    } catch (error) {
+      // Ignore browser or permission blocking; users can still use the standard fullscreen controls.
+    }
+  };
 
   return (
     <div className="viewer-overlay" onClick={onClose}>
-      <div className="viewer-panel" onClick={(event) => event.stopPropagation()}>
+      <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="close-viewer" onClick={onClose}>✕</button>
         {flatView && showingItem.type === 'video' ? (
           <video controls autoPlay src={viewerSrc} />
@@ -53,6 +97,9 @@ function ViewerOverlay({
           </div>
         )}
         <div className="viewer-controls">
+          <button type="button" onClick={toggleFullscreen}>
+            {isFullscreen ? 'Exit full screen' : 'Full screen'}
+          </button>
           <button type="button" onClick={onToggleFlatView}>
             {flatView ? '360° view' : 'Flat view'}
           </button>

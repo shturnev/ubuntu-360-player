@@ -70,6 +70,25 @@ describe('Media', () => {
     expect(execFile).toHaveBeenCalled();
   });
 
+  test('reuses an existing converted video instead of creating a duplicate original link', () => {
+    const filePath = path.join(tempDir, 'reused-video.mp4');
+    fs.writeFileSync(filePath, 'not-a-real-video');
+
+    const rawBigName = `reused-video-${fs.statSync(filePath).size}.mp4`;
+    const convertedBigName = `reused-video-${fs.statSync(filePath).size}-h264.mp4`;
+    const convertedBigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', convertedBigName);
+    fs.writeFileSync(convertedBigPath, 'converted-video');
+    fs.symlinkSync(filePath, path.join(tempDir, '.sht-vr-player', 'static', 'big', rawBigName));
+
+    const result = Media.saveVideo(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result.bigName).toBe(convertedBigName);
+    expect(result.thumpName).toBe(`${path.parse(convertedBigName).name}.jpg`);
+    expect(fs.existsSync(convertedBigPath)).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, '.sht-vr-player', 'static', 'big', rawBigName))).toBe(false);
+    expect(execFile).toHaveBeenCalled();
+  });
+
   test('only creates a compatible MP4 after an explicit conversion request', async () => {
     const filePath = path.join(tempDir, 'hevc-video.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');

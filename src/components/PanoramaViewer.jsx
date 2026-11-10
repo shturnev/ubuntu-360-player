@@ -110,6 +110,17 @@ function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
   return `Unable to play this video.${detail ? ` Browser detail: ${detail}` : ''}`;
 }
 
+function formatTime(totalSeconds) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return '0:00';
+  }
+
+  const total = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, conversionProgress }) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
@@ -117,12 +128,41 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
 
   useEffect(() => {
     setFallbackMessage('');
     setIsPlaying(false);
     setVideoReady(false);
+    setVideoProgress({ duration: 0, currentTime: 0, volume: 1 });
     camera.current = { yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null };
+  }, [source, type]);
+
+  useEffect(() => {
+    const video = mediaRef.current;
+    if (!video || type !== 'video') return undefined;
+
+    const syncVideoState = () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const volume = Number.isFinite(video.volume) ? video.volume : 1;
+      setVideoProgress((current) => (
+        current.duration === duration && current.currentTime === currentTime && current.volume === volume
+          ? current
+          : { duration, currentTime, volume }
+      ));
+    };
+
+    video.addEventListener('loadedmetadata', syncVideoState);
+    video.addEventListener('timeupdate', syncVideoState);
+    video.addEventListener('volumechange', syncVideoState);
+    syncVideoState();
+
+    return () => {
+      video.removeEventListener('loadedmetadata', syncVideoState);
+      video.removeEventListener('timeupdate', syncVideoState);
+      video.removeEventListener('volumechange', syncVideoState);
+    };
   }, [source, type]);
 
   useEffect(() => {
@@ -324,8 +364,27 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
     if (!drag) return;
 
     camera.current.yaw -= (event.clientX - drag.x) * 0.005;
-    camera.current.pitch = Math.max(-1.5, Math.min(1.5, camera.current.pitch + (event.clientY - drag.y) * 0.005));
+    camera.current.pitch = Math.max(-1.5, Math.min(1.5, camera.current.pitch - (event.clientY - drag.y) * 0.005));
     camera.current.drag = { x: event.clientX, y: event.clientY };
+  };
+
+  const handleSeek = (event) => {
+    const video = mediaRef.current;
+    if (!video) return;
+
+    const nextTime = Number(event.target.value) || 0;
+    video.currentTime = nextTime;
+    setVideoProgress((current) => ({ ...current, currentTime: nextTime }));
+  };
+
+  const handleVolumeChange = (event) => {
+    const video = mediaRef.current;
+    if (!video) return;
+
+    const nextVolume = Number(event.target.value) || 0;
+    video.volume = nextVolume;
+    video.muted = nextVolume === 0;
+    setVideoProgress((current) => ({ ...current, volume: nextVolume }));
   };
 
   const handleWheel = (event) => {
@@ -374,9 +433,36 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         onWheel={handleWheel}
       />
       {type === 'video' && (
-        <button type="button" className="panorama-play" onClick={startOrPauseVideo}>
-          {isPlaying ? 'Pause video' : 'Play video'}
-        </button>
+        <div className="panorama-video-controls">
+          <div className="panorama-video-toolbar">
+            <button type="button" className="panorama-play" onClick={startOrPauseVideo}>
+              {isPlaying ? 'Pause video' : 'Play video'}
+            </button>
+            <span className="panorama-video-time" aria-live="polite">
+              {formatTime(videoProgress.currentTime)} / {formatTime(videoProgress.duration)}
+            </span>
+          </div>
+          <div className="panorama-video-sliders">
+            <input
+              type="range"
+              min="0"
+              max={videoProgress.duration || 0}
+              step="0.01"
+              value={videoProgress.currentTime}
+              onChange={handleSeek}
+              aria-label="Seek video playback"
+            />
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={videoProgress.volume}
+              onChange={handleVolumeChange}
+              aria-label="Adjust video volume"
+            />
+          </div>
+        </div>
       )}
     </div>
   );
