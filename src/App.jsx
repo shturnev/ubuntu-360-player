@@ -26,6 +26,7 @@ function App() {
   const [canSelect, setCanSelect] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [conversionProgress, setConversionProgress] = useState({ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' });
 
   const closeViewer = () => {
     setShowingItem(null);
@@ -110,6 +111,32 @@ function App() {
       'need-to-update': (_, payload) => {
         if (!payload) return;
         setUpdateInfo(payload);
+      },
+      'video-conversion-progress': (_, data) => {
+        if (!data) return;
+        setConversionProgress({
+          active: Boolean(data.active),
+          percent: Number(data.percent) || 0,
+          elapsedMs: Number(data.elapsedMs) || 0,
+          etaMs: data.etaMs == null ? null : Number(data.etaMs),
+          status: data.status || 'running',
+          message: data.message || ''
+        });
+      },
+      'video-conversion-result': (_, data) => {
+        if (!data) return;
+
+        if (data.success) {
+          setItems((current) => current.map((item) => item.origPath === data.origPath ? { ...item, bigName: data.bigName } : item));
+          setShowingItem((current) => (current && current.origPath === data.origPath ? { ...current, bigName: data.bigName } : current));
+          setFlatView(false);
+          setErrorMessage('');
+          setConversionProgress({ active: false, percent: 100, elapsedMs: Number(data.elapsedMs) || 0, etaMs: 0, status: 'done', message: 'Ready to play.' });
+          return;
+        }
+
+        setConversionProgress({ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'error', message: data.message || 'Unable to convert video.' });
+        setErrorMessage(data.message || 'Unable to convert video.');
       }
     };
 
@@ -206,6 +233,13 @@ function App() {
     request('delete-cache', []);
   };
 
+  const convertCurrentVideo = () => {
+    if (!showingItem || showingItem.type !== 'video' || !showingItem.origPath) return;
+    setConversionProgress({ active: true, percent: 0, elapsedMs: 0, etaMs: null, status: 'running', message: 'Starting conversion…' });
+    setErrorMessage('');
+    request('convert-video', { filePath: showingItem.origPath });
+  };
+
   const updateCheckSetting = () => {
     const nextValue = !configData.checkUpdates;
     const payload = { ...configData, checkUpdates: nextValue };
@@ -290,6 +324,8 @@ function App() {
           items={items}
           viewerSrc={viewerSrc}
           flatView={flatView}
+          conversionProgress={conversionProgress}
+          onConvertVideo={convertCurrentVideo}
           onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}
           onOpenExternal={openExternalLink}

@@ -110,7 +110,7 @@ function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
   return `Unable to play this video.${detail ? ` Browser detail: ${detail}` : ''}`;
 }
 
-function PanoramaViewer({ source, type, alt, onOpenExternal }) {
+function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, conversionProgress }) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
@@ -262,7 +262,11 @@ function PanoramaViewer({ source, type, alt, onOpenExternal }) {
         disposed = true;
         window.cancelAnimationFrame(animationFrame);
         if (type === 'video') {
-          media.pause();
+          try {
+            media.pause();
+          } catch (error) {
+            // Some environments do not implement native media pause behavior.
+          }
           media.removeAttribute('src');
         }
         media.removeEventListener('load', uploadMedia);
@@ -282,7 +286,11 @@ function PanoramaViewer({ source, type, alt, onOpenExternal }) {
       return () => {
         disposed = true;
         if (type === 'video') {
-          media.pause();
+          try {
+            media.pause();
+          } catch (error) {
+            // Some environments do not implement native media pause behavior.
+          }
           media.removeAttribute('src');
         }
         if (buffer) gl.deleteBuffer(buffer);
@@ -325,6 +333,15 @@ function PanoramaViewer({ source, type, alt, onOpenExternal }) {
   };
 
   if (fallbackMessage) {
+    const showConvertButton = type === 'video'
+      && typeof onConvertVideo === 'function'
+      && !conversionProgress?.active
+      && (
+        fallbackMessage.includes('no video frame')
+        || fallbackMessage.includes('decoder could not decode')
+        || fallbackMessage.includes('does not support one of this MP4')
+      );
+
     return (
       <div className="panorama-fallback">
         <p role="status">{fallbackMessage}</p>
@@ -332,6 +349,20 @@ function PanoramaViewer({ source, type, alt, onOpenExternal }) {
           ? (
             <>
               <video controls autoPlay crossOrigin="anonymous" src={source} />
+              {showConvertButton && (
+                <button type="button" onClick={onConvertVideo}>Convert for 360° playback</button>
+              )}
+              {conversionProgress?.active && (
+                <div className="video-conversion-progress" role="status" aria-live="polite">
+                  <strong>{conversionProgress.message || 'Converting video…'}</strong>
+                  <div className="conversion-bar" aria-label="video conversion progress">
+                    <span style={{ width: `${Math.min(100, Math.max(0, Number(conversionProgress.percent) || 0))}%` }} />
+                  </div>
+                  <small>
+                    {Math.round(Number(conversionProgress.percent) || 0)}% • {Math.round((Number(conversionProgress.elapsedMs) || 0) / 1000)}s elapsed • ETA {conversionProgress.etaMs == null ? 'unknown' : `${Math.round((Number(conversionProgress.etaMs) || 0) / 1000)}s`}
+                  </small>
+                </div>
+              )}
               {onOpenExternal && (
                 <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
                   FFmpeg downloads and documentation
