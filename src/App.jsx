@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import PanoramaViewer from './PanoramaViewer.jsx';
+import './App.scss';
+import AppHeader from './components/AppHeader.jsx';
+import EmptyLibraryState from './components/EmptyLibraryState.jsx';
+import LoadingProgress from './components/LoadingProgress.jsx';
+import MediaGrid from './components/MediaGrid.jsx';
+import NoticeBanner from './components/NoticeBanner.jsx';
+import SelectionBar from './components/SelectionBar.jsx';
+import SettingsPanel from './components/SettingsPanel.jsx';
+import ThumbnailSlider from './components/ThumbnailSlider.jsx';
+import ViewerOverlay from './components/ViewerOverlay.jsx';
 
 const EMPTY_PROGRESS = { show: false, total: 0, complete: 0 };
 
@@ -189,126 +198,83 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="title-group">
-          <span className="app-name">sht-vr-player</span>
-          <span className="version">v{configData.version || '1.0.5'}</span>
-        </div>
-        <div className="toolbar-actions">
-          <button type="button" className="primary-button" onClick={() => request('open-dir', true)} disabled={!canOpenDir}>Open folder</button>
-          <button type="button" className="ghost-button" onClick={() => setCanSelect((v) => !v)}>Selection</button>
-          <button type="button" className="ghost-button" onClick={() => setShowingItem(null)}>Close viewer</button>
-        </div>
-      </header>
+      <AppHeader
+        version={configData.version || '1.0.5'}
+        canOpenDir={canOpenDir}
+        onOpenDir={() => request('open-dir', true)}
+        onToggleSelection={() => setCanSelect((value) => !value)}
+        onCloseViewer={() => setShowingItem(null)}
+      />
 
       {errorMessage && (
-        <div className="notice error">
-          {errorMessage}
-          <button type="button" onClick={() => setErrorMessage('')}>Dismiss</button>
-        </div>
+        <NoticeBanner kind="error" title={errorMessage} onDismiss={() => setErrorMessage('')} />
       )}
 
       {updateInfo && (
-        <div className="notice update-notice">
-          <span>New version available: v{updateVersion} (installed v{configData.version || '1.0.5'})</span>
-          <button type="button" onClick={downloadUpdate}>Download update</button>
-          <button type="button" onClick={() => setUpdateInfo(null)}>Dismiss</button>
-        </div>
+        <NoticeBanner kind="update-notice" title={`New version available: v${updateVersion} (installed v${configData.version || '1.0.5'})`} onDismiss={() => setUpdateInfo(null)}>
+          <button type="button" className="primary-button" onClick={downloadUpdate}>Download update</button>
+        </NoticeBanner>
       )}
 
       {canSelect && (
-        <div className="selection-bar">
-          <span>Selected {totalSelected} / {items.length}</span>
-          <button type="button" onClick={() => toggleSelectionAll(!totalSelected)}>Toggle all</button>
-          <button type="button" onClick={clearSelected}>Clear</button>
-          <button type="button" onClick={() => handleDelete(null)} disabled={!totalSelected}>Delete</button>
-          <button type="button" onClick={() => setCanSelect(false)}>
-            Close
-          </button>
-        </div>
+        <SelectionBar
+          totalSelected={totalSelected}
+          totalItems={items.length}
+          onToggleAll={() => toggleSelectionAll(!totalSelected)}
+          onClear={clearSelected}
+          onDelete={() => handleDelete(null)}
+          onClose={() => setCanSelect(false)}
+        />
       )}
 
       {items.length === 0 && !loadingProgress.show && (
-        <div className="empty-state">
-          <button type="button" className="primary-button large" onClick={() => request('open-dir', true)}>Choose a media directory</button>
-        </div>
+        <EmptyLibraryState onOpenDir={() => request('open-dir', true)} />
       )}
 
       {selectedPath && <div className="path-label">{selectedPath}</div>}
 
       {loadingProgress.show && (
-        <div className="progress-block">
-          <div>
-            {loadingProgress.complete === 0 || loadingProgress.complete !== loadingProgress.total
-              ? `Loading... ${loadingProgress.complete} / ${loadingProgress.total}`
-              : 'Completed'}
-          </div>
-          <div className="progress-bar">
-            <span style={{ width: `${loadingProgress.total ? (loadingProgress.complete / loadingProgress.total) * 100 : 0}%` }} />
-          </div>
-        </div>
+        <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />
       )}
 
-      <div className="media-grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${maxSizePx}px, 1fr))` }}>
-        {items.map((item, index) => (
-          <div
-            key={`${item.thumpName}-${item.bigName}-${index}`}
-            className={`media-card ${item.selected ? 'selected' : ''}`}
-            onClick={() => (canSelect ? toggleSelection(index) : setShowingItem({ ...item, index }))}
-          >
-            <div className="thumb" style={{ backgroundImage: `url(${serverUrl}small/${item.thumpName})` }}>
-              {item.type === 'video' && <span className="video-badge">▶</span>}
-            </div>
-            <div className="selection-mark">✓</div>
-          </div>
-        ))}
-      </div>
+      <MediaGrid
+        items={items}
+        serverUrl={serverUrl}
+        maxSizePx={maxSizePx}
+        canSelect={canSelect}
+        onToggleSelection={toggleSelection}
+        onOpenItem={(item) => setShowingItem(item)}
+      />
 
       {showingItem && (
-        <div className="viewer-overlay" onClick={() => setShowingItem(null)}>
-          <div className="viewer-panel" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="close-viewer" onClick={() => setShowingItem(null)}>✕</button>
-            {flatView && showingItem.type === 'video' ? (
-              <video controls autoPlay src={viewerSrc} />
-            ) : flatView
-              ? <img src={viewerSrc} alt={showingItem.bigName} />
-              : <PanoramaViewer source={viewerSrc} type={showingItem.type} alt={showingItem.bigName} />}
-            <div className="viewer-controls">
-              <button type="button" onClick={() => setFlatView((current) => !current)}>
-                {flatView ? '360° view' : 'Flat view'}
-              </button>
-              <button type="button" onClick={() => {
-                const previousIndex = showingItem.index - 1;
-                if (items[previousIndex]) setShowingItem({ ...items[previousIndex], index: previousIndex });
-              }} disabled={!items[showingItem.index - 1]}>←</button>
-              <button type="button" onClick={() => handleDelete(showingItem)}>Delete</button>
-              <button type="button" onClick={() => {
-                const nextIndex = showingItem.index + 1;
-                if (items[nextIndex]) setShowingItem({ ...items[nextIndex], index: nextIndex });
-              }} disabled={!items[showingItem.index + 1]}>→</button>
-            </div>
-          </div>
-        </div>
+        <ViewerOverlay
+          showingItem={showingItem}
+          items={items}
+          viewerSrc={viewerSrc}
+          flatView={flatView}
+          onClose={() => setShowingItem(null)}
+          onToggleFlatView={() => setFlatView((current) => !current)}
+          onDelete={() => handleDelete(showingItem)}
+          onPrevious={() => {
+            const previousIndex = showingItem.index - 1;
+            if (items[previousIndex]) setShowingItem({ ...items[previousIndex], index: previousIndex });
+          }}
+          onNext={() => {
+            const nextIndex = showingItem.index + 1;
+            if (items[nextIndex]) setShowingItem({ ...items[nextIndex], index: nextIndex });
+          }}
+        />
       )}
 
-      <div className="settings-panel">
-        <h3>Settings</h3>
-        <button type="button" className="ghost-button full" onClick={deleteCache}>Clear data cache ({cacheSize} MB)</button>
-        <label className="toggle-row">
-          <span>Check for updates</span>
-          <input type="checkbox" checked={Boolean(configData.checkUpdates)} onChange={updateCheckSetting} />
-        </label>
-        <div className="donate-box">
-          <p>Please donate to support the project.</p>
-          <button type="button" className="primary-button" onClick={() => openExternalLink('https://www.liqpay.ua/en/checkout/shtvrplayer')}>Donate</button>
-          <a href="#" onClick={(event) => { event.preventDefault(); openExternalLink('https://gitlab.com/go-apps-XnjRcS/vr-viewer-for-linux/electron-version/-/blob/master/CHANGELOG.md'); }}>View changelog</a>
-        </div>
-      </div>
+      <SettingsPanel
+        cacheSize={cacheSize}
+        checkUpdates={Boolean(configData.checkUpdates)}
+        onDeleteCache={deleteCache}
+        onUpdateSetting={updateCheckSetting}
+        onOpenExternal={openExternalLink}
+      />
 
-      <div className="slider-wrap">
-        <label htmlFor="sizeRange">Thumbnail size</label>
-        <input id="sizeRange" type="range" min="100" max="435" value={maxSizePx} onChange={(event) => setMaxSizePx(Number(event.target.value))} />
-      </div>
+      <ThumbnailSlider value={maxSizePx} onChange={setMaxSizePx} />
     </div>
   );
 }
