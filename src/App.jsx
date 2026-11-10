@@ -27,6 +27,7 @@ function App() {
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [conversionProgress, setConversionProgress] = useState({ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' });
+  const [convertedVideos, setConvertedVideos] = useState(new Set());
 
   const closeViewer = () => {
     setShowingItem(null);
@@ -127,6 +128,7 @@ function App() {
         if (!data) return;
 
         if (data.success) {
+          setConvertedVideos((current) => new Set([...current, data.origPath]));
           setItems((current) => current.map((item) => item.origPath === data.origPath ? { ...item, bigName: data.bigName } : item));
           setShowingItem((current) => (current && current.origPath === data.origPath ? { ...current, bigName: data.bigName } : current));
           setFlatView(false);
@@ -325,6 +327,7 @@ function App() {
           viewerSrc={viewerSrc}
           flatView={flatView}
           conversionProgress={conversionProgress}
+          hasConvertedVideo={Boolean(showingItem && convertedVideos.has(showingItem.origPath))}
           onConvertVideo={convertCurrentVideo}
           onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}

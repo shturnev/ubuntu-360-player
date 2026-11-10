@@ -123,8 +123,8 @@ class Media {
           ];
 
           const startedAt = Date.now();
-          let lastOutputMs = 0;
           let conversionDone = false;
+          let lastProgressPercent = -1;
 
           const sendProgress = (payload) => {
             if (win && win.webContents) {
@@ -136,6 +136,22 @@ class Media {
                 outputPath
               });
             }
+          };
+
+          const updateProgress = (nextPercent, elapsedMs, etaMs, message) => {
+            const safePercent = Number.isFinite(nextPercent) ? Math.max(0, Math.min(100, nextPercent)) : 0;
+            if (Math.abs(safePercent - lastProgressPercent) < 0.1 && lastProgressPercent >= 0 && safePercent < 100) {
+              return;
+            }
+            lastProgressPercent = safePercent;
+            sendProgress({
+              active: true,
+              status: 'running',
+              percent: Number(safePercent.toFixed(1)),
+              elapsedMs,
+              etaMs,
+              message
+            });
           };
 
           const child = spawn('ffmpeg', ffmpegArgs);
@@ -157,30 +173,21 @@ class Media {
           };
 
           child.stdout.on('data', (chunk) => {
-            outputText += String(chunk);
+            const text = String(chunk);
+            outputText += text;
+            const progress = parseFfmpegProgress(text, duration, startedAt);
+            if (progress) {
+              updateProgress(progress.percent, progress.elapsedMs, progress.etaMs, 'Converting video for 360° playback…');
+            }
           });
 
           child.stderr.on('data', (chunk) => {
-            outputText += String(chunk);
             const text = String(chunk);
-            const match = /out_time_ms=(\d+)/.exec(text);
-            if (!match) return;
-
-            const outTimeMs = Number(match[1]);
-            const elapsedMs = Date.now() - startedAt;
-            const progressPercent = duration > 0 ? Math.max(0, Math.min(100, (outTimeMs / (duration * 1000000)) * 100)) : 0;
-            lastOutputMs = outTimeMs;
-
-            sendProgress({
-              active: true,
-              status: 'running',
-              percent: Number(progressPercent.toFixed(1)),
-              elapsedMs,
-              etaMs: duration > 0 && outTimeMs > 0
-                ? Math.round(((duration * 1000) - (outTimeMs / 1000)) * (elapsedMs / Math.max(outTimeMs / 1000, 1)))
-                : null,
-              message: 'Converting video for 360° playback…'
-            });
+            outputText += text;
+            const progress = parseFfmpegProgress(text, duration, startedAt);
+            if (progress) {
+              updateProgress(progress.percent, progress.elapsedMs, progress.etaMs, 'Converting video for 360° playback…');
+            }
           });
 
           child.on('error', (error) => finalizeFailure(error && error.message ? error.message : 'ffmpeg is not available.'));
@@ -196,6 +203,15 @@ class Media {
             try {
               if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
                 throw new Error('The converted video was not created.');
+              }
+
+              const originalBigPath = path.join(getBigDir(), getNewFileName(filePath));
+              if (originalBigPath !== outputPath && fs.existsSync(originalBigPath)) {
+                try {
+                  fs.unlinkSync(originalBigPath);
+                } catch (cleanupError) {
+                  // Ignore cleanup failures so the conversion result remains valid.
+                }
               }
 
               const elapsedMs = Date.now() - startedAt;
@@ -236,6 +252,33 @@ class Media {
         });
     });
   }
+}
+
+function parseFfmpegProgress(text, durationSeconds, startedAtMs) {
+  if (!text || typeof text !== 'string') return null;
+
+  const timeMatch = /time=(\d{2}):(\d{2}):(\d{2}\.\d+)/i.exec(text);
+  const outTimeMatch = /out_time_ms=(\d+)/i.exec(text);
+
+  const elapsedMs = Date.now() - startedAtMs;
+  if (timeMatch) {
+    const [, hours, minutes, seconds] = timeMatch;
+    const totalSeconds = Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+    const durationMs = durationSeconds > 0 ? Number(durationSeconds) * 1000 : null;
+    const percent = durationMs ? Math.max(0, Math.min(100, (totalSeconds / (durationSeconds || 1)) * 100)) : null;
+    const etaMs = durationMs && totalSeconds > 0 ? Math.max(0, Math.round((durationMs - totalSeconds * 1000) * (elapsedMs / Math.max(totalSeconds * 1000, 1)))) : null;
+    return { percent: percent ?? 0, elapsedMs, etaMs };
+  }
+
+  if (outTimeMatch) {
+    const outTimeMs = Number(outTimeMatch[1]);
+    const durationMs = durationSeconds > 0 ? Number(durationSeconds) * 1000 : null;
+    const percent = durationMs ? Math.max(0, Math.min(100, (outTimeMs / durationMs) * 100)) : null;
+    const etaMs = durationMs && outTimeMs > 0 ? Math.max(0, Math.round((durationMs - outTimeMs) * (elapsedMs / Math.max(outTimeMs, 1)))) : null;
+    return { percent: percent ?? 0, elapsedMs, etaMs };
+  }
+
+  return null;
 }
 
 function createLink(origPath, newFileName) {

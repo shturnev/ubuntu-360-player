@@ -74,6 +74,9 @@ describe('Media', () => {
     const filePath = path.join(tempDir, 'hevc-video.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');
 
+    const originalBigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', `hevc-video-${fs.statSync(filePath).size}.mp4`);
+    fs.symlinkSync(filePath, originalBigPath);
+
     execFile.mockImplementationOnce((_cmd, _args, callback) => {
       callback(null, JSON.stringify({
         format: { duration: '5.0' },
@@ -104,6 +107,7 @@ describe('Media', () => {
     expect(result.success).toBe(true);
     expect(result.origPath).toBe(filePath);
     expect(result.bigName).toContain('h264');
+    expect(fs.existsSync(originalBigPath)).toBe(false);
     expect(execFile).toHaveBeenCalledWith('ffprobe', expect.arrayContaining(['-show_streams']), expect.any(Function));
   });
 });
