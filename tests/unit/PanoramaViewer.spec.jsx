@@ -74,6 +74,43 @@ describe('PanoramaViewer', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  test('reuses the still-image texture until interaction or resize forces a redraw', () => {
+    const gl = makeWebGL();
+    const queuedRaf = [];
+    window.requestAnimationFrame = jest.fn((callback) => {
+      queuedRaf.push(callback);
+      return queuedRaf.length;
+    });
+
+    render(<PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />);
+
+    const image = document.querySelector('.panorama-source');
+    const canvas = document.querySelector('.panorama-canvas');
+    fireEvent.load(image);
+    queuedRaf.splice(0).forEach((callback) => callback());
+
+    const initialTextureUploads = gl.texImage2D.mock.calls.length;
+    expect(initialTextureUploads).toBeGreaterThan(1);
+
+    act(() => {
+      fireEvent.pointerDown(canvas, { clientX: 10, clientY: 12, pointerId: 1 });
+      fireEvent.pointerMove(canvas, { clientX: 54, clientY: 32, pointerId: 1 });
+      fireEvent.wheel(canvas, { deltaY: 30 });
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+
+    expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
+    expect(gl.drawArrays).toHaveBeenCalled();
+
+    gl.drawArrays.mockClear();
+    Object.defineProperty(canvas, 'clientWidth', { value: 1200, configurable: true });
+    Object.defineProperty(canvas, 'clientHeight', { value: 700, configurable: true });
+    fireEvent(window, new Event('resize'));
+    queuedRaf.splice(0).forEach((callback) => callback());
+
+    expect(gl.drawArrays).toHaveBeenCalled();
+  });
+
   test('starts and pauses the panorama video after it is ready', async () => {
     const gl = makeWebGL();
     const source = 'http://localhost:3000/big/clip-1000.mp4';
