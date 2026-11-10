@@ -1,62 +1,62 @@
-import {MainModelClass, removeFilesHelper} from '../../src/models/MainModelClass'
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
-const test_data = [
-  {
-    bigName: '1-259720.png',
-    error: null,
-    origPath: '/home/shturnev/Изображения/1.png',
-    selected: true,
-    thumpName: '1-259720.png',
-    type: 'image'
-  },
-  {
-    bigName: '2-257153.png',
-    error: null,
-    origPath: '/home/shturnev/Изображения/2.png',
-    selected: true,
-    thumpName: '2-257153.png',
-    type: 'image'
-  }
-];
+jest.mock('trash', () => jest.fn(async () => true));
 
-describe('Main Class', () =>{
-  let MC = new MainModelClass(null);
+const { MainModelClass, removeFilesHelper } = require('../../src/models/MainModelClass');
 
+describe('MainModelClass', () => {
+  let tempDir;
+  let mainModelClass;
 
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sht-vr-main-'));
+    const staticDir = path.join(tempDir, '.sht-vr-player', 'static');
+    fs.mkdirSync(path.join(staticDir, 'small'), { recursive: true });
+    fs.mkdirSync(path.join(staticDir, 'big'), { recursive: true });
 
-  test('delete selected files', () => {
-    let res = MC.deleteSelected(test_data);
-    expect(res).toBe(true)
+    mainModelClass = new MainModelClass({ webContents: { send: jest.fn() } });
+    mainModelClass.static_dir = staticDir;
+    mainModelClass.homedir = path.join(tempDir, '.sht-vr-player');
+  });
 
-  })
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
 
+  test('deleteSelected removes files and returns true', async () => {
+    const targetDir = mainModelClass.static_dir;
+    const thumpFile = path.join(targetDir, 'small', 'thumb.png');
+    const bigFile = path.join(targetDir, 'big', 'big.png');
+    const originalFile = path.join(tempDir, 'original.png');
 
-  test('count data cache size of static directory', async ()=>{
-    // let res = await MC.dataCacheSize();
-    // expect(res).not.toBe(0);
-    // console.log(res);
-  })
+    fs.writeFileSync(thumpFile, 'thumb');
+    fs.writeFileSync(bigFile, 'big');
+    fs.writeFileSync(originalFile, 'image');
 
-  test("test delete files from dir", () => {
-    let items = [
-        'Ch5UAa90ysU-392034.jpg',
-        'Pool-12-09-103808314.jpg',
-        'Rb34S_mS9f8-173504.jpg',
-        'UY4jDW5uDQQ-485116.jpg',
-        'VID_20170123_012841_051-8983748.jpg',
-        'VID_20190928_154804_00_099-298536093.jpg',
-        'e6boEFrBPYs-346075.jpg',
-        'logo-48297.png',
-        'unnamed-110638.png',
-        'wifi-GkiHwyAq-2406.png'
-      ]
-    ;
-    let res = removeFilesHelper(MC.static_dir + '/small', items);
-    expect(res).not.toBe(0);
+    const payload = [{
+      thumpName: 'thumb.png',
+      bigName: 'big.png',
+      origPath: originalFile,
+      selected: true,
+      type: 'image'
+    }];
 
-  })
+    const result = mainModelClass.deleteSelected(payload);
+    expect(result).toBe(true);
+    expect(fs.existsSync(thumpFile)).toBe(false);
+    expect(fs.existsSync(bigFile)).toBe(false);
+  });
 
-})
+  test('removeFilesHelper keeps files that are still present in the selected list', () => {
+    const smallDir = path.join(mainModelClass.static_dir, 'small');
+    fs.writeFileSync(path.join(smallDir, 'keep.png'), 'keep');
+    fs.writeFileSync(path.join(smallDir, 'remove.png'), 'remove');
 
+    removeFilesHelper(smallDir, ['keep.png']);
 
-
+    expect(fs.existsSync(path.join(smallDir, 'keep.png'))).toBe(true);
+    expect(fs.existsSync(path.join(smallDir, 'remove.png'))).toBe(false);
+  });
+});

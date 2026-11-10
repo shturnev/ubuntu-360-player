@@ -1,32 +1,31 @@
-import fs from 'fs'
+const fs = require('fs');
 
-
-export class Helper {
-  static checkDir(path){
+class Helper {
+  static checkDir(inputPath) {
     try {
-      fs.statSync(path);
-      // fs.chmodSync(path, 0o700)
-    } catch(e) {
-      fs.mkdirSync(path, {
+      fs.statSync(inputPath);
+    } catch (e) {
+      fs.mkdirSync(inputPath, {
         mode: 0o700,
         recursive: true
       });
     }
 
-    return true
+    return 1;
   }
 
-  static isFileExists(path){
-    let status = false;
-
+  static isFileExists(inputPath) {
     try {
-      fs.statSync(path);
-      status = true;
-    } catch(e) {
-      //status = false
+      fs.statSync(inputPath);
+      return true;
+    } catch (e) {
+      return false;
     }
-
-    return status;
   }
-
 }
+
+module.exports = { Helper };
+Object.defineProperty(module.exports, 'default', {
+  value: Helper,
+  enumerable: false
+});

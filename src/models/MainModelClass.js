@@ -1,21 +1,21 @@
-import fs from 'fs'
-import express from 'express'
-import cors from 'cors'
-import {dialog, ipcMain} from 'electron'
-import {Helper} from './Helper'
-import {Media} from "./Media";
-import path from 'path'
-import ConfigModel from "./ConfigModel";
-import Updater from "./Updater";
+const fs = require('fs');
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const { dialog, ipcMain } = require('electron');
 
-const homedir = require('os').homedir() + '/.sht-vr-player';
+const { Helper } = require('./Helper');
+const { Media } = require('./Media');
+const ConfigModel = require('./ConfigModel');
+const Updater = require('./Updater');
+
+const homedir = (process.env.SHT_VR_HOME || process.env.HOME || require('os').homedir()) + '/.sht-vr-player';
 const clr = require('cli-color');
 const trash = require('trash');
 const getFolderSize = require('get-folder-size');
-const rimraf = require("rimraf");
+const rimraf = require('rimraf');
 
 class MainModelClass {
-
   constructor(win) {
     this.win = win;
     this.serverUrl = undefined;
@@ -24,142 +24,107 @@ class MainModelClass {
     this.config = new ConfigModel();
   }
 
-
   init() {
-
     Helper.checkDir(homedir);
     this.startFileServer();
 
-    ipcMain.on('open-dir', (event, arg) => {
-      this.openDir(event)
-    });
-    ipcMain.on('get-server-url', (event, arg) => {
-      event.reply('start-file-server', this.serverUrl)
-    });
-    ipcMain.on('delete-selected', (event, arg) => {
-      this.deleteSelected(arg)
-    });
-    ipcMain.on('get-cache-size', (event, arg) => {
-      getFolderSize(this.static_dir, async (err, size) => {
-        if (err) {
-          size = 0
-        }
-        else{
-          size = (size / 1024 / 1024).toFixed(2)
-        }
-        event.reply('cache-size', size);
-
-      })
+    ipcMain.on('open-dir', (event) => this.openDir(event));
+    ipcMain.on('get-server-url', (event) => event.reply('start-file-server', this.serverUrl));
+    ipcMain.on('delete-selected', (event, arg) => this.deleteSelected(arg));
+    ipcMain.on('get-cache-size', (event) => {
+      getFolderSize(this.static_dir, (err, size) => {
+        const result = err ? 0 : (size / 1024 / 1024).toFixed(2);
+        event.reply('cache-size', result);
+      });
     });
     ipcMain.on('delete-cache', (event, items) => this.deleteCache(event, items));
-    ipcMain.on('get-config', (event) => event.reply('config-data', this.config.getSettings()) );
-    ipcMain.on('save-config', (event, data) => this.config.loadSettings(data) );
+    ipcMain.on('get-config', (event) => event.reply('config-data', this.config.getSettings()));
+    ipcMain.on('save-config', (event, data) => this.config.loadSettings(data));
 
-    /*-----------------------------------
-    Check for update
-    -----------------------------------*/
     ipcMain.on('check-for-update', (event) => {
-      let configData = this.config.getSettings();
-      if(configData.checkUpdates){
-        Updater.check(configData).then(res => {
-          if(!res){return}
-          event.reply('need-to-update', res);
-        }).catch(err => {
-          console.log(clr.red(err));
-          event.reply('show-error', err);
-        })
+      const configData = this.config.getSettings();
+      if (configData.checkUpdates) {
+        Updater.check(configData)
+          .then((res) => {
+            if (res) event.reply('need-to-update', res);
+          })
+          .catch((err) => {
+            console.log(clr.red(err));
+            event.reply('show-error', err);
+          });
       }
     });
-
-
-
-
-
-
   }
 
-  /**
-   * File server for thumps
-   */
   startFileServer() {
-    let app = express();
-
+    const app = express();
     app.use(cors());
     app.use(express.static(homedir + '/static'));
-    let server = app.listen(0);
+    const server = app.listen(0);
 
     this.serverUrl = `http://localhost:${server.address().port}/`;
-    console.log(`Static file server run on:  ${this.serverUrl}`);
-    this.win.webContents.send('start-file-server', this.serverUrl);
-
+    console.log(`Static file server run on: ${this.serverUrl}`);
+    if (this.win && this.win.webContents) {
+      this.win.webContents.send('start-file-server', this.serverUrl);
+    }
   }
 
   openDir(event) {
-    let options = {
-      properties: ['openDirectory']
-    };
+    const options = { properties: ['openDirectory'] };
+    const resOpen = dialog.showOpenDialogSync(options);
 
-    let resOpen = dialog.showOpenDialogSync(options);
     if (!resOpen) {
       event.reply('open-dir', false);
-      return
+      return false;
     }
 
     event.reply('open-dir', resOpen[0]);
     this.readDir(resOpen[0]);
-    return resOpen
+    return resOpen;
   }
 
   readDir(pathDir) {
     fs.readdir(pathDir, (err, files) => {
+      if (err) {
+        if (this.win && this.win.webContents) {
+          this.win.webContents.send('show-error', err);
+        }
+        return;
+      }
 
-      //check path
       Helper.checkDir(this.static_dir + '/small/');
       Helper.checkDir(this.static_dir + '/big/');
 
-      //filter files from not media
-      let goodExt = ['jpg', 'jpeg', 'png', 'mp4'];
-
-      files = files.filter(el => {
-        let ext = el.split('.').pop().toLowerCase();
+      const goodExt = ['jpg', 'jpeg', 'png', 'mp4'];
+      const mediaFiles = files.filter((element) => {
+        const ext = element.split('.').pop().toLowerCase();
         return goodExt.indexOf(ext) !== -1;
       });
 
-      if (!files.length) {
-        this.win.webContents.send('open-dir', false);
-        return
+      if (!mediaFiles.length) {
+        if (this.win && this.win.webContents) this.win.webContents.send('open-dir', false);
+        return;
       }
 
-      //send info about files count
-      this.win.webContents.send('start-read-dir', files.length);
+      if (this.win && this.win.webContents) this.win.webContents.send('start-read-dir', mediaFiles.length);
 
-      //
-      console.log(clr.xterm(115)('Start read dir...'));
+      mediaFiles.forEach((file) => {
+        const ext = file.split('.').pop().toLowerCase();
+        const origPath = pathDir + '/' + file;
 
-      files.forEach(file => {
-        let ext = file.split('.').pop().toLowerCase();
-        let origPath = pathDir + '/' + file;
-
-        switch (ext) {
-          case 'mp4':
-            Media.saveVideo(origPath, this.win);
-            break;
-          default:
-            Media.saveImage(origPath, this.win);
+        if (ext === 'mp4') {
+          Media.saveVideo(origPath, this.win);
+        } else {
+          Media.saveImage(origPath, this.win);
         }
       });
-
-
-    })
-
-
+    });
   }
 
-  deleteSelected(dataArray) {
-    dataArray.forEach(async item => {
-      //thumb and symLink
-      let thumpPath = this.static_dir + '/small/' + item.thumpName;
-      let symlPath = this.static_dir + '/big/' + item.bigName;
+  deleteSelected(dataArray = []) {
+    dataArray.forEach(async (item) => {
+      const thumpPath = this.static_dir + '/small/' + item.thumpName;
+      const symlPath = this.static_dir + '/big/' + item.bigName;
 
       if (Helper.isFileExists(thumpPath)) {
         fs.unlink(thumpPath, (err) => {
@@ -167,7 +132,6 @@ class MainModelClass {
             this.win.webContents.send('delete-error', err);
             return;
           }
-          console.log(`${thumpPath} was deleted`);
         });
       }
       if (Helper.isFileExists(symlPath)) {
@@ -176,76 +140,59 @@ class MainModelClass {
             this.win.webContents.send('delete-error', err);
             return;
           }
-          console.log(`${symlPath} was deleted`);
         });
       }
 
-      //original
       if (Helper.isFileExists(item.origPath)) {
-        let delRes = await trash(item.origPath, {glob: false});
-        console.log(clr.magenta(`\nInfo about deleted original file '${item.origPath}'`));
-        console.log(delRes);
+        await trash(item.origPath, { glob: false });
       }
 
-      this.win.webContents.send('file-deleted', item);
-
+      if (this.win && this.win.webContents) this.win.webContents.send('file-deleted', item);
     });
 
-
-    return true
+    return true;
   }
 
   deleteCache(event, items = []) {
-    //if no items loaded delete static dir with all inside
-    if(!items.length){
+    if (!items.length) {
       if (Helper.isFileExists(this.static_dir)) {
         rimraf(this.static_dir, (err) => {
           if (err) {
             event.reply('delete-error', err);
             event.reply('delete-cache-finish', true);
-            console.log(clr.red(`Error: ${err}`));
             return;
           }
         });
       }
 
       event.reply('delete-cache-finish', true);
-      console.log(`Cache was deleted`);
       return;
     }
 
-    //else. read and delete thump and links dir
-    removeFilesHelper(path.join(this.static_dir, 'small'), items.map(i => i['thumpName']));
-    removeFilesHelper(path.join(this.static_dir, 'big'), items.map(i => i['bigName']));
+    removeFilesHelper(path.join(this.static_dir, 'small'), items.map((item) => item.thumpName));
+    removeFilesHelper(path.join(this.static_dir, 'big'), items.map((item) => item.bigName));
     event.reply('delete-cache-finish', true);
-    console.log(`Cache was deleted`);
-
   }
 }
 
-
-function removeFilesHelper(dirPath, names){
-  try{
-    let res_of_read = fs.readdirSync(dirPath);
-
-    res_of_read.forEach(filename => {
-      let index = names.indexOf(filename),
-          filePath = path.join(dirPath, filename);
-
-      if(index === -1){
-        fs.unlink(filePath, (err)=>{
-          if(err){
-            console.log(clr.red("Error: " + err));
-          }
-        })
+function removeFilesHelper(dirPath, names) {
+  try {
+    const files = fs.readdirSync(dirPath);
+    files.forEach((filename) => {
+      const filePath = path.join(dirPath, filename);
+      if (names.indexOf(filename) === -1) {
+        fs.unlinkSync(filePath);
       }
-    })
-
-  }catch (e) {
+    });
+    return true;
+  } catch (e) {
     console.log(e);
-    //nothing do here, because it is mean that dir is not exists..
+    return false;
   }
 }
 
-
-export {MainModelClass, removeFilesHelper}
+module.exports = { MainModelClass, removeFilesHelper };
+Object.defineProperty(module.exports, 'default', {
+  value: MainModelClass,
+  enumerable: false
+});

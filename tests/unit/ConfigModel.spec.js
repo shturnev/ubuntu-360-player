@@ -1,29 +1,33 @@
-import ConfigModel from "../../src/models/ConfigModel"
-import {Media} from "../../src/models/Media";
-import {MainModelClass} from "../../src/models/MainModelClass";
-import baseConfig from "../../project.config";
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
+const ConfigModel = require('../../src/models/ConfigModel');
+const baseConfig = require('../../project.config');
 
-describe('Config class', ()=> {
+describe('ConfigModel', () => {
+  let tempDir;
+  let configModel;
 
-  const O = new ConfigModel();
-
-  /**
-   * Check is config file exists and if is not create it, another say true
-   */
-  test('Load settings', () =>{
-    let res = O.loadSettings(baseConfig);
-    expect(res).toBeTruthy();
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sht-vr-config-'));
+    process.env.SHT_VR_HOME = tempDir;
+    configModel = new ConfigModel();
+    configModel.configPath = path.join(tempDir, 'config.json');
   });
 
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    delete process.env.SHT_VR_HOME;
+  });
 
-  /**
-   * Get settings
-   */
-  test('Get settings', () =>{
-    let settings = O.getSettings();
-    expect(settings).toHaveProperty('version');
-  })
+  test('loads and stores settings in a temp directory', () => {
+    const result = configModel.loadSettings(baseConfig);
+    expect(result).toBe(true);
+    expect(fs.existsSync(configModel.configPath)).toBe(true);
 
-
-})
+    const settings = configModel.getSettings();
+    expect(settings).toHaveProperty('version', baseConfig.version);
+    expect(settings).toHaveProperty('checkUpdates', baseConfig.checkUpdates);
+  });
+});

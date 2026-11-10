@@ -1,6 +1,29 @@
 ## Hello, this is a VR-player for Linux (for you)!
 > At the moment, it is a strong word. Because at now it’s only for Debian-like distributions. But this is cool too, right? And over time, we will do porting for other popular Linux distributions.
 
+## Modern Electron + React build
+This project has been migrated from the legacy Vue 2 + Quasar + Electron 7 stack to a supported Electron + React + Vite configuration.
+
+- Electron: 33.x
+- Node.js: 20 LTS
+- Renderer: React 18
+- Build tool: Vite
+- Packaging: electron-builder for Linux `.deb`
+
+Local development:
+
+```bash
+npm install
+npm run dev
+```
+
+Production build:
+
+```bash
+npm run build
+npm run electron:build
+```
+
 ![sht-vr-player screencast](media-sources/vr-overview_1.mp4)
 
 
