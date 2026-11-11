@@ -1,12 +1,24 @@
 @use '../styles/variables' as *;
 
 .slider-wrap {
-  margin-top: 1rem;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  min-width: 0;
+  max-width: 200px;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .slider-wrap input {
   width: 100%;
+  accent-color: $accent;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .slider-wrap {
+    max-width: 100%;
+    width: 100%;
+  }
 }

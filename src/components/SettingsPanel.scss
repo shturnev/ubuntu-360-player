@@ -1,25 +1,78 @@
 @use '../styles/variables' as *;
 
 .settings-panel {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid $border-soft;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(26rem, 100%);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.settings-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
 }
 
 .toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 0.75rem;
+  gap: 1rem;
+  padding: 0.85rem 0.9rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid $border-soft;
+  border-radius: 10px;
+}
+
+.toggle-row input {
+  accent-color: $accent;
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .donate-box {
-  margin-top: 1rem;
   padding: 1rem;
-  background: $bg-surface-soft;
-  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid $border-soft;
+  border-radius: 12px;
+}
+
+.donate-box p {
+  margin: 0 0 0.85rem;
+  color: $text-secondary;
+}
+
+.donate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .ghost-button.full {
   width: 100%;
+}
+
+.ghost-button,
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-icon svg {
+  width: 1rem;
+  height: 1rem;
 }
