@@ -17,6 +17,20 @@ npm install
 npm run dev
 ```
 
+Environment configuration:
+
+```bash
+cp .env.example .env
+# optionally edit .env and set DEV_SERVER_PORT=5173
+```
+
+Supported variables:
+
+- `DEV_SERVER_PORT` — base port for the Vite dev server. The app probes up to 5 ports starting at this value (for example `5173` to `5177` by default). Invalid values fail fast with a descriptive error.
+- `SHT_VR_HOME` — optional override for the app data root. The application uses `<SHT_VR_HOME>/.sht-vr-player` as the storage root and falls back to `HOME`/`os.homedir()` when it is unset.
+
+The repo keeps `.env` and local variants ignored, while `.env.example` remains tracked and safe to commit.
+
 Production build:
 
 ```bash

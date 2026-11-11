@@ -1,13 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const { exec, execFile, spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const gm = require('gm');
-
-const getStorageRoot = () => {
-  const base = process.env.SHT_VR_HOME || process.env.HOME || os.homedir();
-  return path.join(base, '.sht-vr-player');
-};
+const { getStorageRoot } = require('../config/env');
 
 const getBigDir = () => path.join(getStorageRoot(), 'static', 'big');
 

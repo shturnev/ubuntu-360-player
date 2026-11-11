@@ -1,8 +1,8 @@
 const fs = require('fs');
 const _ = require('lodash');
-const os = require('os');
 const baseConfig = require('../../project.config');
-const homePath = (process.env.SHT_VR_HOME || process.env.HOME || os.homedir()) + '/.sht-vr-player';
+const { getStorageRoot } = require('../config/env');
+const homePath = getStorageRoot();
 
 class ConfigModel {
   constructor() {

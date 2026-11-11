@@ -1,5 +1,16 @@
+import { createRequire } from 'node:module';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+
+const require = createRequire(import.meta.url);
+const { loadProjectDotenv, normalizePort } = require('./src/config/env.js');
+
+loadProjectDotenv();
+
+const devServerPort = normalizePort(process.env.DEV_SERVER_PORT, {
+  defaultPort: 5173,
+  portName: 'DEV_SERVER_PORT'
+});
 
 const reactDevtoolsPlugin = {
   name: 'react-devtools-client',
@@ -28,7 +39,8 @@ export default defineConfig({
   plugins: [react(), reactDevtoolsPlugin],
   server: {
     host: '0.0.0.0',
-    port: 5173
+    port: devServerPort,
+    strictPort: false
   },
   build: {
     outDir: 'dist',
