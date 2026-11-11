@@ -84,6 +84,30 @@ function createProgram(gl) {
 const VIDEO_CODEC_GUIDANCE =
   'Check the file codecs with: ffprobe -v error -show_entries stream=codec_type,codec_name -of default=noprint_wrappers=1 input.mp4. On Ubuntu, try sudo apt install ubuntu-restricted-extras and restart the app. Electron may use its own codecs; if it still fails, convert to H.264/AVC + AAC: ffmpeg -i input.mp4 -c:v libx264 -pix_fmt yuv420p -c:a aac output.mp4.';
 
+function PlayIcon({ isPlaying }) {
+  return isPlaying ? (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 5h4v14H7zm6 0h4v14h-4z" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 4v16l13-8z" />
+    </svg>
+  );
+}
+
+function VolumeIcon({ volume }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 9v6h4l5 4V5L7 9H3zm12.5 3a3.5 3.5 0 0 0-2-3.16v6.31a3.5 3.5 0 0 0 2-3.15z" />
+      {volume > 0 && <path d="M14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z" />}
+      {volume === 0 && (
+        <path d="m16 9-1.41-1.41L12 10.17l-2.59-2.58L8 9l2.59 3L8 15l1.41 1.41L12 13.83l2.59 2.58L16 15l-2.59-3z" />
+      )}
+    </svg>
+  );
+}
+
 function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
   const mediaError = video.error;
   const mediaCode = mediaError && mediaError.code;
@@ -123,7 +147,16 @@ function formatTime(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, conversionProgress }) {
+function PanoramaViewer({
+  source,
+  type,
+  alt,
+  onOpenExternal,
+  onConvertVideo,
+  conversionProgress,
+  onToggleFullscreen,
+  isFullscreen,
+}) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
@@ -513,24 +546,22 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
       {type === 'video' && (
         <div className="panorama-video-controls">
           <div className="panorama-video-toolbar">
-            <button type="button" className="panorama-play" onClick={startOrPauseVideo}>
-              {isPlaying ? 'Pause video' : 'Play video'}
+            <button
+              type="button"
+              className="panorama-play"
+              onClick={startOrPauseVideo}
+              aria-label={isPlaying ? 'Pause video' : 'Play video'}
+              title={isPlaying ? 'Pause' : 'Play'}
+            >
+              <PlayIcon isPlaying={isPlaying} />
             </button>
             <span className="panorama-video-time" aria-live="polite">
               {formatTime(videoProgress.currentTime)} / {formatTime(videoProgress.duration)}
             </span>
-          </div>
-          <div className="panorama-video-sliders">
+            <span className="panorama-video-spacer" />
+            <VolumeIcon volume={videoProgress.volume} />
             <input
-              type="range"
-              min="0"
-              max={videoProgress.duration || 0}
-              step="0.01"
-              value={videoProgress.currentTime}
-              onChange={handleSeek}
-              aria-label="Seek video playback"
-            />
-            <input
+              className="panorama-video-volume"
               type="range"
               min="0"
               max="1"
@@ -539,7 +570,35 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
               onChange={handleVolumeChange}
               aria-label="Adjust video volume"
             />
+            <button
+              type="button"
+              className="panorama-fullscreen"
+              onClick={onToggleFullscreen}
+              aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+              title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                {isFullscreen ? (
+                  <path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z" />
+                ) : (
+                  <path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v6h6v-2H6v-4zm10 4h4v-4h2v6h-6z" />
+                )}
+              </svg>
+            </button>
           </div>
+          <input
+            className="panorama-video-seek"
+            type="range"
+            min="0"
+            max={videoProgress.duration || 0}
+            step="0.01"
+            value={videoProgress.currentTime}
+            onChange={handleSeek}
+            aria-label="Seek video playback"
+            style={{
+              '--progress': `${videoProgress.duration ? (videoProgress.currentTime / videoProgress.duration) * 100 : 0}%`,
+            }}
+          />
         </div>
       )}
     </div>
