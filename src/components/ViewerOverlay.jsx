@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import PanoramaViewer from '../PanoramaViewer.jsx';
 import './PanoramaViewer.scss';
 
+const OpenFullScreenIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" ><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m15 15l6 6M15 9l6-6m0 13v5h-5m5-13V3h-5M3 16v5h5m-5 0l6-6M3 8V3h5m1 6L3 3"/></svg>
+);
+
+const CloseFullScreenIcon = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m15 15l6 6m-6-6v4.8m0-4.8h4.8M9 19.8V15m0 0H4.2M9 15l-6 6M15 4.2V9m0 0h4.8M15 9l6-6M9 4.2V9m0 0H4.2M9 9L3 3"/>
+    </svg>
+);
+
+const ArrowLeftIcon = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m12 19l-7-7l7-7m7 7H5"/>
+    </svg>
+);
+
+const ArrowRightIcon = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+      <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14m-7-7l7 7l-7 7"/>
+    </svg>
+);
+
 function ViewerOverlay({
   showingItem,
   items,
@@ -97,15 +119,16 @@ function ViewerOverlay({
           </div>
         )}
         <div className="viewer-controls">
-          <button type="button" onClick={toggleFullscreen}>
-            {isFullscreen ? 'Exit full screen' : 'Full screen'}
-          </button>
+          <button type="button" onClick={onPrevious} disabled={items.length < 2}><ArrowLeftIcon /></button>
           <button type="button" onClick={onToggleFlatView}>
             {flatView ? '360° view' : 'Flat view'}
           </button>
-          <button type="button" onClick={onPrevious} disabled={!items[showingItem.index - 1]}>←</button>
-          <button type="button" onClick={onDelete}>Delete</button>
-          <button type="button" onClick={onNext} disabled={!items[showingItem.index + 1]}>→</button>
+          <button type="button" className="fullscreen-button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit full screen' : 'Full screen'}>
+            {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
+          </button>
+
+          <button type="button" onClick={onDelete} title={"Delete"}>Delete</button>
+          <button type="button" onClick={onNext} disabled={items.length < 2}><ArrowRightIcon /></button>
         </div>
       </div>
     </div>

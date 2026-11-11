@@ -76,6 +76,30 @@ describe('App', () => {
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
   });
 
+  test('wraps viewer navigation between the first and last media items', () => {
+    renderApp();
+    loadMedia();
+    const secondMedia = { ...media, thumpName: 'second.jpg', bigName: 'second-1000.jpg' };
+    act(() => listeners['read-media-file']({}, secondMedia));
+
+    click(container.querySelector('.media-card'));
+    const controls = container.querySelectorAll('.viewer-controls button');
+    const previousButton = controls[0];
+    const nextButton = controls[4];
+
+    click(previousButton);
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/second-1000.jpg');
+
+    click(nextButton);
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
+
+    click(nextButton);
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/second-1000.jpg');
+
+    click(previousButton);
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
+  });
+
   test('does not offer conversion for a video that was already converted', () => {
     media = {
       type: 'video',

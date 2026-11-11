@@ -343,12 +343,14 @@ function App() {
           onOpenExternal={openExternalLink}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
-            const previousIndex = showingItem.index - 1;
-            if (items[previousIndex]) setShowingItem({ ...items[previousIndex], index: previousIndex });
+            if (items.length < 2) return;
+            const previousIndex = (showingItem.index - 1 + items.length) % items.length;
+            setShowingItem({ ...items[previousIndex], index: previousIndex });
           }}
           onNext={() => {
-            const nextIndex = showingItem.index + 1;
-            if (items[nextIndex]) setShowingItem({ ...items[nextIndex], index: nextIndex });
+            if (items.length < 2) return;
+            const nextIndex = (showingItem.index + 1) % items.length;
+            setShowingItem({ ...items[nextIndex], index: nextIndex });
           }}
         />
       )}
