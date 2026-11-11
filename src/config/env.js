@@ -18,7 +18,7 @@ function loadProjectDotenv() {
     '.env.development',
     '.env.development.local',
     '.env.production',
-    '.env.production.local'
+    '.env.production.local',
   ];
 
   for (const fileName of candidateFiles) {
@@ -73,5 +73,5 @@ module.exports = {
   getProjectRoot,
   getStorageRoot,
   loadProjectDotenv,
-  normalizePort
+  normalizePort,
 };

@@ -9,7 +9,7 @@ loadProjectDotenv();
 
 const devServerPort = normalizePort(process.env.DEV_SERVER_PORT, {
   defaultPort: 5173,
-  portName: 'DEV_SERVER_PORT'
+  portName: 'DEV_SERVER_PORT',
 });
 
 const reactDevtoolsPlugin = {
@@ -32,7 +32,7 @@ const reactDevtoolsPlugin = {
         return `${before}${devPolicy}${after}`;
       })
       .replace(entryScript, `${devtoolsScript}\n    ${entryScript}`);
-  }
+  },
 };
 
 export default defineConfig({
@@ -40,10 +40,10 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: devServerPort,
-    strictPort: false
+    strictPort: false,
   },
   build: {
     outDir: 'dist',
-    sourcemap: false
-  }
+    sourcemap: false,
+  },
 });

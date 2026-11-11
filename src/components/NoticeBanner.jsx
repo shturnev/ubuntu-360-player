@@ -7,7 +7,9 @@ function NoticeBanner({ kind, title, onDismiss, children }) {
       <div className="notice-actions">
         {children}
         {onDismiss && (
-          <button type="button" className="ghost-button" onClick={onDismiss}>Dismiss</button>
+          <button type="button" className="ghost-button" onClick={onDismiss}>
+            Dismiss
+          </button>
         )}
       </div>
     </div>

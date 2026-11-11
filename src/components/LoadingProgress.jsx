@@ -5,11 +5,7 @@ function LoadingProgress({ complete, total }) {
 
   return (
     <div className="progress-block">
-      <div>
-        {complete === 0 || complete !== total
-          ? `Loading... ${complete} / ${total}`
-          : 'Completed'}
-      </div>
+      <div>{complete === 0 || complete !== total ? `Loading... ${complete} / ${total}` : 'Completed'}</div>
       <div className="progress-bar">
         <span style={{ width: `${progressPercent}%` }} />
       </div>

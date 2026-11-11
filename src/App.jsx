@@ -26,7 +26,14 @@ function App() {
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showSettings, setShowSettings] = useState(false);
-  const [conversionProgress, setConversionProgress] = useState({ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' });
+  const [conversionProgress, setConversionProgress] = useState({
+    active: false,
+    percent: 0,
+    elapsedMs: 0,
+    etaMs: null,
+    status: 'idle',
+    message: '',
+  });
   const [convertedVideos, setConvertedVideos] = useState(new Set());
 
   const closeViewer = () => {
@@ -88,11 +95,15 @@ function App() {
           return;
         }
 
-        setItems((current) => [...current, data].sort((a, b) => String(a.thumpName).localeCompare(String(b.thumpName))));
+        setItems((current) =>
+          [...current, data].sort((a, b) => String(a.thumpName).localeCompare(String(b.thumpName)))
+        );
       },
       'file-deleted': (_, item) => {
         if (!item) return;
-        setItems((current) => current.filter((entry) => entry.thumpName !== item.thumpName && entry.bigName !== item.bigName));
+        setItems((current) =>
+          current.filter((entry) => entry.thumpName !== item.thumpName && entry.bigName !== item.bigName)
+        );
       },
       'cache-size': (_, value) => setCacheSize(Number(value) || 0),
       'delete-cache-finish': () => {
@@ -121,7 +132,7 @@ function App() {
           elapsedMs: Number(data.elapsedMs) || 0,
           etaMs: data.etaMs == null ? null : Number(data.etaMs),
           status: data.status || 'running',
-          message: data.message || ''
+          message: data.message || '',
         });
       },
       'video-conversion-result': (_, data) => {
@@ -129,23 +140,41 @@ function App() {
 
         if (data.success) {
           setConvertedVideos((current) => new Set([...current, data.origPath]));
-          setItems((current) => current.map((item) => item.origPath === data.origPath ? { ...item, bigName: data.bigName } : item));
-          setShowingItem((current) => (current && current.origPath === data.origPath ? { ...current, bigName: data.bigName } : current));
+          setItems((current) =>
+            current.map((item) => (item.origPath === data.origPath ? { ...item, bigName: data.bigName } : item))
+          );
+          setShowingItem((current) =>
+            current && current.origPath === data.origPath ? { ...current, bigName: data.bigName } : current
+          );
           setFlatView(false);
           setErrorMessage('');
-          setConversionProgress({ active: false, percent: 100, elapsedMs: Number(data.elapsedMs) || 0, etaMs: 0, status: 'done', message: 'Ready to play.' });
+          setConversionProgress({
+            active: false,
+            percent: 100,
+            elapsedMs: Number(data.elapsedMs) || 0,
+            etaMs: 0,
+            status: 'done',
+            message: 'Ready to play.',
+          });
           return;
         }
 
-        setConversionProgress({ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'error', message: data.message || 'Unable to convert video.' });
+        setConversionProgress({
+          active: false,
+          percent: 0,
+          elapsedMs: 0,
+          etaMs: null,
+          status: 'error',
+          message: data.message || 'Unable to convert video.',
+        });
         setErrorMessage(data.message || 'Unable to convert video.');
-      }
+      },
     };
 
     const subscriptions = Object.entries(handlers).map(([channel, listener]) => ({
       channel,
       listener,
-      unsubscribe: api.on(channel, listener)
+      unsubscribe: api.on(channel, listener),
     }));
 
     api.send('get-config', null);
@@ -182,7 +211,9 @@ function App() {
   };
 
   const toggleSelection = (index) => {
-    setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, selected: !item.selected } : item));
+    setItems((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, selected: !item.selected } : item))
+    );
   };
 
   const toggleSelectionAll = (selectAll) => {
@@ -215,7 +246,9 @@ function App() {
     const selectedItems = items.filter((entry, index) => entry.selected || (item && index === targetIndex));
 
     const confirmed = window.confirm(
-      item ? 'Delete this selected media item?' : `Delete ${selectedItems.length > 1 ? `${selectedItems.length} selected files` : 'this file'}?`
+      item
+        ? 'Delete this selected media item?'
+        : `Delete ${selectedItems.length > 1 ? `${selectedItems.length} selected files` : 'this file'}?`
     );
 
     if (!confirmed) return;
@@ -238,7 +271,14 @@ function App() {
 
   const convertCurrentVideo = () => {
     if (!showingItem || showingItem.type !== 'video' || !showingItem.origPath) return;
-    setConversionProgress({ active: true, percent: 0, elapsedMs: 0, etaMs: null, status: 'running', message: 'Starting conversion…' });
+    setConversionProgress({
+      active: true,
+      percent: 0,
+      elapsedMs: 0,
+      etaMs: null,
+      status: 'running',
+      message: 'Starting conversion…',
+    });
     setErrorMessage('');
     request('convert-video', { filePath: showingItem.origPath });
   };
@@ -254,13 +294,10 @@ function App() {
   };
 
   const viewerSrc = showingItem ? `${serverUrl}big/${encodeURIComponent(showingItem.bigName)}` : '';
-  const hasConvertedVideo = Boolean(showingItem && (
-    convertedVideos.has(showingItem.origPath)
-    || /-\d+-h264\.mp4$/i.test(showingItem.bigName || '')
-  ));
-  const updateFilenameVersion = updateInfo && updateInfo.filename_orig
-    ? updateInfo.filename_orig.split('_')[1]
-    : null;
+  const hasConvertedVideo = Boolean(
+    showingItem && (convertedVideos.has(showingItem.origPath) || /-\d+-h264\.mp4$/i.test(showingItem.bigName || ''))
+  );
+  const updateFilenameVersion = updateInfo && updateInfo.filename_orig ? updateInfo.filename_orig.split('_')[1] : null;
   const updateVersion = updateFilenameVersion
     ? updateFilenameVersion.replace(/\.[^.]+$/, '')
     : updateInfo?.filename_orig || 'latest';
@@ -291,13 +328,17 @@ function App() {
         onThumbnailSizeChange={setMaxSizePx}
       />
 
-      {errorMessage && (
-        <NoticeBanner kind="error" title={errorMessage} onDismiss={() => setErrorMessage('')} />
-      )}
+      {errorMessage && <NoticeBanner kind="error" title={errorMessage} onDismiss={() => setErrorMessage('')} />}
 
       {updateInfo && (
-        <NoticeBanner kind="update-notice" title={`New version available: v${updateVersion} (installed v${configData.version || '1.0.5'})`} onDismiss={() => setUpdateInfo(null)}>
-          <button type="button" className="primary-button" onClick={downloadUpdate}>Download update</button>
+        <NoticeBanner
+          kind="update-notice"
+          title={`New version available: v${updateVersion} (installed v${configData.version || '1.0.5'})`}
+          onDismiss={() => setUpdateInfo(null)}
+        >
+          <button type="button" className="primary-button" onClick={downloadUpdate}>
+            Download update
+          </button>
         </NoticeBanner>
       )}
 
@@ -312,13 +353,9 @@ function App() {
         />
       )}
 
-      {items.length === 0 && !loadingProgress.show && (
-        <EmptyLibraryState onOpenDir={() => request('open-dir', true)} />
-      )}
+      {items.length === 0 && !loadingProgress.show && <EmptyLibraryState onOpenDir={() => request('open-dir', true)} />}
 
-      {loadingProgress.show && (
-        <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />
-      )}
+      {loadingProgress.show && <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />}
 
       <MediaGrid
         items={items}
@@ -343,19 +380,27 @@ function App() {
           onOpenExternal={openExternalLink}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
-            const previousIndex = showingItem.index - 1;
-            if (items[previousIndex]) setShowingItem({ ...items[previousIndex], index: previousIndex });
+            if (items.length < 2) return;
+            const previousIndex = (showingItem.index - 1 + items.length) % items.length;
+            setShowingItem({ ...items[previousIndex], index: previousIndex });
           }}
           onNext={() => {
-            const nextIndex = showingItem.index + 1;
-            if (items[nextIndex]) setShowingItem({ ...items[nextIndex], index: nextIndex });
+            if (items.length < 2) return;
+            const nextIndex = (showingItem.index + 1) % items.length;
+            setShowingItem({ ...items[nextIndex], index: nextIndex });
           }}
         />
       )}
 
       {showSettings && (
         <div className="settings-overlay" onClick={() => setShowSettings(false)}>
-          <div className="settings-dialog" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Settings">
+          <div
+            className="settings-dialog"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Settings"
+          >
             <SettingsPanel
               cacheSize={cacheSize}
               checkUpdates={Boolean(configData.checkUpdates)}

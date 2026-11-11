@@ -13,7 +13,10 @@
   overflow: hidden;
   background: rgba(15, 23, 42, 0.82);
   cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
 .media-card:hover {
@@ -24,7 +27,9 @@
 
 .media-card.selected {
   border-color: rgba(56, 189, 248, 0.9);
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.45), 0 0 18px rgba(56, 189, 248, 0.24);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.45),
+    0 0 18px rgba(56, 189, 248, 0.24);
   background: rgba(14, 116, 144, 0.13);
 }
 

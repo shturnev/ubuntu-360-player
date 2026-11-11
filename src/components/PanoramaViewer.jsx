@@ -81,7 +81,8 @@ function createProgram(gl) {
   return program;
 }
 
-const VIDEO_CODEC_GUIDANCE = 'Check the file codecs with: ffprobe -v error -show_entries stream=codec_type,codec_name -of default=noprint_wrappers=1 input.mp4. On Ubuntu, try sudo apt install ubuntu-restricted-extras and restart the app. Electron may use its own codecs; if it still fails, convert to H.264/AVC + AAC: ffmpeg -i input.mp4 -c:v libx264 -pix_fmt yuv420p -c:a aac output.mp4.';
+const VIDEO_CODEC_GUIDANCE =
+  'Check the file codecs with: ffprobe -v error -show_entries stream=codec_type,codec_name -of default=noprint_wrappers=1 input.mp4. On Ubuntu, try sudo apt install ubuntu-restricted-extras and restart the app. Electron may use its own codecs; if it still fails, convert to H.264/AVC + AAC: ffmpeg -i input.mp4 -c:v libx264 -pix_fmt yuv420p -c:a aac output.mp4.';
 
 function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
   const mediaError = video.error;
@@ -93,9 +94,10 @@ function getVideoFailureMessage(video, playbackError, noVideoFrame = false) {
   }
 
   if (mediaCode === 3 || mediaCode === 4 || (playbackError && playbackError.name === 'NotSupportedError')) {
-    const reason = mediaCode === 3
-      ? 'The video decoder could not decode this file.'
-      : "This Electron/Chromium build does not support one of this MP4's codecs.";
+    const reason =
+      mediaCode === 3
+        ? 'The video decoder could not decode this file.'
+        : "This Electron/Chromium build does not support one of this MP4's codecs.";
     return `${reason} ${VIDEO_CODEC_GUIDANCE}${detail ? ` Browser detail: ${detail}` : ''}`;
   }
 
@@ -147,11 +149,11 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
       const duration = Number.isFinite(video.duration) ? video.duration : 0;
       const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
       const volume = Number.isFinite(video.volume) ? video.volume : 1;
-      setVideoProgress((current) => (
+      setVideoProgress((current) =>
         current.duration === duration && current.currentTime === currentTime && current.volume === volume
           ? current
           : { duration, currentTime, volume }
-      ));
+      );
     };
 
     video.addEventListener('loadedmetadata', syncVideoState);
@@ -264,7 +266,9 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
           needsImageUpload.current = false;
         } catch (error) {
-          setFailed(`360° viewing failed: ${error && error.message ? error.message : 'Unable to upload the media texture'}`);
+          setFailed(
+            `360° viewing failed: ${error && error.message ? error.message : 'Unable to upload the media texture'}`
+          );
         }
       };
 
@@ -384,7 +388,9 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         if (texture) gl.deleteTexture(texture);
       };
     } catch (error) {
-      setFailed(`360° viewing failed: ${error && error.message ? error.message : 'Unable to initialize the 360° viewer'}`);
+      setFailed(
+        `360° viewing failed: ${error && error.message ? error.message : 'Unable to initialize the 360° viewer'}`
+      );
       return () => {
         disposed = true;
         if (type === 'video') {
@@ -409,9 +415,12 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
     if (!video) return;
 
     if (video.paused) {
-      video.play()
+      video
+        .play()
         .then(() => setIsPlaying(true))
-        .catch((error) => setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`));
+        .catch((error) =>
+          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`)
+        );
     } else {
       video.pause();
       setIsPlaying(false);
@@ -462,27 +471,25 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
     return (
       <div className="panorama-fallback">
         <p role="status">{fallbackMessage}</p>
-        {type === 'video'
-          ? (
-            <>
-              <video controls autoPlay crossOrigin="anonymous" src={source} />
-              {onOpenExternal && (
-                <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
-                  FFmpeg downloads and documentation
-                </button>
-              )}
-            </>
-          )
-          : <img src={source} alt={alt} />}
+        {type === 'video' ? (
+          <>
+            <video controls autoPlay crossOrigin="anonymous" src={source} />
+            {onOpenExternal && (
+              <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
+                FFmpeg downloads and documentation
+              </button>
+            )}
+          </>
+        ) : (
+          <img src={source} alt={alt} />
+        )}
       </div>
     );
   }
 
   return (
     <div className="panorama-viewer">
-      {type === 'video' && (
-        <video ref={mediaRef} className="panorama-source" playsInline />
-      )}
+      {type === 'video' && <video ref={mediaRef} className="panorama-source" playsInline />}
       {type !== 'video' && <img ref={mediaRef} className="panorama-source" alt="" />}
       {type === 'video' && !videoReady && (
         <p className="panorama-message" role="status">
@@ -495,8 +502,12 @@ function PanoramaViewer({ source, type, alt, onOpenExternal, onConvertVideo, con
         className="panorama-canvas"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={() => { camera.current.drag = null; }}
-        onPointerCancel={() => { camera.current.drag = null; }}
+        onPointerUp={() => {
+          camera.current.drag = null;
+        }}
+        onPointerCancel={() => {
+          camera.current.drag = null;
+        }}
         onWheel={handleWheel}
       />
       {type === 'video' && (

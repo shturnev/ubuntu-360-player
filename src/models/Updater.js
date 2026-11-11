@@ -8,14 +8,14 @@ class Updater {
 
     const forSend = {
       action: 'file_get_last_in_album',
-      album_hash: configData.albumId
+      album_hash: configData.albumId,
     };
 
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: querystring.stringify(forSend),
-      redirect: 'error'
+      redirect: 'error',
     });
     const body = await response.text();
     const res = JSON.parse(body || '{}');
@@ -34,5 +34,5 @@ class Updater {
 module.exports = Updater;
 Object.defineProperty(module.exports, 'default', {
   value: Updater,
-  enumerable: false
+  enumerable: false,
 });

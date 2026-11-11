@@ -2,7 +2,7 @@ jest.mock('electron', () => {
   const { EventEmitter: MockEventEmitter } = require('events');
   return {
     contextBridge: { exposeInMainWorld: jest.fn() },
-    ipcRenderer: new MockEventEmitter()
+    ipcRenderer: new MockEventEmitter(),
   };
 });
 

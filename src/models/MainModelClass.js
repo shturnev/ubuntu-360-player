@@ -35,7 +35,10 @@ class MainModelClass {
     ipcMain.on('convert-video', async (event, payload) => {
       const inputPath = payload && payload.filePath ? payload.filePath : payload;
       if (!inputPath) {
-        event.reply('video-conversion-result', { success: false, message: 'No video file was provided for conversion.' });
+        event.reply('video-conversion-result', {
+          success: false,
+          message: 'No video file was provided for conversion.',
+        });
         return;
       }
 
@@ -43,7 +46,7 @@ class MainModelClass {
         const result = await Media.convertVideoFor360(inputPath, this.win);
         event.reply('video-conversion-result', {
           success: true,
-          ...result
+          ...result,
         });
       } catch (error) {
         const message = error && error.message ? error.message : 'Unable to convert this video for 360° playback.';
@@ -51,7 +54,7 @@ class MainModelClass {
         event.reply('video-conversion-result', {
           success: false,
           origPath: inputPath,
-          message
+          message,
         });
       }
     });
@@ -194,8 +197,14 @@ class MainModelClass {
       return;
     }
 
-    const smallDeleted = removeFilesHelper(path.join(this.static_dir, 'small'), items.map((item) => item.thumpName));
-    const bigDeleted = removeFilesHelper(path.join(this.static_dir, 'big'), items.map((item) => item.bigName));
+    const smallDeleted = removeFilesHelper(
+      path.join(this.static_dir, 'small'),
+      items.map((item) => item.thumpName)
+    );
+    const bigDeleted = removeFilesHelper(
+      path.join(this.static_dir, 'big'),
+      items.map((item) => item.bigName)
+    );
 
     if (!smallDeleted || !bigDeleted) {
       event.reply('delete-error', new Error('Unable to clear the selected cache files'));
@@ -225,5 +234,5 @@ function removeFilesHelper(dirPath, names) {
 module.exports = { MainModelClass, removeFilesHelper };
 Object.defineProperty(module.exports, 'default', {
   value: MainModelClass,
-  enumerable: false
+  enumerable: false,
 });

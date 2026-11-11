@@ -21,7 +21,7 @@ const allowedChannels = [
   'cache-size',
   'convert-video',
   'video-conversion-progress',
-  'video-conversion-result'
+  'video-conversion-result',
 ];
 
 contextBridge.exposeInMainWorld('shtVR', {
@@ -44,5 +44,5 @@ contextBridge.exposeInMainWorld('shtVR', {
   },
   async openExternal(url) {
     return ipcRenderer.invoke('open-external-url', url);
-  }
+  },
 });
