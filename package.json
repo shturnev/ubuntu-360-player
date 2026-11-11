@@ -24,7 +24,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "jest --runInBand",
-    "lint": "eslint . --ext .js,.jsx",
+    "lint": "eslint . --fix --ext .js,.jsx ",
     "electron:build": "npm run build && electron-builder --config electron-builder.json",
     "electron:dist": "electron-builder --config electron-builder.json --linux deb"
   },

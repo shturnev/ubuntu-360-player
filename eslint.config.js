@@ -35,6 +35,13 @@ module.exports = [
     rules: {
       'no-unused-vars': 'off',
       'no-undef': 'off',
+      'max-len': ['error', {
+        code: 180,
+        ignoreUrls: true,
+        ignoreStrings: true,
+        ignoreTemplateLiterals: true,
+        ignoreComments: true,
+      }],
     },
   },
 ];
