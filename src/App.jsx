@@ -7,7 +7,6 @@ import MediaGrid from './components/MediaGrid.jsx';
 import NoticeBanner from './components/NoticeBanner.jsx';
 import SelectionBar from './components/SelectionBar.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
-import ThumbnailSlider from './components/ThumbnailSlider.jsx';
 import ViewerOverlay from './components/ViewerOverlay.jsx';
 
 const EMPTY_PROGRESS = { show: false, total: 0, complete: 0 };
@@ -26,6 +25,7 @@ function App() {
   const [canSelect, setCanSelect] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
   const [conversionProgress, setConversionProgress] = useState({ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' });
   const [convertedVideos, setConvertedVideos] = useState(new Set());
 
@@ -202,6 +202,7 @@ function App() {
 
   useEffect(() => {
     if (items.length === 0) {
+      setSelectedPath('');
       setCanSelect(false);
       closeViewer();
     }
@@ -276,12 +277,18 @@ function App() {
     <div className="app-shell">
       <AppHeader
         version={configData.version || '1.0.5'}
+        selectedPath={selectedPath}
+        maxSizePx={maxSizePx}
+        sliderDisabled={items.length === 0}
         canOpenDir={canOpenDir}
         canSelectMedia={items.length > 0}
         showCloseViewer={Boolean(showingItem)}
+        showSettings={showSettings}
         onOpenDir={() => request('open-dir', true)}
         onToggleSelection={() => setCanSelect((value) => !value)}
         onCloseViewer={closeViewer}
+        onToggleSettings={() => setShowSettings((value) => !value)}
+        onThumbnailSizeChange={setMaxSizePx}
       />
 
       {errorMessage && (
@@ -308,8 +315,6 @@ function App() {
       {items.length === 0 && !loadingProgress.show && (
         <EmptyLibraryState onOpenDir={() => request('open-dir', true)} />
       )}
-
-      {selectedPath && <div className="path-label">{selectedPath}</div>}
 
       {loadingProgress.show && (
         <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />
@@ -348,15 +353,20 @@ function App() {
         />
       )}
 
-      <SettingsPanel
-        cacheSize={cacheSize}
-        checkUpdates={Boolean(configData.checkUpdates)}
-        onDeleteCache={deleteCache}
-        onUpdateSetting={updateCheckSetting}
-        onOpenExternal={openExternalLink}
-      />
-
-      <ThumbnailSlider value={maxSizePx} onChange={setMaxSizePx} disabled={items.length === 0} />
+      {showSettings && (
+        <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+          <div className="settings-dialog" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Settings">
+            <SettingsPanel
+              cacheSize={cacheSize}
+              checkUpdates={Boolean(configData.checkUpdates)}
+              onDeleteCache={deleteCache}
+              onUpdateSetting={updateCheckSetting}
+              onOpenExternal={openExternalLink}
+              onClose={() => setShowSettings(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

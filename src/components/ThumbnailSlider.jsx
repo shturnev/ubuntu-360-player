@@ -2,8 +2,7 @@ import './ThumbnailSlider.scss';
 
 function ThumbnailSlider({ value, onChange, disabled = false }) {
   return (
-    <div className="slider-wrap">
-      <label htmlFor="sizeRange">Thumbnail size</label>
+    <div className="slider-wrap" aria-label="Thumbnail size control">
       <input
         id="sizeRange"
         type="range"

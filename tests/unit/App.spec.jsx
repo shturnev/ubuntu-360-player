@@ -135,6 +135,22 @@ describe('App', () => {
     expect(api.send).toHaveBeenCalledWith('delete-selected', [media]);
   });
 
+  test('resets the folder label when the last media item is removed', () => {
+    renderApp();
+    act(() => {
+      listeners['open-dir']({}, '/tmp/media-library');
+      listeners['read-media-file']({}, media);
+    });
+
+    expect(container.querySelector('.path-label').textContent).toBe('/tmp/media-library');
+
+    act(() => {
+      listeners['file-deleted']({}, media);
+    });
+
+    expect(container.querySelector('.path-label').textContent).toBe('No folder selected');
+  });
+
   test('offers the update download using the configured download link and hash', () => {
     renderApp();
     act(() => {
