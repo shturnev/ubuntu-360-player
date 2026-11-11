@@ -159,12 +159,21 @@ describe('PanoramaViewer', () => {
     Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
     fireEvent(video, new Event('loadedmetadata'));
 
-    expect(screen.getByLabelText('Seek video playback')).toHaveAttribute('max', '123.5');
-    expect(screen.getByLabelText('Adjust video volume')).toHaveValue('0.45');
+    const seekControl = screen.getByLabelText('Seek video playback');
+    const volumeControl = screen.getByLabelText('Adjust video volume');
+    expect(seekControl).toHaveAttribute('max', '123.5');
+    expect(volumeControl).toHaveValue('0.45');
     expect(screen.getByText('0:12 / 2:03')).toBeInTheDocument();
+
+    fireEvent.change(seekControl, { target: { value: '75.5' } });
+    expect(video.currentTime).toBe(75.5);
+
+    fireEvent.change(volumeControl, { target: { value: '0' } });
+    expect(video.volume).toBe(0);
+    expect(video.muted).toBe(true);
   });
 
-  test('toggles full screen mode from the viewer controls', async () => {
+  test('toggles full screen mode from the video and viewer controls', async () => {
     const requestFullscreen = jest.fn();
     const exitFullscreen = jest.fn();
     Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true, writable: true });
@@ -173,9 +182,9 @@ describe('PanoramaViewer', () => {
 
     render(
       <ViewerOverlay
-        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
-        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
-        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        showingItem={{ type: 'video', bigName: 'clip-1000.mp4', index: 0 }}
+        items={[{ type: 'video', bigName: 'clip-1000.mp4', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/clip-1000.mp4"
         flatView={false}
         conversionProgress={{ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' }}
         hasConvertedVideo={false}
@@ -189,15 +198,16 @@ describe('PanoramaViewer', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+    const videoFullscreenButton = document.querySelector('.panorama-fullscreen');
+    fireEvent.click(videoFullscreenButton);
     expect(requestFullscreen).toHaveBeenCalledTimes(1);
 
     const panel = document.querySelector('.viewer-panel');
     Object.defineProperty(document, 'fullscreenElement', { value: panel, configurable: true, writable: true });
     fireEvent(document, new Event('fullscreenchange'));
-    expect(screen.getByRole('button', { name: 'Exit full screen' })).toBeInTheDocument();
+    expect(videoFullscreenButton).toHaveAttribute('aria-label', 'Exit full screen');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Exit full screen' }));
+    fireEvent.click(document.querySelector('.viewer-controls .fullscreen-button'));
     expect(exitFullscreen).toHaveBeenCalledTimes(1);
   });
 

@@ -78,50 +78,153 @@
 
 .panorama-video-controls {
   position: absolute;
-  left: 1rem;
-  right: 1rem;
-  bottom: 1rem;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 12px;
-  background: rgba(2, 6, 23, 0.8);
-  backdrop-filter: blur(4px);
+  gap: 0.25rem;
+  padding: 1.25rem 1rem 0.65rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.92));
 }
 
 .panorama-video-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.65rem;
+  min-height: 1.5rem;
 }
 
 .panorama-video-time {
-  color: #fff;
-  font-size: 0.85rem;
-  letter-spacing: 0.04em;
+  color: #f8fafc;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
-.panorama-video-sliders {
+.panorama-video-spacer {
+  flex: 1;
+}
+
+.panorama-play,
+.panorama-fullscreen {
   display: grid;
-  gap: 0.5rem;
-}
-
-.panorama-video-sliders input[type='range'] {
-  width: 100%;
-  accent-color: #60a5fa;
-}
-
-.panorama-play {
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  background: $bg-surface;
-  color: #fff;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
   cursor: pointer;
+}
+
+.panorama-play svg,
+.panorama-fullscreen svg,
+.panorama-video-toolbar > svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.panorama-video-toolbar > svg {
+  flex: 0 0 auto;
+}
+
+.panorama-play:focus-visible,
+.panorama-fullscreen:focus-visible,
+.panorama-video-controls input:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.panorama-video-controls input[type='range'] {
+  flex: 0 0 auto;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.panorama-video-controls input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: #858585;
+}
+
+.panorama-video-controls input[type='range']::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -3.5px;
+  appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: #f8fafc;
+}
+
+.panorama-video-controls input[type='range']::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: #858585;
+}
+
+.panorama-video-controls input[type='range']::-moz-range-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: #f8fafc;
+}
+
+.panorama-video-controls input[type='range']::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: #f8fafc;
+}
+
+.panorama-video-seek {
+  width: 100%;
+}
+
+.panorama-video-seek::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, #f8fafc 0 var(--progress), #858585 var(--progress) 100%) !important;
+}
+
+.panorama-video-volume {
+  width: 0;
+  opacity: 0;
+  transition:
+    width 120ms ease,
+    opacity 120ms ease;
+}
+
+.panorama-video-controls:hover .panorama-video-volume,
+.panorama-video-controls:focus-within .panorama-video-volume {
+  width: 5rem;
+  opacity: 1;
+}
+
+@media (max-width: 520px) {
+  .panorama-video-controls {
+    padding: 1rem 0.65rem 0.5rem;
+  }
+
+  .panorama-video-toolbar {
+    gap: 0.45rem;
+  }
+
+  .panorama-video-time {
+    font-size: 0.7rem;
+  }
+
+  .panorama-video-controls:hover .panorama-video-volume,
+  .panorama-video-controls:focus-within .panorama-video-volume {
+    width: 3.5rem;
+  }
 }
 
 .panorama-message {

@@ -164,6 +164,41 @@ describe('App', () => {
     jest.useRealTimers();
   });
 
+  test('keeps the selected folder path while a subsequent import is loading', () => {
+    jest.useFakeTimers();
+
+    try {
+      renderApp();
+      act(() => {
+        listeners['open-dir']({}, '/tmp/first-library');
+        listeners['start-read-dir']({}, 1);
+        listeners['read-media-file']({}, media);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+
+      const nextMedia = { ...media, thumpName: 'next.jpg', bigName: 'next-1000.jpg' };
+      act(() => {
+        listeners['open-dir']({}, '/tmp/second-library');
+        listeners['start-read-dir']({}, 1);
+      });
+
+      expect(container.querySelector('.path-label').textContent).toBe('/tmp/second-library');
+
+      act(() => {
+        listeners['read-media-file']({}, nextMedia);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+
+      expect(container.querySelector('.path-label').textContent).toBe('/tmp/second-library');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('deletes the item requested from the viewer even if it was not selected first', () => {
     renderApp();
     loadMedia();

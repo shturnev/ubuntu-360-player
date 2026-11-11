@@ -162,6 +162,8 @@ function ViewerOverlay({
             onOpenExternal={onOpenExternal}
             onConvertVideo={onConvertVideo}
             conversionProgress={conversionProgress}
+            onToggleFullscreen={toggleFullscreen}
+            isFullscreen={isFullscreen}
           />
         )}
         {showingItem.type === 'video' && conversionProgress?.active && (
