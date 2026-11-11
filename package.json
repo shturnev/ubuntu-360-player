@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
     "express": "^4.17.1",
     "get-folder-size": "^2.0.1",
     "gm": "^1.23.1",

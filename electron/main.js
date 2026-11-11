@@ -1,4 +1,8 @@
 const path = require('path');
+const { loadProjectDotenv, getCandidatePorts, normalizePort } = require('../src/config/env');
+
+loadProjectDotenv();
+
 const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { MainModelClass } = require('../src/models/MainModelClass');
 
@@ -9,7 +13,8 @@ let reactDevtoolsMenuItem;
 let appModel;
 
 async function loadDevelopmentUrl() {
-  const candidatePorts = [5173, 5174, 5175, 5176, 5177];
+  const basePort = normalizePort(process.env.DEV_SERVER_PORT, { defaultPort: 5173, portName: 'DEV_SERVER_PORT' });
+  const candidatePorts = getCandidatePorts(basePort);
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
     for (const port of candidatePorts) {
@@ -34,7 +39,8 @@ async function loadDevelopmentUrl() {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
-  throw new Error('Unable to find the Vite development server on ports 5173-5177');
+  const rangeEnd = basePort + 4;
+  throw new Error(`Unable to find the Vite development server on ports ${basePort}-${rangeEnd}`);
 }
 
 async function createReactDevtoolsWindow() {

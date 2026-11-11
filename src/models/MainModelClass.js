@@ -4,12 +4,13 @@ const cors = require('cors');
 const path = require('path');
 const { dialog, ipcMain } = require('electron');
 
+const { getStorageRoot } = require('../config/env');
 const { Helper } = require('./Helper');
 const { Media } = require('./Media');
 const ConfigModel = require('./ConfigModel');
 const Updater = require('./Updater');
 
-const homedir = (process.env.SHT_VR_HOME || process.env.HOME || require('os').homedir()) + '/.sht-vr-player';
+const homedir = getStorageRoot();
 const clr = require('cli-color');
 const trash = require('trash');
 const getFolderSize = require('get-folder-size');
