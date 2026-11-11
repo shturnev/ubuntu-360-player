@@ -232,12 +232,12 @@ function App() {
   };
 
   useEffect(() => {
-    if (items.length === 0) {
+    if (items.length === 0 && !loadingProgress.show) {
       setSelectedPath('');
       setCanSelect(false);
       closeViewer();
     }
-  }, [items.length]);
+  }, [items.length, loadingProgress.show]);
 
   const handleDelete = (item = null) => {
     const targetIndex = item
