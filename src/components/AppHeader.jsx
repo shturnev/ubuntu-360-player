@@ -40,7 +40,7 @@ function AppHeader({
     <header className="topbar">
       <div className="topbar-row">
         <div className="title-group">
-          <span className="app-name">sht-vr-player</span>
+          <span className="app-name">360 Media Viewer</span>
           <span className="version">v{version || '1.0.5'}</span>
         </div>
 

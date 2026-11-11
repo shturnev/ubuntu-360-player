@@ -1,4 +1,4 @@
-# Copilot instructions for sht-vr-player
+# Copilot instructions for 360 Media Viewer
 
 ## Project overview
 

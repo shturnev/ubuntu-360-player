@@ -1,5 +1,5 @@
 {
-  "productName": "sht-vr-player",
+  "productName": "360 Media Viewer",
   "appId": "cf.sht-vr-player",
   "directories": {
     "buildResources": "build_resources",
@@ -19,8 +19,8 @@
     ],
     "category": "Graphics",
     "icon": "build_resources",
-    "synopsis": "Player for those who are in love with VR.",
-    "description": "I love VR (360 degrees) photography, but after a long search I have not found a normal software for linux, to view vr photos and videos. And if that's the case, then it's time to fix it : )"
+    "synopsis": "360-degree media viewer for Linux.",
+    "description": "Browse and view 360-degree photos and videos on Linux."
   },
   "deb": {
     "depends": [

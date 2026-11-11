@@ -27,7 +27,7 @@ async function loadDevelopmentUrl() {
         }
 
         const html = await response.text();
-        if (html.includes('sht-vr-player') || html.includes('vite/client') || html.includes('/src/main.jsx')) {
+        if (html.includes('360 Media Viewer') || html.includes('vite/client') || html.includes('/src/main.jsx')) {
           await mainWindow.loadURL(url);
           return;
         }

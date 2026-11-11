@@ -20,7 +20,7 @@ describe('Updater', () => {
   test('returns payload when remote version differs', async () => {
     const response = {
       data: {
-        filename_orig: 'sht-vr-player_1.0.6.tar.gz',
+        filename_orig: '360-media-viewer_1.0.6.tar.gz',
         hash: 'abc123'
       }
     };
