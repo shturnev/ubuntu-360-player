@@ -151,6 +151,18 @@ describe('App', () => {
     expect(container.querySelector('.path-label').textContent).toBe('No folder selected');
   });
 
+  test('encodes media file names with spaces in thumbnail and viewer URLs', () => {
+    media = { type: 'image', thumpName: 'space photo.jpg', bigName: 'space photo-1000.jpg' };
+    renderApp();
+    loadMedia();
+
+    const thumb = container.querySelector('.thumb');
+    expect(thumb.style.backgroundImage).toContain(encodeURIComponent(media.thumpName));
+
+    click(container.querySelector('.media-card'));
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(`http://localhost:3000/big/${encodeURIComponent(media.bigName)}`);
+  });
+
   test('offers the update download using the configured download link and hash', () => {
     renderApp();
     act(() => {

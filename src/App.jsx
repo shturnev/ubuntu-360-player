@@ -253,7 +253,7 @@ function App() {
     }
   };
 
-  const viewerSrc = showingItem ? `${serverUrl}big/${showingItem.bigName}` : '';
+  const viewerSrc = showingItem ? `${serverUrl}big/${encodeURIComponent(showingItem.bigName)}` : '';
   const hasConvertedVideo = Boolean(showingItem && (
     convertedVideos.has(showingItem.origPath)
     || /-\d+-h264\.mp4$/i.test(showingItem.bigName || '')
