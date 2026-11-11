@@ -18,7 +18,8 @@
       "deb"
     ],
     "category": "Graphics",
-    "icon": "build_resources",
+    "icon": "build_resources/icon/png",
+    "syncDesktopName": true,
     "synopsis": "360-degree media viewer for Linux.",
     "description": "Browse and view 360-degree photos and videos on Linux."
   },

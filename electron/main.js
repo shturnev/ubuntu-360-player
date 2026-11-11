@@ -7,6 +7,9 @@ const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { MainModelClass } = require('../src/models/MainModelClass');
 
 const isDevelopment = !app.isPackaged;
+if (process.platform === 'linux') {
+  app.setDesktopName('360-media-viewer');
+}
 let mainWindow;
 let reactDevtoolsWindow;
 let reactDevtoolsMenuItem;
@@ -103,6 +106,9 @@ async function createWindow() {
     minWidth: 900,
     minHeight: 640,
     backgroundColor: '#0b1220',
+    ...(isDevelopment && {
+      icon: path.join(__dirname, '../build_resources/icon/png/icon.png')
+    }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

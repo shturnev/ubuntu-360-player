@@ -17,6 +17,7 @@
     "vrreality"
   ],
   "main": "electron/main.js",
+  "desktopName": "360-media-viewer",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 0.0.0.0",
