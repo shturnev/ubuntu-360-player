@@ -1,0 +1,12 @@
+@use './styles/variables' as *;
+
+.app-shell {
+  min-height: 100vh;
+  background: linear-gradient(180deg, $bg-gradient-start 0%, $bg-gradient-end 100%);
+  padding: 1rem 1.25rem 2rem;
+}
+
+.path-label {
+  color: $text-secondary;
+  margin-bottom: 0.75rem;
+}

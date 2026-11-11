@@ -1,53 +1,49 @@
-import da from "quasar/lang/da";
-
-const fs = require("fs");
-import baseConfig from "../../project.config";
-const homePath = require('os').homedir() + '/.sht-vr-player';
-import _ from 'lodash';
+const fs = require('fs');
+const _ = require('lodash');
+const baseConfig = require('../../project.config');
+const { getStorageRoot } = require('../config/env');
+const homePath = getStorageRoot();
 
 class ConfigModel {
-
   constructor() {
-    if(!homePath){throw new Error("No home path specified")}
-    this.configPath = homePath + "/config.json";
+    if (!homePath) throw new Error('No home path specified');
+    this.configPath = homePath + '/config.json';
   }
 
-  /**
-   * Save (load) settings into file
-   *
-   * @param  settingsObj - data (object) for save
-   */
-  loadSettings(settingsObj){
-    if(!settingsObj){ return true; }
-    if (!this.configPath){throw new Error("Could not store the settings. Config path did not specified")}
+  loadSettings(settingsObj) {
+    if (!settingsObj) return true;
+    if (!this.configPath) {
+      throw new Error('Could not store the settings. Config path did not specified');
+    }
 
-    //write to file
-    let res = fs.writeFileSync(this.configPath, JSON.stringify(settingsObj));
-    return res === undefined
+    const serializable = Object.fromEntries(
+      Object.entries(settingsObj).filter(([key]) => key !== 'default' && key !== '__esModule')
+    );
+    fs.writeFileSync(this.configPath, JSON.stringify(serializable));
+    return true;
   }
 
-  /**
-   * Get settings from file, if not exists then global
-   */
-  getSettings(){
-    if(!fs.existsSync(this.configPath)){
-      this.loadSettings(baseConfig, );
-      return baseConfig;
+  getSettings() {
+    if (!fs.existsSync(this.configPath)) {
+      this.loadSettings(baseConfig);
+      return { ...baseConfig };
     }
 
     let data = fs.readFileSync(this.configPath, 'utf8');
     data = JSON.parse(data);
 
-    //update old settings (after installing updated version)
-    if(data.version !== baseConfig.version){
+    if (data.version !== baseConfig.version) {
       data.version = baseConfig.version;
-      data = _.merge(data, baseConfig);
+      data = _.merge({}, baseConfig, data);
       this.loadSettings(data);
     }
 
     return data;
   }
-
 }
 
-export default ConfigModel;
+module.exports = ConfigModel;
+Object.defineProperty(module.exports, 'default', {
+  value: ConfigModel,
+  enumerable: false
+});

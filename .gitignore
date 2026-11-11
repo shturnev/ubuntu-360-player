@@ -3,8 +3,10 @@ node_modules
 /dist
 
 # local env files
+.env
 .env.local
 .env.*.local
+!.env.example
 
 # Log files
 npm-debug.log*
@@ -22,3 +24,6 @@ yarn-error.log*
 
 #Electron-builder output
 /dist_electron
+
+# Local prompts
+/prompts/

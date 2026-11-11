@@ -1,0 +1,28 @@
+@use './variables' as *;
+@use './mixins' as *;
+
+.primary-button,
+.ghost-button,
+.selection-bar button,
+.close-viewer,
+.viewer-controls button {
+  @include button-shell;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, $accent, $accent-strong);
+  border-color: transparent;
+}
+
+.primary-button:hover,
+.ghost-button:hover,
+.selection-bar button:hover,
+.close-viewer:hover,
+.viewer-controls button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button.large {
+  font-size: 1rem;
+  padding: 0.9rem 1.2rem;
+}

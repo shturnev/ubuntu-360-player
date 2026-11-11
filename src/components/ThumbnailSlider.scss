@@ -1,0 +1,12 @@
+@use '../styles/variables' as *;
+
+.slider-wrap {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.slider-wrap input {
+  width: 100%;
+}

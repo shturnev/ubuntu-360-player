@@ -2,28 +2,28 @@
   "productName": "sht-vr-player",
   "appId": "cf.sht-vr-player",
   "directories": {
-    "buildResources": "build_resources"
+    "buildResources": "build_resources",
+    "output": "dist_electron"
   },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "src/config/**/*",
+    "src/models/**/*",
+    "project.config.js",
+    "package.json"
+  ],
   "linux": {
     "target": [
       "deb"
     ],
-    "icon": "icon/png",
-    "synopsis": "Player for those who are in love with VR.",
     "category": "Graphics",
+    "icon": "build_resources",
+    "synopsis": "Player for those who are in love with VR.",
     "description": "I love VR (360 degrees) photography, but after a long search I have not found a normal software for linux, to view vr photos and videos. And if that's the case, then it's time to fix it : )"
   },
   "deb": {
     "depends": [
-      "ffmpeg",
-      "graphicsmagick"
-    ]
-  },
-  "snap": {
-    "confinement": "classic",
-    "stagePackages": [
-      "libnss3",
-      "libxss1",
       "ffmpeg",
       "graphicsmagick"
     ]
