@@ -172,7 +172,7 @@ describe('App', () => {
         downloadLink: 'https://downloads.example/#/file/'
       });
       listeners['need-to-update']({}, {
-        filename_orig: 'sht-vr-player_1.0.6.deb',
+        filename_orig: '360-media-viewer_1.0.6.deb',
         hash: 'abc123'
       });
     });

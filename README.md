@@ -1,4 +1,4 @@
-## Hello, this is a 360-media-player for Linux (for you)!
+## Hello, this is 360 Media Viewer for Linux!
 > At the moment, it is a strong word. Because at now it’s only for Debian-like distributions. But this is cool too, right? And over time, we will do porting for other popular Linux distributions.
 
 ## Modern Electron + React build
@@ -27,7 +27,7 @@ cp .env.example .env
 Supported variables:
 
 - `DEV_SERVER_PORT` — base port for the Vite dev server. The app probes up to 5 ports starting at this value (for example `5173` to `5177` by default). Invalid values fail fast with a descriptive error.
-- `SHT_VR_HOME` — optional override for the app data root. The application uses `<SHT_VR_HOME>/.sht-vr-player` as the storage root and falls back to `HOME`/`os.homedir()` when it is unset.
+- `SHT_VR_HOME` — optional override for the app data root. The application uses `<SHT_VR_HOME>/.sht-vr-player` as the storage root and falls back to `HOME`/`os.homedir()` when it is unset. The storage directory name remains unchanged to preserve existing user data.
 
 The repo keeps `.env` and local variants ignored, while `.env.example` remains tracked and safe to commit.
 
@@ -50,7 +50,7 @@ npm run electron:build
 - `npm run electron:dist` — packages the app as a Linux `.deb`. This command does not build the renderer, so run `npm run build` first to include the latest renderer changes.
 
 ## Why?
-It's straightforward, I love 360-photo and 360-video, and I even have a camera for this, and I also like linux... it's all great, but in order to watch my (or your) cool 360’s I had to switch to windows, which is at least not user-friendly! And the search for suitable software did not materialize. Well, enough to endure it – I decided and started developing this application. So **360-media-player** appeared, and I hope that it will be useful to you as well as to me. 
+It's straightforward: I love 360 photos and videos, and I also like Linux. To view them, I had to switch to Windows, so I started developing this application. That is how **360 Media Viewer** began, and I hope it will be useful to you too.
 
 [//]: # (### Where can I download?)
 
@@ -67,7 +67,7 @@ It's straightforward, I love 360-photo and 360-video, and I even have a camera f
 - Ability to view exif information. (date / time / location, etc.)
 - Ability to edit photos. Horizon alignment (a vital feature, as for me)
 - Ability to take screenshot of the panorama area
-- Display ordinary photo and video, not 360. To be able to use, including as a regular media-player.
+- Display ordinary photos and videos, not just 360-degree media.
 - Support for other formats:
     - insta360
     - gopro
@@ -79,7 +79,7 @@ It's straightforward, I love 360-photo and 360-video, and I even have a camera f
 
 * If you are a designer, you can help with the visual design. Help is needed in the design of [sht-360-player.cf](https://sht-360-player.cf), and the interface in the application.
 
-* And if you are like a programmer, then 360-media-player is open to your code. It is created under the open MIT license, and you can safely make your changes (I'm waiting for your pull-requests).
+* If you are a programmer, 360 Media Viewer is open to your contributions under the MIT license. Pull requests are welcome.
   
 
 ## Are you in touch?

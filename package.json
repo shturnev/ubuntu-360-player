@@ -1,18 +1,18 @@
 {
   "version": "2.0.0",
-  "name": "360-media-player",
+  "name": "360-media-viewer",
   "author": "Shturnev Sergii <sergii@shturnev.com>",
   "license": "MIT",
   "private": true,
   "repository": "https://github.com/shturnev/ubuntu-360-player",
-  "description": "360 media player for desktop Linux with Electron and React",
+  "description": "360 media viewer for desktop Linux with Electron and React",
   "homepage": "tbd",
   "keywords": [
     "vr",
     "360",
-    "360 media player",
-    "vr-player",
-    "vrplayer",
+    "360 media viewer",
+    "360-media-viewer",
+    "vr-viewer",
     "panorama",
     "vrreality"
   ],
