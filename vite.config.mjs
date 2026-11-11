@@ -16,7 +16,7 @@ const reactDevtoolsPlugin = {
   name: 'react-devtools-client',
   apply: 'serve',
   transformIndexHtml(html) {
-    const cspPattern = /(<meta http-equiv="Content-Security-Policy" content=")([^"]+)(" \/>)/;
+    const cspPattern = /(<meta\s+http-equiv="Content-Security-Policy"\s+content=")([^"]+)("\s*\/>)/;
     const entryScript = '<script type="module" src="/src/main.jsx"></script>';
     const devtoolsScript = '<script src="http://localhost:8097"></script>';
 
