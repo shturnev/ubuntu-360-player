@@ -18,7 +18,7 @@ class Media {
       type: 'image',
       origPath: filePath,
       thumpName,
-      bigName: newFileName
+      bigName: newFileName,
     };
 
     try {
@@ -26,12 +26,15 @@ class Media {
       if (win && win.webContents) win.webContents.send('read-media-file', res);
       return res;
     } catch (e) {
-      gm(filePath).resize(450).autoOrient().write(thumpPath, (err) => {
-        if (err) {
-          res.error = err;
-        }
-        if (win && win.webContents) win.webContents.send('read-media-file', res);
-      });
+      gm(filePath)
+        .resize(450)
+        .autoOrient()
+        .write(thumpPath, (err) => {
+          if (err) {
+            res.error = err;
+          }
+          if (win && win.webContents) win.webContents.send('read-media-file', res);
+        });
       return res;
     }
   }
@@ -47,7 +50,7 @@ class Media {
       type: 'video',
       origPath: filePath,
       thumpName,
-      bigName: newFileName
+      bigName: newFileName,
     };
 
     try {
@@ -55,34 +58,42 @@ class Media {
       if (win && win.webContents) win.webContents.send('read-media-file', res);
       return res;
     } catch (e) {
-      execFile('ffmpeg', ['-i', filePath, '-s', '450x225', '-vframes', '1', thumpPath, '-y'], (error, stdout, stderr) => {
-        if (error) {
-          res.error = error;
+      execFile(
+        'ffmpeg',
+        ['-i', filePath, '-s', '450x225', '-vframes', '1', thumpPath, '-y'],
+        (error, stdout, stderr) => {
+          if (error) {
+            res.error = error;
+          }
+          if (stderr && stderr.search('deprecated pixel format used') === -1) {
+            res.error = { message: stderr };
+          }
+          if (win && win.webContents) win.webContents.send('read-media-file', res);
         }
-        if (stderr && stderr.search('deprecated pixel format used') === -1) {
-          res.error = { message: stderr };
-        }
-        if (win && win.webContents) win.webContents.send('read-media-file', res);
-      });
+      );
       return res;
     }
   }
 
   static probeVideo(filePath) {
     return new Promise((resolve, reject) => {
-      execFile('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', filePath], (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
+      execFile(
+        'ffprobe',
+        ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', filePath],
+        (error, stdout) => {
+          if (error) {
+            reject(error);
+            return;
+          }
 
-        try {
-          const parsed = JSON.parse(stdout || '{}');
-          resolve(parsed);
-        } catch (parseError) {
-          reject(parseError);
+          try {
+            const parsed = JSON.parse(stdout || '{}');
+            resolve(parsed);
+          } catch (parseError) {
+            reject(parseError);
+          }
         }
-      });
+      );
     });
   }
 
@@ -105,16 +116,23 @@ class Media {
           }
 
           const ffmpegArgs = [
-            '-i', filePath,
-            '-map', '0:v:0',
+            '-i',
+            filePath,
+            '-map',
+            '0:v:0',
             ...(audioStreams.length ? ['-map', '0:a:0'] : []),
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac',
-            '-movflags', '+faststart',
-            '-progress', 'pipe:1',
+            '-c:v',
+            'libx264',
+            '-pix_fmt',
+            'yuv420p',
+            '-c:a',
+            'aac',
+            '-movflags',
+            '+faststart',
+            '-progress',
+            'pipe:1',
             '-nostats',
-            outputPath
+            outputPath,
           ];
 
           const startedAt = Date.now();
@@ -128,7 +146,7 @@ class Media {
                 origPath: filePath,
                 bigName: outputName,
                 filePath,
-                outputPath
+                outputPath,
               });
             }
           };
@@ -145,7 +163,7 @@ class Media {
               percent: Number(safePercent.toFixed(1)),
               elapsedMs,
               etaMs,
-              message
+              message,
             });
           };
 
@@ -162,7 +180,7 @@ class Media {
               percent: 0,
               elapsedMs: Date.now() - startedAt,
               etaMs: null,
-              message
+              message,
             });
             reject(new Error(message));
           };
@@ -172,7 +190,12 @@ class Media {
             outputText += text;
             const progress = parseFfmpegProgress(text, duration, startedAt);
             if (progress) {
-              updateProgress(progress.percent, progress.elapsedMs, progress.etaMs, 'Converting video for 360° playback…');
+              updateProgress(
+                progress.percent,
+                progress.elapsedMs,
+                progress.etaMs,
+                'Converting video for 360° playback…'
+              );
             }
           });
 
@@ -181,11 +204,18 @@ class Media {
             outputText += text;
             const progress = parseFfmpegProgress(text, duration, startedAt);
             if (progress) {
-              updateProgress(progress.percent, progress.elapsedMs, progress.etaMs, 'Converting video for 360° playback…');
+              updateProgress(
+                progress.percent,
+                progress.elapsedMs,
+                progress.etaMs,
+                'Converting video for 360° playback…'
+              );
             }
           });
 
-          child.on('error', (error) => finalizeFailure(error && error.message ? error.message : 'ffmpeg is not available.'));
+          child.on('error', (error) =>
+            finalizeFailure(error && error.message ? error.message : 'ffmpeg is not available.')
+          );
           child.on('close', (code) => {
             if (conversionDone) return;
             conversionDone = true;
@@ -216,7 +246,7 @@ class Media {
                 percent: 100,
                 elapsedMs,
                 etaMs: 0,
-                message: 'Converted for 360° playback.'
+                message: 'Converted for 360° playback.',
               });
 
               resolve({
@@ -226,7 +256,7 @@ class Media {
                 outputPath,
                 percent: 100,
                 elapsedMs,
-                etaMs: 0
+                etaMs: 0,
               });
             } catch (error) {
               finalizeFailure(error && error.message ? error.message : 'Unable to save the converted video.');
@@ -240,7 +270,7 @@ class Media {
               success: false,
               origPath: filePath,
               bigName: outputName,
-              message
+              message,
             });
           }
           reject(error);
@@ -261,7 +291,10 @@ function parseFfmpegProgress(text, durationSeconds, startedAtMs) {
     const totalSeconds = Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
     const durationMs = durationSeconds > 0 ? Number(durationSeconds) * 1000 : null;
     const percent = durationMs ? Math.max(0, Math.min(100, (totalSeconds / (durationSeconds || 1)) * 100)) : null;
-    const etaMs = durationMs && totalSeconds > 0 ? Math.max(0, Math.round((durationMs - totalSeconds * 1000) * (elapsedMs / Math.max(totalSeconds * 1000, 1)))) : null;
+    const etaMs =
+      durationMs && totalSeconds > 0
+        ? Math.max(0, Math.round((durationMs - totalSeconds * 1000) * (elapsedMs / Math.max(totalSeconds * 1000, 1))))
+        : null;
     return { percent: percent ?? 0, elapsedMs, etaMs };
   }
 
@@ -269,7 +302,10 @@ function parseFfmpegProgress(text, durationSeconds, startedAtMs) {
     const outTimeMs = Number(outTimeMatch[1]);
     const durationMs = durationSeconds > 0 ? Number(durationSeconds) * 1000 : null;
     const percent = durationMs ? Math.max(0, Math.min(100, (outTimeMs / durationMs) * 100)) : null;
-    const etaMs = durationMs && outTimeMs > 0 ? Math.max(0, Math.round((durationMs - outTimeMs) * (elapsedMs / Math.max(outTimeMs, 1)))) : null;
+    const etaMs =
+      durationMs && outTimeMs > 0
+        ? Math.max(0, Math.round((durationMs - outTimeMs) * (elapsedMs / Math.max(outTimeMs, 1))))
+        : null;
     return { percent: percent ?? 0, elapsedMs, etaMs };
   }
 
@@ -331,5 +367,5 @@ function getNewFileName(origPath) {
 module.exports = { Media };
 Object.defineProperty(module.exports, 'default', {
   value: Media,
-  enumerable: false
+  enumerable: false,
 });

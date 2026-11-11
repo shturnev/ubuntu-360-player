@@ -56,7 +56,10 @@
   background: rgba(15, 23, 42, 0.7);
   color: $text-primary;
   cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .icon-button:hover:not(:disabled) {

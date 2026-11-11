@@ -1,5 +1,6 @@
 const js = require('@eslint/js');
 const globals = require('globals');
+const eslintConfigPrettier = require('eslint-config-prettier/flat');
 
 module.exports = [
   {
@@ -35,13 +36,17 @@ module.exports = [
     rules: {
       'no-unused-vars': 'off',
       'no-undef': 'off',
-      'max-len': ['error', {
-        code: 180,
-        ignoreUrls: true,
-        ignoreStrings: true,
-        ignoreTemplateLiterals: true,
-        ignoreComments: true,
-      }],
+      'max-len': [
+        'error',
+        {
+          code: 180,
+          ignoreUrls: true,
+          ignoreStrings: true,
+          ignoreTemplateLiterals: true,
+          ignoreComments: true,
+        },
+      ],
     },
   },
+  eslintConfigPrettier,
 ];

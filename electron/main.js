@@ -64,8 +64,8 @@ async function createReactDevtoolsWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      webSecurity: true
-    }
+      webSecurity: true,
+    },
   });
 
   reactDevtoolsWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
@@ -107,7 +107,7 @@ async function createWindow() {
     minHeight: 640,
     backgroundColor: '#0b1220',
     ...(isDevelopment && {
-      icon: path.join(__dirname, '../build_resources/icon/png/icon.png')
+      icon: path.join(__dirname, '../build_resources/icon/png/icon.png'),
     }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -115,8 +115,8 @@ async function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      devTools: isDevelopment
-    }
+      devTools: isDevelopment,
+    },
   });
 
   if (isDevelopment) {
@@ -155,7 +155,7 @@ app.whenReady().then(async () => {
     { role: 'zoomIn' },
     { role: 'zoomOut' },
     { type: 'separator' },
-    { role: 'togglefullscreen' }
+    { role: 'togglefullscreen' },
   ];
 
   if (isDevelopment) {
@@ -175,7 +175,7 @@ app.whenReady().then(async () => {
           } else if (reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()) {
             reactDevtoolsWindow.close();
           }
-        }
+        },
       }
     );
   }
@@ -185,7 +185,7 @@ app.whenReady().then(async () => {
     { role: 'editMenu' },
     { label: 'View', submenu: viewMenu },
     { role: 'windowMenu' },
-    { role: 'help' }
+    { role: 'help' },
   ]);
   reactDevtoolsMenuItem = menu.getMenuItemById('react-devtools-toggle');
   Menu.setApplicationMenu(menu);

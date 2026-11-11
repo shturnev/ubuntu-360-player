@@ -4,7 +4,7 @@ const path = require('path');
 
 jest.mock('electron', () => ({
   dialog: { showOpenDialogSync: jest.fn() },
-  ipcMain: { on: jest.fn() }
+  ipcMain: { on: jest.fn() },
 }));
 
 const { dialog } = require('electron');
@@ -44,13 +44,15 @@ describe('MainModelClass', () => {
     fs.writeFileSync(bigFile, 'big');
     fs.writeFileSync(originalFile, 'image');
 
-    const payload = [{
-      thumpName: 'thumb.png',
-      bigName: 'big.png',
-      origPath: originalFile,
-      selected: true,
-      type: 'image'
-    }];
+    const payload = [
+      {
+        thumpName: 'thumb.png',
+        bigName: 'big.png',
+        origPath: originalFile,
+        selected: true,
+        type: 'image',
+      },
+    ];
 
     const result = mainModelClass.deleteSelected(payload);
     expect(result).toBe(true);

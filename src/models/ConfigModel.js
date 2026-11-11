@@ -45,5 +45,5 @@ class ConfigModel {
 module.exports = ConfigModel;
 Object.defineProperty(module.exports, 'default', {
   value: ConfigModel,
-  enumerable: false
+  enumerable: false,
 });

@@ -3,9 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { StrictMode } from 'react';
 import App from '../../src/App.jsx';
 
-jest.mock('../../src/PanoramaViewer.jsx', () => function PanoramaViewer({ source, type }) {
-  return <div data-testid="panorama-viewer" data-source={source} data-type={type} />;
-});
+jest.mock(
+  '../../src/PanoramaViewer.jsx',
+  () =>
+    function PanoramaViewer({ source, type }) {
+      return <div data-testid="panorama-viewer" data-source={source} data-type={type} />;
+    }
+);
 
 describe('App', () => {
   let container;
@@ -26,7 +30,7 @@ describe('App', () => {
         };
       }),
       removeListener: jest.fn(),
-      openExternal: jest.fn().mockResolvedValue(undefined)
+      openExternal: jest.fn().mockResolvedValue(undefined),
     };
     window.shtVR = api;
     media = { type: 'image', thumpName: 'photo.jpg', bigName: 'photo-1000.jpg' };
@@ -51,8 +55,8 @@ describe('App', () => {
     act(() => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   };
 
-  const button = (name) => [...container.querySelectorAll('button')]
-    .find((element) => element.textContent.trim() === name);
+  const button = (name) =>
+    [...container.querySelectorAll('button')].find((element) => element.textContent.trim() === name);
 
   const loadMedia = () => {
     act(() => {
@@ -71,7 +75,9 @@ describe('App', () => {
     expect(panorama.getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
     expect(panorama.getAttribute('data-type')).toBe('image');
     click(button('Flat view'));
-    expect(container.querySelector('img[alt="photo-1000.jpg"]').getAttribute('src')).toBe('http://localhost:3000/big/photo-1000.jpg');
+    expect(container.querySelector('img[alt="photo-1000.jpg"]').getAttribute('src')).toBe(
+      'http://localhost:3000/big/photo-1000.jpg'
+    );
     click(button('360° view'));
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
   });
@@ -88,16 +94,24 @@ describe('App', () => {
     const nextButton = controls[4];
 
     click(previousButton);
-    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/second-1000.jpg');
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      'http://localhost:3000/big/second-1000.jpg'
+    );
 
     click(nextButton);
-    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      'http://localhost:3000/big/photo-1000.jpg'
+    );
 
     click(nextButton);
-    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/second-1000.jpg');
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      'http://localhost:3000/big/second-1000.jpg'
+    );
 
     click(previousButton);
-    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      'http://localhost:3000/big/photo-1000.jpg'
+    );
   });
 
   test('does not offer conversion for a video that was already converted', () => {
@@ -105,7 +119,7 @@ describe('App', () => {
       type: 'video',
       thumpName: 'clip-1000-h264.jpg',
       bigName: 'clip-1000-h264.mp4',
-      origPath: '/media/clip.mp4'
+      origPath: '/media/clip.mp4',
     };
     renderApp();
     loadMedia();
@@ -116,11 +130,13 @@ describe('App', () => {
   });
 
   test('subscribes once to media events when StrictMode replays effects', () => {
-    act(() => root.render(
-      <StrictMode>
-        <App />
-      </StrictMode>
-    ));
+    act(() =>
+      root.render(
+        <StrictMode>
+          <App />
+        </StrictMode>
+      )
+    );
 
     act(() => {
       listeners['start-read-dir']({}, 2);
@@ -184,21 +200,29 @@ describe('App', () => {
     expect(thumb.style.backgroundImage).toContain(encodeURIComponent(media.thumpName));
 
     click(container.querySelector('.media-card'));
-    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(`http://localhost:3000/big/${encodeURIComponent(media.bigName)}`);
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      `http://localhost:3000/big/${encodeURIComponent(media.bigName)}`
+    );
   });
 
   test('offers the update download using the configured download link and hash', () => {
     renderApp();
     act(() => {
-      listeners['config-data']({}, {
-        version: '1.0.5',
-        checkUpdates: true,
-        downloadLink: 'https://downloads.example/#/file/'
-      });
-      listeners['need-to-update']({}, {
-        filename_orig: '360-media-viewer_1.0.6.deb',
-        hash: 'abc123'
-      });
+      listeners['config-data'](
+        {},
+        {
+          version: '1.0.5',
+          checkUpdates: true,
+          downloadLink: 'https://downloads.example/#/file/',
+        }
+      );
+      listeners['need-to-update'](
+        {},
+        {
+          filename_orig: '360-media-viewer_1.0.6.deb',
+          hash: 'abc123',
+        }
+      );
     });
 
     expect(container.textContent).toContain('New version available: v1.0.6 (installed v1.0.5)');

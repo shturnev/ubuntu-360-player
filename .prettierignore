@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+dist_electron/
+.git/
+.sht-vr-player/
+static/
+prompts/
+package-lock.json
+npm-shrinkwrap.json

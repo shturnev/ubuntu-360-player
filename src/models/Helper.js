@@ -7,7 +7,7 @@ class Helper {
     } catch (e) {
       fs.mkdirSync(inputPath, {
         mode: 0o700,
-        recursive: true
+        recursive: true,
       });
     }
 
@@ -27,5 +27,5 @@ class Helper {
 module.exports = { Helper };
 Object.defineProperty(module.exports, 'default', {
   value: Helper,
-  enumerable: false
+  enumerable: false,
 });

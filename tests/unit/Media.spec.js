@@ -7,7 +7,7 @@ jest.mock('gm', () => {
   const gmMock = jest.fn(() => ({
     resize: jest.fn().mockReturnThis(),
     autoOrient: jest.fn().mockReturnThis(),
-    write: jest.fn((_target, callback) => callback(null))
+    write: jest.fn((_target, callback) => callback(null)),
   }));
 
   return gmMock;
@@ -19,8 +19,8 @@ jest.mock('child_process', () => ({
   spawn: jest.fn(() => ({
     stdout: { on: jest.fn() },
     stderr: { on: jest.fn() },
-    on: jest.fn()
-  }))
+    on: jest.fn(),
+  })),
 }));
 
 const { Media } = require('../../src/models/Media');
@@ -93,17 +93,27 @@ describe('Media', () => {
     const filePath = path.join(tempDir, 'hevc-video.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');
 
-    const originalBigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', `hevc-video-${fs.statSync(filePath).size}.mp4`);
+    const originalBigPath = path.join(
+      tempDir,
+      '.sht-vr-player',
+      'static',
+      'big',
+      `hevc-video-${fs.statSync(filePath).size}.mp4`
+    );
     fs.symlinkSync(filePath, originalBigPath);
 
     execFile.mockImplementationOnce((_cmd, _args, callback) => {
-      callback(null, JSON.stringify({
-        format: { duration: '5.0' },
-        streams: [
-          { codec_type: 'video', codec_name: 'hevc' },
-          { codec_type: 'audio', codec_name: 'aac' }
-        ]
-      }), '');
+      callback(
+        null,
+        JSON.stringify({
+          format: { duration: '5.0' },
+          streams: [
+            { codec_type: 'video', codec_name: 'hevc' },
+            { codec_type: 'audio', codec_name: 'aac' },
+          ],
+        }),
+        ''
+      );
     });
 
     const child = {
@@ -112,12 +122,18 @@ describe('Media', () => {
       on: jest.fn((event, handler) => {
         if (event === 'close') {
           setTimeout(() => {
-            const outputPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', `hevc-video-${fs.statSync(filePath).size}-h264.mp4`);
+            const outputPath = path.join(
+              tempDir,
+              '.sht-vr-player',
+              'static',
+              'big',
+              `hevc-video-${fs.statSync(filePath).size}-h264.mp4`
+            );
             fs.writeFileSync(outputPath, 'converted-video');
             handler(0);
           }, 0);
         }
-      })
+      }),
     };
     spawn.mockReturnValue(child);
 

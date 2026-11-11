@@ -30,14 +30,16 @@ describe('PanoramaViewer', () => {
       texImage2D: jest.fn(),
       deleteTexture: jest.fn(),
       uniform1i: jest.fn(),
-      getUniformLocation: jest.fn((program, name) => ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5 }[name] ?? 1)),
+      getUniformLocation: jest.fn(
+        (program, name) => ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5 })[name] ?? 1
+      ),
       uniform1f: jest.fn(),
       viewport: jest.fn(),
       drawArrays: jest.fn(),
       createTexture: jest.fn(() => ({})),
       useProgram: jest.fn(),
       getShaderInfoLog: jest.fn(() => ''),
-      getProgramInfoLog: jest.fn(() => '')
+      getProgramInfoLog: jest.fn(() => ''),
     };
 
     HTMLCanvasElement.prototype.getContext = jest.fn(() => gl);
@@ -49,7 +51,11 @@ describe('PanoramaViewer', () => {
 
   beforeEach(() => {
     makeWebGL();
-    Object.defineProperty(HTMLMediaElement.prototype, 'pause', { value: jest.fn(), configurable: true, writable: true });
+    Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
+      value: jest.fn(),
+      configurable: true,
+      writable: true,
+    });
     Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true, writable: true });
   });
 
@@ -198,11 +204,7 @@ describe('PanoramaViewer', () => {
   test('reports a missing video frame even when playback starts', async () => {
     jest.useFakeTimers();
     render(
-      <PanoramaViewer
-        source="http://localhost:3000/big/audio-only-video.mp4"
-        type="video"
-        alt="audio-only-video.mp4"
-      />
+      <PanoramaViewer source="http://localhost:3000/big/audio-only-video.mp4" type="video" alt="audio-only-video.mp4" />
     );
 
     const video = document.querySelector('.panorama-source');
@@ -231,17 +233,13 @@ describe('PanoramaViewer', () => {
 
   test('does not offer conversion for a network or missing file error', () => {
     render(
-      <PanoramaViewer
-        source="http://localhost:3000/big/missing-video.mp4"
-        type="video"
-        alt="missing-video.mp4"
-      />
+      <PanoramaViewer source="http://localhost:3000/big/missing-video.mp4" type="video" alt="missing-video.mp4" />
     );
 
     const video = document.querySelector('.panorama-source');
     Object.defineProperty(video, 'error', {
       value: { code: 2, message: 'MEDIA_ERR_NETWORK' },
-      configurable: true
+      configurable: true,
     });
     fireEvent.error(video);
 
@@ -256,7 +254,14 @@ describe('PanoramaViewer', () => {
         items={[{ type: 'video', bigName: 'hevc-video.mp4', origPath: '/tmp/hevc-video.mp4', index: 0 }]}
         viewerSrc="http://localhost:3000/big/hevc-video.mp4"
         flatView={false}
-        conversionProgress={{ active: true, percent: 42, elapsedMs: 1234, etaMs: 567, status: 'running', message: 'Converting video…' }}
+        conversionProgress={{
+          active: true,
+          percent: 42,
+          elapsedMs: 1234,
+          etaMs: 567,
+          status: 'running',
+          message: 'Converting video…',
+        }}
         hasConvertedVideo={false}
         onConvertVideo={jest.fn()}
         onClose={jest.fn()}
@@ -269,7 +274,9 @@ describe('PanoramaViewer', () => {
     );
 
     expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
-    const conversionStatus = screen.getAllByRole('status').find((node) => node.textContent.includes('Converting video…'));
+    const conversionStatus = screen
+      .getAllByRole('status')
+      .find((node) => node.textContent.includes('Converting video…'));
     expect(conversionStatus).toHaveTextContent('Converting video…');
     expect(conversionStatus).toHaveTextContent('42%');
     expect(conversionStatus).toHaveTextContent('elapsed');
@@ -291,7 +298,7 @@ describe('PanoramaViewer', () => {
     video.pause = jest.fn();
     Object.defineProperty(video, 'error', {
       value: { code: 4, message: 'DEMUXER_ERROR_NO_SUPPORTED_STREAMS' },
-      configurable: true
+      configurable: true,
     });
     fireEvent.error(video);
 
