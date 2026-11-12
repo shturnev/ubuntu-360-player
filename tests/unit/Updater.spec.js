@@ -17,7 +17,7 @@ describe('Updater', () => {
       downloadUpdate: jest.fn().mockResolvedValue(undefined),
       quitAndInstall: jest.fn(),
     });
-    updater = new Updater(client);
+    updater = new Updater(client, 'linux', { APPIMAGE: '/tmp/360-media-viewer.AppImage' });
     send = jest.fn();
     updater.initialize(send);
   });
@@ -25,6 +25,17 @@ describe('Updater', () => {
   test('does not check when automatic updates are disabled', async () => {
     await expect(updater.check({ checkUpdates: false })).resolves.toBe(false);
     expect(client.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  test('skips update checks for Linux installations that are not AppImages', async () => {
+    const debUpdater = new Updater(client, 'linux', {});
+
+    await expect(debUpdater.check({ checkUpdates: true })).resolves.toBe(false);
+    await expect(debUpdater.download()).resolves.toBe(false);
+    expect(debUpdater.install()).toBe(false);
+    expect(client.checkForUpdates).not.toHaveBeenCalled();
+    expect(client.downloadUpdate).not.toHaveBeenCalled();
+    expect(client.quitAndInstall).not.toHaveBeenCalled();
   });
 
   test('emits serializable update state and downloads only after an explicit request', async () => {
