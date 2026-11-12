@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "name": "360-media-viewer",
   "author": "Shturnev Sergii <sergii@shturnev.com>",
-  "license": "MIT",
+  "license": "BUSL-1.1",
   "private": true,
   "repository": "https://github.com/shturnev/ubuntu-360-player",
   "description": "360 media viewer for desktop Linux with Electron and React",
