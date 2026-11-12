@@ -1,6 +1,15 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.0.1] - 2026-11-12
+### Fixed
+- Restored ESLint 9 compatibility with `eslint-plugin-react` so `npm ci` and
+  the GitHub Actions release workflow can install dependencies successfully.
+
+### Changed
+- Defined the licensed work without a release version, so future releases do
+  not require a LICENSE update.
+
 ## [3.0.0] - 2026-11-12
 ### Description
 First public release of 360 Media Viewer for Linux, with refreshed branding,
