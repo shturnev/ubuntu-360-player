@@ -65,11 +65,7 @@ function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting
       <div className="donate-box">
         <p>Please donate to support the project.</p>
         <div className="donate-actions">
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => onOpenExternal('https://www.liqpay.ua/en/checkout/shtvrplayer')}
-          >
+          <button type="button" className="primary-button" onClick={() => onOpenExternal('#')}>
             <span className="button-icon">
               <DonationIcon />
             </span>
@@ -78,11 +74,7 @@ function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting
           <button
             type="button"
             className="ghost-button"
-            onClick={() =>
-              onOpenExternal(
-                'https://gitlab.com/go-apps-XnjRcS/vr-viewer-for-linux/electron-version/-/blob/master/CHANGELOG.md'
-              )
-            }
+            onClick={() => onOpenExternal('https://github.com/shturnev/ubuntu-360-player/releases')}
           >
             View changelog
           </button>
