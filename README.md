@@ -76,9 +76,9 @@ The application checks published GitHub Releases when update checks are enabled.
 It first offers **Download update**; downloading never restarts the application.
 After the download completes, **Restart and install** requires separate explicit
 confirmation. AppImage updates use the release metadata directly. For `.deb`
-installs, a configured APT repository or the system package manager may instead
-manage updates. Auto-update requires a GitHub Release containing the packages
-and its update metadata.
+installs, the application does not check for updates; a configured APT repository
+or the system package manager may instead manage them. Auto-update requires a
+GitHub Release containing the packages and its update metadata.
 
 ### Available npm scripts
 
