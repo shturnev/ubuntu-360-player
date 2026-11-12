@@ -4,11 +4,11 @@
 ## Modern Electron + React build
 This project has been migrated from the legacy Vue 2 + Quasar + Electron 7 stack to a supported Electron + React + Vite configuration.
 
-- Electron: 33.x
+- Electron: 45.x
 - Node.js: 20 LTS
 - Renderer: React 18
 - Build tool: Vite
-- Packaging: electron-builder for Linux `.deb`
+- Packaging: electron-builder for Linux `.deb` and `.AppImage`
 
 Local development:
 
@@ -31,12 +31,39 @@ Supported variables:
 
 The repo keeps `.env` and local variants ignored, while `.env.example` remains tracked and safe to commit.
 
-Production build:
+## Build and install release artifacts
 
 ```bash
-npm run build
+npm install
 npm run electron:build
 ```
+
+This builds the production renderer and packages both Linux artifacts in
+`dist_electron/`:
+
+- `*.deb`
+- `*.AppImage`
+
+Install a local Debian package with APT, which will resolve its declared
+dependencies (including `ffmpeg` and `graphicsmagick`):
+
+```bash
+sudo apt install ./dist_electron/<package>.deb
+```
+
+Run the AppImage after marking it executable:
+
+```bash
+chmod +x dist_electron/<package>.AppImage
+./dist_electron/<package>.AppImage
+```
+
+The AppImage is portable, but not universally dependency-free: some Linux
+distributions require a compatible FUSE runtime to launch it.
+
+Maintainers planning Snap Store or repository-wide APT distribution should
+follow [the distribution guide](docs/distribution.md). A local `.deb` is not
+sufficient to make `apt install <package>` work on arbitrary machines.
 
 ### Available npm scripts
 
@@ -46,8 +73,8 @@ npm run electron:build
 - `npm run build` — builds the production renderer into `dist/`.
 - `npm run preview` — serves the built renderer locally for preview. Run `npm run build` first.
 - `npm test` — runs the Jest test suite serially.
-- `npm run electron:build` — builds the renderer, then packages the app with the targets configured in `electron-builder.json`.
-- `npm run electron:dist` — packages the app as a Linux `.deb`. This command does not build the renderer, so run `npm run build` first to include the latest renderer changes.
+- `npm run electron:build` — builds the renderer, then packages the app as the `.deb` and `.AppImage` targets configured in `electron-builder.json`.
+- `npm run electron:dist` — alias for `npm run electron:build`; it always builds the renderer before creating both release artifacts.
 
 ## Why?
 It's straightforward: I love 360 photos and videos, and I also like Linux. To view them, I had to switch to Windows, so I started developing this application. That is how **360 Media Viewer** began, and I hope it will be useful to you too.

@@ -106,9 +106,7 @@ async function createWindow() {
     minWidth: 900,
     minHeight: 640,
     backgroundColor: '#0b1220',
-    ...(isDevelopment && {
-      icon: path.join(__dirname, '../build_resources/icon/png/icon.png'),
-    }),
+    icon: path.join(__dirname, '../build_resources/icon/png/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

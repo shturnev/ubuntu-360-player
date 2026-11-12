@@ -5,9 +5,17 @@
     "buildResources": "build_resources",
     "output": "dist_electron"
   },
-  "files": ["dist/**/*", "electron/**/*", "src/config/**/*", "src/models/**/*", "project.config.js", "package.json"],
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "src/config/**/*",
+    "src/models/**/*",
+    "build_resources/icon/png/icon.png",
+    "project.config.js",
+    "package.json"
+  ],
   "linux": {
-    "target": ["deb"],
+    "target": ["deb", "AppImage"],
     "category": "Graphics",
     "icon": "build_resources/icon/png",
     "syncDesktopName": true,
