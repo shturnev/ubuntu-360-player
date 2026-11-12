@@ -2,11 +2,11 @@
  * Default settings for project
  */
 
+const { version } = require('./package.json');
+
 const baseConfig = {
-  version: '1.0.5',
+  version,
   checkUpdates: true,
-  albumId: '08cbdbd1238d321',
-  downloadLink: 'https://upfiler.sht-server.cf/#/download/?t=file&h=',
 };
 
 module.exports = baseConfig;

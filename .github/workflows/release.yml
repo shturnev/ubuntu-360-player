@@ -1,0 +1,61 @@
+name: Release Linux packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Verify tag matches package version
+        run: |
+          test "${GITHUB_REF_NAME}" = "v$(node -p "require('./package.json').version")"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test and check formatting
+        run: |
+          npm test
+          npm run lint
+          npm run format:check
+
+      - name: Build Linux packages
+        run: npm run electron:build -- --publish never
+
+      - name: Collect release assets
+        run: |
+          mkdir release-assets
+          find dist_electron -maxdepth 1 -type f \( \
+            -name '*.deb' -o \
+            -name '*.AppImage' -o \
+            -name 'latest-linux.yml' -o \
+            -name '*.blockmap' \
+          \) -exec cp {} release-assets/ \;
+          test -n "$(find release-assets -maxdepth 1 -name '*.deb' -print -quit)"
+          test -n "$(find release-assets -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -f release-assets/latest-linux.yml
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber

@@ -1,6 +1,6 @@
 import './NoticeBanner.scss';
 
-function NoticeBanner({ kind, title, onDismiss, children }) {
+function NoticeBanner({ kind, title, onDismiss, dismissLabel = 'Dismiss', children }) {
   return (
     <div className={`notice ${kind || ''}`} role="status">
       <span>{title}</span>
@@ -8,7 +8,7 @@ function NoticeBanner({ kind, title, onDismiss, children }) {
         {children}
         {onDismiss && (
           <button type="button" className="ghost-button" onClick={onDismiss}>
-            Dismiss
+            {dismissLabel}
           </button>
         )}
       </div>

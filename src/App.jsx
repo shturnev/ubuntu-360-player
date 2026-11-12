@@ -19,8 +19,8 @@ function App() {
   const [showingItem, setShowingItem] = useState(null);
   const [flatView, setFlatView] = useState(false);
   const [cacheSize, setCacheSize] = useState(0);
-  const [configData, setConfigData] = useState({ version: '1.0.5', checkUpdates: true, downloadLink: '' });
-  const [updateInfo, setUpdateInfo] = useState(null);
+  const [configData, setConfigData] = useState({});
+  const [updateState, setUpdateState] = useState({ status: 'idle', info: null, progress: 0 });
   const [canOpenDir, setCanOpenDir] = useState(true);
   const [canSelect, setCanSelect] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
@@ -120,9 +120,28 @@ function App() {
       'show-error': (_, err) => {
         setErrorMessage(err && err.message ? err.message : 'Unexpected error');
       },
-      'need-to-update': (_, payload) => {
+      'update-available': (_, payload) => {
         if (!payload) return;
-        setUpdateInfo(payload);
+        setUpdateState({ status: 'available', info: payload, progress: 0 });
+      },
+      'update-download-progress': (_, payload) => {
+        setUpdateState((current) => ({
+          ...current,
+          status: 'downloading',
+          progress: Math.max(0, Math.min(100, Number(payload?.percent) || 0)),
+        }));
+      },
+      'update-downloaded': (_, payload) => {
+        setUpdateState((current) => ({
+          ...current,
+          status: 'downloaded',
+          info: payload || current.info,
+          progress: 100,
+        }));
+      },
+      'update-error': (_, payload) => {
+        setUpdateState({ status: 'idle', info: null, progress: 0 });
+        setErrorMessage(payload?.message || 'Unable to update the application.');
       },
       'video-conversion-progress': (_, data) => {
         if (!data) return;
@@ -297,23 +316,15 @@ function App() {
   const hasConvertedVideo = Boolean(
     showingItem && (convertedVideos.has(showingItem.origPath) || /-\d+-h264\.mp4$/i.test(showingItem.bigName || ''))
   );
-  const updateFilenameVersion = updateInfo && updateInfo.filename_orig ? updateInfo.filename_orig.split('_')[1] : null;
-  const updateVersion = updateFilenameVersion
-    ? updateFilenameVersion.replace(/\.[^.]+$/, '')
-    : updateInfo?.filename_orig || 'latest';
-
   const downloadUpdate = () => {
-    if (!configData.downloadLink || !updateInfo || !updateInfo.hash) {
-      setErrorMessage('Update download link is unavailable');
-      return;
-    }
-    openExternalLink(`${configData.downloadLink}${updateInfo.hash}`);
+    request('download-update', null);
+    setUpdateState((current) => ({ ...current, status: 'downloading', progress: 0 }));
   };
 
   return (
     <div className="app-shell">
       <AppHeader
-        version={configData.version || '1.0.5'}
+        version={configData.version}
         selectedPath={selectedPath}
         maxSizePx={maxSizePx}
         sliderDisabled={items.length === 0}
@@ -330,14 +341,48 @@ function App() {
 
       {errorMessage && <NoticeBanner kind="error" title={errorMessage} onDismiss={() => setErrorMessage('')} />}
 
-      {updateInfo && (
+      {updateState.status === 'available' && (
         <NoticeBanner
           kind="update-notice"
-          title={`New version available: v${updateVersion} (installed v${configData.version || '1.0.5'})`}
-          onDismiss={() => setUpdateInfo(null)}
+          title={`New version available: v${updateState.info?.version || 'latest'}${
+            configData.version ? ` (installed v${configData.version})` : ''
+          }`}
+          onDismiss={() => setUpdateState({ status: 'idle', info: null, progress: 0 })}
+          dismissLabel="Not now"
         >
           <button type="button" className="primary-button" onClick={downloadUpdate}>
             Download update
+          </button>
+          {updateState.info?.releaseUrl && (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => openExternalLink(updateState.info.releaseUrl)}
+            >
+              Open release
+            </button>
+          )}
+        </NoticeBanner>
+      )}
+
+      {updateState.status === 'downloading' && (
+        <NoticeBanner
+          kind="update-notice"
+          title={`Downloading update: ${updateState.progress}%`}
+          onDismiss={() => setUpdateState({ status: 'idle', info: null, progress: 0 })}
+          dismissLabel="Not now"
+        />
+      )}
+
+      {updateState.status === 'downloaded' && (
+        <NoticeBanner
+          kind="update-notice"
+          title={`Update v${updateState.info?.version || ''} is ready to install.`}
+          onDismiss={() => setUpdateState({ status: 'idle', info: null, progress: 0 })}
+          dismissLabel="Not now"
+        >
+          <button type="button" className="primary-button" onClick={() => request('install-update', null)}>
+            Restart and install
           </button>
         </NoticeBanner>
       )}

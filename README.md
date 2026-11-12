@@ -65,6 +65,21 @@ Maintainers planning Snap Store or repository-wide APT distribution should
 follow [the distribution guide](docs/distribution.md). A local `.deb` is not
 sufficient to make `apt install <package>` work on arbitrary machines.
 
+## Releases and updates
+
+Pushing an `npm version` tag (for example `v2.0.0`) starts the release workflow.
+It tests the tagged commit, builds `.deb` and `.AppImage` packages, generates
+the Linux update metadata, and attaches only those release assets to the
+matching GitHub Release.
+
+The application checks published GitHub Releases when update checks are enabled.
+It first offers **Download update**; downloading never restarts the application.
+After the download completes, **Restart and install** requires separate explicit
+confirmation. AppImage updates use the release metadata directly. For `.deb`
+installs, a configured APT repository or the system package manager may instead
+manage updates. Auto-update requires a GitHub Release containing the packages
+and its update metadata.
+
 ### Available npm scripts
 
 - `npm run dev` — starts the Vite renderer and Electron app together. Electron starts after Vite is listening on port `5173`; both processes stop if either one exits.

@@ -36,6 +36,7 @@
     "cli-color": "^1.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "electron-updater": "^6.8.11",
     "express": "^4.17.1",
     "get-folder-size": "^2.0.1",
     "gm": "^1.23.1",
