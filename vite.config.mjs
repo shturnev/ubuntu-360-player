@@ -36,6 +36,7 @@ const reactDevtoolsPlugin = {
 };
 
 export default defineConfig({
+  base: './',
   plugins: [react(), reactDevtoolsPlugin],
   server: {
     host: '0.0.0.0',
