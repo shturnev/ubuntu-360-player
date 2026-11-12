@@ -1,14 +1,22 @@
-# LET'S TO COLLABORATE
+# CONTRIBUTING
 
-This project is an Open Source under MIT license. You can improve the project if you are:
+Contributors may create forks, issues, and pull requests to propose changes
+for inclusion in this project under the terms of the [Business Source License
+1.1](LICENSE). Pull requests are reviewed at the copyright holder's discretion
+and are not accepted automatically. Competitive production use is prohibited
+until the Change Date specified in `LICENSE`.
+
+Each contribution must be the contributor's own work, must not infringe
+third-party rights, and must have licensing terms agreed with the copyright
+holder before it can be merged. See [LICENSE](LICENSE) for the applicable
+terms.
 
 ## DEVELOPER
 
-- Select (or create) a task/issue from our [task board](https://gitlab.com/go-apps-XnjRcS/vr-viewer-for-linux/electron-version/-/boards)
+- Select (or create) an issue for the change you propose
 - Fork the Repository
-- Create new branch from develop (we use [git flow](https://danielkummer.github.io/git-flow-cheatsheet/index.html) approach).
-- For example: feature/task-name
-- Push your improvements and create pull-request
+- Create a branch for your change
+- Push your improvements and create a pull request
 
 ## DESIGNER
 
