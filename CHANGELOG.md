@@ -1,6 +1,33 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-11-12
+### Description
+First public release of 360 Media Viewer for Linux, with refreshed branding,
+packaging, and GitHub Releases updates.
+
+### Added
+- AppImage packaging alongside the Debian package.
+- GitHub Actions release workflow that builds, tests, and publishes Linux
+  release assets.
+- GitHub Releases update flow for AppImage installations, including explicit
+  download and install confirmation.
+- Improved 360-degree viewer controls and navigation.
+- ESLint and Prettier checks.
+
+### Changed
+- Renamed the application and Linux package from 360 Media Player to 360 Media
+  Viewer.
+- Updated the application icon, branding, and main interface.
+- Changed the license from MIT to Business Source License 1.1.
+- Preserved the selected folder when importing media and corrected media URL
+  encoding for filenames.
+
+### Breaking changes
+- The Debian package name changed from `360-media-player` to
+  `360-media-viewer`; existing `.deb` installations require a manual migration
+  to the new package.
+
 
 ## [1.0.4] - 2020-03-07
 ### Description

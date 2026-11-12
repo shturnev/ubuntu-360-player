@@ -67,7 +67,7 @@ sufficient to make `apt install <package>` work on arbitrary machines.
 
 ## Releases and updates
 
-Pushing an `npm version` tag (for example `v2.0.0`) starts the release workflow.
+Pushing an `npm version` tag (for example `v3.0.0`) starts the release workflow.
 It tests the tagged commit, builds `.deb` and `.AppImage` packages, generates
 the Linux update metadata, and attaches only those release assets to the
 matching GitHub Release.
