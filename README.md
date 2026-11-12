@@ -67,10 +67,15 @@ sufficient to make `apt install <package>` work on arbitrary machines.
 
 ## Releases and updates
 
-Pushing an `npm version` tag (for example `v3.0.1`) starts the release workflow.
-It tests the tagged commit, builds `.deb` and `.AppImage` packages, generates
-the Linux update metadata, and attaches only those release assets to the
-matching GitHub Release.
+When a pull request is merged into `main`, maintainers must apply exactly one
+release label to create a release: `release:major` for incompatible changes,
+`release:minor` for backwards-compatible functionality, or `release:patch`
+for backwards-compatible fixes. Merges without exactly one of these labels do
+not change the version. The versioning workflow creates the version commit,
+tag, and changelog entry, then starts the release workflow. The release
+workflow tests the tagged commit, builds `.deb` and `.AppImage` packages,
+generates the Linux update metadata, and attaches only those release assets to
+the matching GitHub Release.
 
 The application checks published GitHub Releases when update checks are enabled.
 It first offers **Download update**; downloading never restarts the application.
