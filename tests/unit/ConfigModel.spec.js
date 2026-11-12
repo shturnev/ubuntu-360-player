@@ -30,4 +30,39 @@ describe('ConfigModel', () => {
     expect(settings).toHaveProperty('version', baseConfig.version);
     expect(settings).toHaveProperty('checkUpdates', baseConfig.checkUpdates);
   });
+
+  test('creates a missing config with the package-backed version', () => {
+    const settings = configModel.getSettings();
+    const stored = JSON.parse(fs.readFileSync(configModel.configPath, 'utf8'));
+
+    expect(settings.version).toBe(require('../../package.json').version);
+    expect(stored.version).toBe(require('../../package.json').version);
+  });
+
+  test('migrates the version and removes legacy updater settings while preserving user settings', () => {
+    const legacySettings = {
+      version: '0.0.1',
+      checkUpdates: false,
+      downloadLink: 'https://downloads.example/release',
+      albumId: 'legacy-album',
+      customSetting: 'keep me',
+    };
+    fs.writeFileSync(configModel.configPath, JSON.stringify(legacySettings));
+
+    const settings = configModel.getSettings();
+    const stored = JSON.parse(fs.readFileSync(configModel.configPath, 'utf8'));
+
+    expect(settings).toEqual({
+      ...baseConfig,
+      version: baseConfig.version,
+      checkUpdates: false,
+      customSetting: 'keep me',
+    });
+    expect(stored).toEqual(settings);
+    expect(stored.version).toBe(baseConfig.version);
+    expect(stored.checkUpdates).toBe(false);
+    expect(stored.customSetting).toBe('keep me');
+    expect(stored).not.toHaveProperty('downloadLink');
+    expect(stored).not.toHaveProperty('albumId');
+  });
 });

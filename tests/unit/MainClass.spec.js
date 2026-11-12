@@ -7,6 +7,12 @@ jest.mock('electron', () => ({
   ipcMain: { on: jest.fn() },
 }));
 
+jest.mock('electron-updater', () => ({
+  autoUpdater: {
+    on: jest.fn(),
+  },
+}));
+
 const { dialog } = require('electron');
 
 jest.mock('trash', () => jest.fn(async () => true));

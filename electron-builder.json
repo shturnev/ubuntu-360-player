@@ -24,5 +24,15 @@
   },
   "deb": {
     "depends": ["ffmpeg", "graphicsmagick"]
-  }
+  },
+  "appImage": {
+    "artifactName": "${name}-${version}.${ext}"
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "shturnev",
+      "repo": "ubuntu-360-player"
+    }
+  ]
 }

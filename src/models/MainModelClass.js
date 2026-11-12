@@ -17,17 +17,21 @@ const getFolderSize = require('get-folder-size');
 const rimraf = require('rimraf');
 
 class MainModelClass {
-  constructor(win) {
+  constructor(win, updater = new Updater()) {
     this.win = win;
     this.serverUrl = undefined;
     this.homedir = homedir;
     this.static_dir = homedir + '/static';
     this.config = new ConfigModel();
+    this.updater = updater;
   }
 
   init() {
     Helper.checkDir(homedir);
     this.startFileServer();
+    this.updater.initialize((channel, payload) => {
+      if (this.win && this.win.webContents) this.win.webContents.send(channel, payload);
+    });
 
     ipcMain.on('open-dir', (event) => this.openDir(event));
     ipcMain.on('get-server-url', (event) => event.reply('start-file-server', this.serverUrl));
@@ -70,17 +74,21 @@ class MainModelClass {
 
     ipcMain.on('check-for-update', (event) => {
       const configData = this.config.getSettings();
-      if (configData.checkUpdates) {
-        Updater.check(configData)
-          .then((res) => {
-            if (res) event.reply('need-to-update', res);
-          })
-          .catch((err) => {
-            console.log(clr.red(err));
-            event.reply('show-error', err);
-          });
-      }
+      this.updater.check(configData).catch((err) => {
+        console.log(clr.red(err));
+        event.reply('update-error', {
+          message: err && err.message ? err.message : 'Unable to check for updates.',
+        });
+      });
     });
+    ipcMain.on('download-update', (event) => {
+      this.updater.download().catch((err) =>
+        event.reply('update-error', {
+          message: err && err.message ? err.message : 'Unable to download the update.',
+        })
+      );
+    });
+    ipcMain.on('install-update', () => this.updater.install());
   }
 
   startFileServer() {

@@ -62,7 +62,7 @@ function AppHeader({
       <div className="topbar-row">
         <div className="title-group">
           <span className="app-name">360 Media Viewer</span>
-          <span className="version">v{version || '1.0.5'}</span>
+          {version && <span className="version">v{version}</span>}
         </div>
 
         <div className="toolbar-actions">

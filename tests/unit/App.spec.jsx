@@ -240,29 +240,30 @@ describe('App', () => {
     );
   });
 
-  test('offers the update download using the configured download link and hash', () => {
+  test('downloads an available update only after user confirmation and installs after a second confirmation', () => {
     renderApp();
     act(() => {
-      listeners['config-data'](
+      listeners['config-data']({}, { version: '2.0.0', checkUpdates: true });
+      listeners['update-available'](
         {},
         {
-          version: '1.0.5',
-          checkUpdates: true,
-          downloadLink: 'https://downloads.example/#/file/',
-        }
-      );
-      listeners['need-to-update'](
-        {},
-        {
-          filename_orig: '360-media-viewer_1.0.6.deb',
-          hash: 'abc123',
+          version: '2.1.0',
+          releaseUrl: 'https://github.com/shturnev/ubuntu-360-player/releases/latest',
         }
       );
     });
 
-    expect(container.textContent).toContain('New version available: v1.0.6 (installed v1.0.5)');
+    expect(container.textContent).toContain('New version available: v2.1.0 (installed v2.0.0)');
     click(button('Download update'));
+    expect(api.send).toHaveBeenCalledWith('download-update', null);
 
-    expect(api.openExternal).toHaveBeenCalledWith('https://downloads.example/#/file/abc123');
+    act(() => listeners['update-download-progress']({}, { percent: 51 }));
+    expect(container.textContent).toContain('Downloading update: 51%');
+    expect(api.send).not.toHaveBeenCalledWith('install-update', null);
+
+    act(() => listeners['update-downloaded']({}, { version: '2.1.0' }));
+    expect(button('Restart and install')).toBeDefined();
+    click(button('Restart and install'));
+    expect(api.send).toHaveBeenCalledWith('install-update', null);
   });
 });

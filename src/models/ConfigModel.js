@@ -1,8 +1,8 @@
 const fs = require('fs');
-const _ = require('lodash');
 const baseConfig = require('../../project.config');
 const { getStorageRoot } = require('../config/env');
 const homePath = getStorageRoot();
+const legacyUpdateKeys = new Set(['albumId', 'downloadLink']);
 
 class ConfigModel {
   constructor() {
@@ -16,9 +16,12 @@ class ConfigModel {
       throw new Error('Could not store the settings. Config path did not specified');
     }
 
-    const serializable = Object.fromEntries(
-      Object.entries(settingsObj).filter(([key]) => key !== 'default' && key !== '__esModule')
+    const serializableSettings = Object.fromEntries(
+      Object.entries(settingsObj).filter(
+        ([key]) => key !== 'default' && key !== '__esModule' && !legacyUpdateKeys.has(key)
+      )
     );
+    const serializable = { ...serializableSettings, version: baseConfig.version };
     fs.writeFileSync(this.configPath, JSON.stringify(serializable));
     return true;
   }
@@ -31,10 +34,11 @@ class ConfigModel {
 
     let data = fs.readFileSync(this.configPath, 'utf8');
     data = JSON.parse(data);
+    const containsLegacyUpdateConfig = Object.keys(data).some((key) => legacyUpdateKeys.has(key));
+    data = Object.fromEntries(Object.entries(data).filter(([key]) => !legacyUpdateKeys.has(key)));
 
-    if (data.version !== baseConfig.version) {
-      data.version = baseConfig.version;
-      data = _.merge({}, baseConfig, data);
+    if (data.version !== baseConfig.version || containsLegacyUpdateConfig) {
+      data = { ...baseConfig, ...data, version: baseConfig.version };
       this.loadSettings(data);
     }
 

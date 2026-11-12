@@ -1,52 +1,61 @@
+const { EventEmitter } = require('events');
+
+jest.mock('electron-updater', () => ({ autoUpdater: {} }));
+
 const Updater = require('../../src/models/Updater');
-const BaseConfig = require('../../project.config');
 
 describe('Updater', () => {
-  const nativeFetch = global.fetch;
+  let client;
+  let updater;
+  let send;
 
-  afterEach(() => {
-    if (nativeFetch) {
-      global.fetch = nativeFetch;
-    } else {
-      delete global.fetch;
-    }
-  });
-
-  test('returns false when updates are disabled', async () => {
-    const result = await Updater.check({ ...BaseConfig, checkUpdates: false });
-    expect(result).toBe(false);
-  });
-
-  test('returns payload when remote version differs', async () => {
-    const response = {
-      data: {
-        filename_orig: '360-media-viewer_1.0.6.tar.gz',
-        hash: 'abc123',
-      },
-    };
-
-    global.fetch = jest.fn().mockResolvedValue({
-      text: jest.fn().mockResolvedValue(JSON.stringify(response)),
+  beforeEach(() => {
+    client = Object.assign(new EventEmitter(), {
+      autoDownload: true,
+      autoInstallOnAppQuit: true,
+      checkForUpdates: jest.fn().mockResolvedValue(undefined),
+      downloadUpdate: jest.fn().mockResolvedValue(undefined),
+      quitAndInstall: jest.fn(),
     });
-
-    const result = await Updater.check(BaseConfig);
-    expect(result).toHaveProperty('filename_orig', response.data.filename_orig);
-    expect(result).toHaveProperty('hash', 'abc123');
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://upfiler.sht-server.cf/api/',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: expect.stringContaining('action=file_get_last_in_album'),
-        redirect: 'error',
-      })
-    );
+    updater = new Updater(client);
+    send = jest.fn();
+    updater.initialize(send);
   });
 
-  test('rejects updater redirects', async () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('redirect blocked'));
+  test('does not check when automatic updates are disabled', async () => {
+    await expect(updater.check({ checkUpdates: false })).resolves.toBe(false);
+    expect(client.checkForUpdates).not.toHaveBeenCalled();
+  });
 
-    await expect(Updater.check(BaseConfig)).rejects.toThrow('redirect blocked');
-    expect(global.fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ redirect: 'error' }));
+  test('emits serializable update state and downloads only after an explicit request', async () => {
+    client.emit('update-available', { version: '2.1.0', releaseNotes: 'Bug fixes' });
+    client.emit('download-progress', { percent: 42.7, transferred: 427, total: 1000, bytesPerSecond: 100 });
+    client.emit('update-downloaded', { version: '2.1.0' });
+
+    expect(client.downloadUpdate).not.toHaveBeenCalled();
+    expect(send).toHaveBeenNthCalledWith(
+      1,
+      'update-available',
+      expect.objectContaining({ version: '2.1.0', releaseNotes: 'Bug fixes' })
+    );
+    expect(send).toHaveBeenNthCalledWith(
+      2,
+      'update-download-progress',
+      expect.objectContaining({ percent: 43, transferred: 427, total: 1000 })
+    );
+    expect(send).toHaveBeenNthCalledWith(3, 'update-downloaded', expect.objectContaining({ version: '2.1.0' }));
+
+    await updater.download();
+    expect(client.downloadUpdate).toHaveBeenCalledTimes(1);
+    expect(client.quitAndInstall).not.toHaveBeenCalled();
+
+    updater.install();
+    expect(client.quitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  test('normalizes updater errors before sending them to the renderer', () => {
+    client.emit('error', new Error('network unavailable'));
+
+    expect(send).toHaveBeenCalledWith('update-error', { message: 'network unavailable' });
   });
 });
