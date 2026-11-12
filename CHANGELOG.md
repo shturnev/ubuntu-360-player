@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.0.2] - 2026-11-12
+### Changed
+- ci: automate SemVer releases from merged PRs ([#42](https://github.com/shturnev/ubuntu-360-player/pull/42))
+
 ## [3.0.1] - 2026-11-12
 ### Fixed
 - Restored ESLint 9 compatibility with `eslint-plugin-react` so `npm ci` and
