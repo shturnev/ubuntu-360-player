@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.scss';
 import AppHeader from './components/AppHeader.jsx';
 import EmptyLibraryState from './components/EmptyLibraryState.jsx';
@@ -38,11 +38,14 @@ function App() {
   });
   const [convertedVideos, setConvertedVideos] = useState(new Set());
   const [playbackFailedVideoId, setPlaybackFailedVideoId] = useState('');
+  const [metadata, setMetadata] = useState({ identity: '', status: 'idle', entries: [], error: '' });
+  const showingItemIdRef = useRef('');
 
   const closeViewer = () => {
     setShowingItem(null);
     setFlatView(false);
     setPlaybackFailedVideoId('');
+    setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
   };
 
   const api = typeof window !== 'undefined' ? window.shtVR : null;
@@ -66,6 +69,7 @@ function App() {
         setCanOpenDir(false);
       },
       'start-read-dir': (_, total) => {
+        setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
         const totalFiles = Number(total) || 0;
         if (totalFiles <= 0) {
           setLoadingProgress(EMPTY_PROGRESS);
@@ -193,6 +197,15 @@ function App() {
         });
         setErrorMessage(data.message || 'Unable to convert video.');
       },
+      'media-metadata': (_, data) => {
+        if (!data || data.origPath !== showingItemIdRef.current) return;
+        setMetadata({
+          identity: data.origPath,
+          status: data.error ? 'error' : 'ready',
+          entries: Array.isArray(data.entries) ? data.entries : [],
+          error: data.error || '',
+        });
+      },
     };
 
     const subscriptions = Object.entries(handlers).map(([channel, listener]) => ({
@@ -215,6 +228,10 @@ function App() {
       });
     };
   }, [api]);
+
+  useEffect(() => {
+    showingItemIdRef.current = getMediaIdentity(showingItem);
+  }, [showingItem]);
 
   const openExternalLink = async (url) => {
     try {
@@ -305,6 +322,13 @@ function App() {
     });
     setErrorMessage('');
     request('convert-video', { filePath: showingItem.origPath });
+  };
+
+  const openMetadata = () => {
+    if (!showingItem?.origPath) return;
+    const identity = getMediaIdentity(showingItem);
+    setMetadata({ identity, status: 'loading', entries: [], error: '' });
+    request('get-media-metadata', { origPath: showingItem.origPath, type: showingItem.type });
   };
 
   const updateCheckSetting = () => {
@@ -419,6 +443,7 @@ function App() {
         onToggleSelection={toggleSelection}
         onOpenItem={(item) => {
           setPlaybackFailedVideoId('');
+          setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
           setShowingItem(item);
         }}
       />
@@ -438,17 +463,22 @@ function App() {
           onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}
           onOpenExternal={openExternalLink}
+          metadata={metadata}
+          onOpenMetadata={openMetadata}
+          onCloseMetadata={() => setMetadata((current) => ({ ...current, status: 'idle' }))}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
             if (items.length < 2) return;
             const previousIndex = (showingItem.index - 1 + items.length) % items.length;
             setPlaybackFailedVideoId('');
+            setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
             setShowingItem({ ...items[previousIndex], index: previousIndex });
           }}
           onNext={() => {
             if (items.length < 2) return;
             const nextIndex = (showingItem.index + 1) % items.length;
             setPlaybackFailedVideoId('');
+            setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
             setShowingItem({ ...items[nextIndex], index: nextIndex });
           }}
         />

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const gm = require('gm');
+const exifr = require('exifr');
 const { getStorageRoot } = require('../config/env');
 
 const getBigDir = () => path.join(getStorageRoot(), 'static', 'big');
@@ -89,6 +90,43 @@ class Media {
           try {
             const parsed = JSON.parse(stdout || '{}');
             resolve(parsed);
+          } catch (parseError) {
+            reject(parseError);
+          }
+        }
+      );
+    });
+  }
+
+  static async getMetadata(filePath, type) {
+    if (type === 'image') {
+      try {
+        return formatImageMetadata((await exifr.parse(filePath, { xmp: true, icc: false })) || {});
+      } catch (error) {
+        throw new Error('Unable to read image metadata.');
+      }
+    }
+
+    if (type === 'video') {
+      try {
+        return formatVideoMetadata(await Media.probeVideoMetadata(filePath));
+      } catch (error) {
+        throw new Error('Unable to read video metadata. Make sure ffprobe is available and the file can be read.');
+      }
+    }
+
+    throw new Error('Unsupported media type.');
+  }
+
+  static probeVideoMetadata(filePath) {
+    return new Promise((resolve, reject) => {
+      execFile(
+        'ffprobe',
+        ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', filePath],
+        (error, stdout) => {
+          if (error) return reject(error);
+          try {
+            resolve(JSON.parse(stdout || '{}'));
           } catch (parseError) {
             reject(parseError);
           }
@@ -312,6 +350,96 @@ function parseFfmpegProgress(text, durationSeconds, startedAtMs) {
   return null;
 }
 
+function entry(key, label, value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  return { key, label, value: String(value) };
+}
+
+function compactEntries(entries) {
+  const keys = new Set();
+  return entries.filter((item) => item && !keys.has(item.key) && keys.add(item.key));
+}
+
+function formatImageMetadata(metadata = {}) {
+  const width = metadata.ExifImageWidth || metadata.ImageWidth || metadata.PixelXDimension;
+  const height = metadata.ExifImageHeight || metadata.ImageHeight || metadata.PixelYDimension;
+  const date = metadata.DateTimeOriginal || metadata.CreateDate || metadata.ModifyDate;
+  return compactEntries([
+    entry('dimensions', 'Dimensions', width && height ? `${width} × ${height}` : null),
+    entry('orientation', 'Orientation', metadata.Orientation),
+    entry('date-taken', 'Date taken', formatDate(date)),
+    entry('camera-make', 'Camera make', metadata.Make),
+    entry('camera-model', 'Camera model', metadata.Model),
+    entry('lens', 'Lens', metadata.LensModel),
+    entry('exposure', 'Exposure', formatExposure(metadata.ExposureTime)),
+    entry('aperture', 'Aperture', metadata.FNumber ? `f/${metadata.FNumber}` : null),
+    entry('iso', 'ISO', metadata.ISO),
+    entry('focal-length', 'Focal length', metadata.FocalLength ? `${metadata.FocalLength} mm` : null),
+    entry('software', 'Software', metadata.Software),
+    entry('copyright', 'Copyright', metadata.Copyright),
+    entry('title', 'Title', metadata.Title || metadata['XMP:Title']),
+    entry('location', 'Location', metadata.Location || metadata.City),
+  ]);
+}
+
+function formatVideoMetadata(metadata = {}) {
+  const format = metadata.format || {};
+  const streams = Array.isArray(metadata.streams) ? metadata.streams : [];
+  const video = streams.find((stream) => stream.codec_type === 'video') || {};
+  const audio = streams.find((stream) => stream.codec_type === 'audio') || {};
+  const tags = { ...(format.tags || {}), ...(video.tags || {}) };
+  return compactEntries([
+    entry('format', 'Format', format.format_long_name || format.format_name),
+    entry('duration', 'Duration', formatDuration(format.duration)),
+    entry('dimensions', 'Dimensions', video.width && video.height ? `${video.width} × ${video.height}` : null),
+    entry('video-codec', 'Video codec', video.codec_long_name || video.codec_name),
+    entry('frame-rate', 'Frame rate', formatFrameRate(video.avg_frame_rate || video.r_frame_rate)),
+    entry('video-bitrate', 'Video bitrate', formatBitrate(video.bit_rate)),
+    entry('audio-codec', 'Audio codec', audio.codec_long_name || audio.codec_name),
+    entry('audio-channels', 'Audio channels', audio.channels ? `${audio.channels}${audio.channel_layout ? ` (${audio.channel_layout})` : ''}` : null),
+    entry('audio-sample-rate', 'Audio sample rate', audio.sample_rate ? `${audio.sample_rate} Hz` : null),
+    entry('audio-bitrate', 'Audio bitrate', formatBitrate(audio.bit_rate)),
+    entry('creation-date', 'Created', formatDate(tags.creation_time)),
+    entry('title', 'Title', tags.title),
+    entry('location', 'Location', tags.location || tags['com.apple.quicktime.location.ISO6709']),
+  ]);
+}
+
+function formatDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+  return String(value);
+}
+
+function formatExposure(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return value || null;
+  return seconds < 1 ? `1/${Math.round(1 / seconds)} s` : `${seconds} s`;
+}
+
+function formatDuration(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rawRemaining = String((seconds % 60).toFixed(seconds % 1 ? 1 : 0));
+  const remaining = Number(rawRemaining) < 10 ? `0${rawRemaining}` : rawRemaining;
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${remaining}` : `${minutes}:${remaining}`;
+}
+
+function formatFrameRate(value) {
+  if (!value) return null;
+  const [numerator, denominator] = String(value).split('/').map(Number);
+  const rate = denominator ? numerator / denominator : numerator;
+  return Number.isFinite(rate) && rate > 0 ? `${Number(rate.toFixed(3))} fps` : null;
+}
+
+function formatBitrate(value) {
+  const bits = Number(value);
+  if (!Number.isFinite(bits) || bits <= 0) return null;
+  return bits >= 1000000 ? `${(bits / 1000000).toFixed(1)} Mbps` : `${Math.round(bits / 1000)} kbps`;
+}
+
 function createLink(origPath, newFileName) {
   const linksDir = getBigDir();
   const linkPath = path.join(linksDir, newFileName);
@@ -364,7 +492,7 @@ function getNewFileName(origPath) {
   return parsed.name + '-' + stats.size + parsed.ext;
 }
 
-module.exports = { Media };
+module.exports = { Media, formatImageMetadata, formatVideoMetadata };
 Object.defineProperty(module.exports, 'default', {
   value: Media,
   enumerable: false,

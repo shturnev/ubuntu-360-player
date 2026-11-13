@@ -5,15 +5,17 @@ import App from '../../src/App.jsx';
 
 jest.mock(
   '../../src/PanoramaViewer.jsx',
-  () =>
-    function PanoramaViewer({
+  () => {
+    const React = require('react');
+    return React.forwardRef(function PanoramaViewer({
       source,
       type,
       showConvertVideo,
       onConvertVideo,
       onVideoPlaybackFailure,
       onVideoPlaybackSuccess,
-    }) {
+    }, ref) {
+      React.useImperativeHandle(ref, () => ({ pause: jest.fn() }));
       return (
         <div data-testid="panorama-viewer" data-source={source} data-type={type}>
           {type === 'video' && (
@@ -33,7 +35,8 @@ jest.mock(
           )}
         </div>
       );
-    }
+    });
+  }
 );
 
 describe('App', () => {
@@ -58,7 +61,7 @@ describe('App', () => {
       openExternal: jest.fn().mockResolvedValue(undefined),
     };
     window.shtVR = api;
-    media = { type: 'image', thumpName: 'photo.jpg', bigName: 'photo-1000.jpg' };
+    media = { type: 'image', thumpName: 'photo.jpg', bigName: 'photo-1000.jpg', origPath: '/media/photo.jpg' };
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -402,5 +405,47 @@ describe('App', () => {
     expect(button('Restart and install')).toBeDefined();
     click(button('Restart and install'));
     expect(api.send).toHaveBeenCalledWith('install-update', null);
+  });
+
+  test('loads and displays metadata only for the item currently open', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    click(button('Info'));
+
+    expect(api.send).toHaveBeenCalledWith('get-media-metadata', {
+      origPath: '/media/photo.jpg',
+      type: 'image',
+    });
+    expect(container.textContent).toContain('Loading media information');
+
+    act(() =>
+      listeners['media-metadata']({}, {
+        origPath: '/media/photo.jpg',
+        entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
+      })
+    );
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain('Dimensions');
+    expect(container.textContent).toContain('1920 × 1080');
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(container.querySelector('.metadata-dialog')).toBeNull();
+  });
+
+  test('pauses an active flat video before opening metadata', () => {
+    media = { type: 'video', thumpName: 'clip.jpg', bigName: 'clip.mp4', origPath: '/media/clip.mp4' };
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    click(button('Flat view'));
+    const video = container.querySelector('.viewer-panel video');
+    Object.defineProperty(video, 'paused', { configurable: true, value: false });
+    video.pause = jest.fn();
+
+    click(button('Info'));
+
+    expect(video.pause).toHaveBeenCalledTimes(1);
   });
 });

@@ -13,7 +13,7 @@ jest.mock('electron-updater', () => ({
   },
 }));
 
-const { dialog } = require('electron');
+const { dialog, ipcMain } = require('electron');
 
 jest.mock('trash', () => jest.fn(async () => true));
 
@@ -143,5 +143,35 @@ describe('MainModelClass', () => {
     expect(mainModelClass.openDir(event)).toBe(false);
     expect(event.reply).toHaveBeenCalledWith('open-dir', false);
     expect(readDir).not.toHaveBeenCalled();
+  });
+
+  test('returns metadata using the original path as its correlation key', async () => {
+    jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }]);
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.find(([channel]) => channel === 'get-media-metadata')[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: '/media/photo.jpg', type: 'image' });
+
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: '/media/photo.jpg',
+      entries: [{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }],
+    });
+  });
+
+  test('returns a controlled metadata error', async () => {
+    jest.spyOn(Media, 'getMetadata').mockRejectedValue(new Error('Unable to read image metadata.'));
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.find(([channel]) => channel === 'get-media-metadata')[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: '/media/photo.jpg', type: 'image' });
+
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: '/media/photo.jpg',
+      error: 'Unable to read image metadata.',
+    });
   });
 });

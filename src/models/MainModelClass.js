@@ -36,6 +36,22 @@ class MainModelClass {
     ipcMain.on('open-dir', (event) => this.openDir(event));
     ipcMain.on('get-server-url', (event) => event.reply('start-file-server', this.serverUrl));
     ipcMain.on('delete-selected', (event, arg) => this.deleteSelected(arg));
+    ipcMain.on('get-media-metadata', async (event, payload) => {
+      const origPath = payload?.origPath;
+      if (!origPath || !['image', 'video'].includes(payload?.type)) {
+        event.reply('media-metadata', { origPath: origPath || '', error: 'Unable to identify this media file.' });
+        return;
+      }
+      try {
+        const entries = await Media.getMetadata(origPath, payload.type);
+        event.reply('media-metadata', { origPath, entries });
+      } catch (error) {
+        event.reply('media-metadata', {
+          origPath,
+          error: error?.message || 'Unable to read media metadata.',
+        });
+      }
+    });
     ipcMain.on('convert-video', async (event, payload) => {
       const inputPath = payload && payload.filePath ? payload.filePath : payload;
       if (!inputPath) {

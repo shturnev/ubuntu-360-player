@@ -36,6 +36,23 @@ const CloseFullScreenIcon = (props) => (
   </svg>
 );
 
+const InfoIcon = (props) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    {...props}
+  >
+    <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4m0-4h.01" />
+    </g>
+  </svg>
+);
+
 const ArrowLeftIcon = (props) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -78,6 +95,12 @@ const ArrowRightIcon = (props) => (
   </svg>
 );
 
+const CloseIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
 function ViewerOverlay({
   showingItem,
   items,
@@ -95,8 +118,13 @@ function ViewerOverlay({
   onPrevious,
   onNext,
   onOpenExternal,
+  metadata,
+  onOpenMetadata,
+  onCloseMetadata,
 }) {
   const panelRef = useRef(null);
+  const flatVideoRef = useRef(null);
+  const panoramaRef = useRef(null);
   const flatVideoFrameTimer = useRef(null);
   const flatVideoHasFrame = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -129,6 +157,15 @@ function ViewerOverlay({
     document.addEventListener('fullscreenchange', updateFullscreenState);
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState);
   }, []);
+
+  useEffect(() => {
+    if (metadata?.status === 'idle') return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onCloseMetadata?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [metadata?.status, onCloseMetadata]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -191,6 +228,14 @@ function ViewerOverlay({
     }, 4000);
   };
 
+  const openMetadata = () => {
+    if (showingItem.type === 'video') {
+      const video = flatView ? flatVideoRef.current : panoramaRef.current;
+      video?.pause?.();
+    }
+    onOpenMetadata?.();
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -200,6 +245,7 @@ function ViewerOverlay({
         {flatView && showingItem.type === 'video' ? (
           <>
             <video
+              ref={flatVideoRef}
               controls
               autoPlay
               src={viewerSrc}
@@ -235,6 +281,7 @@ function ViewerOverlay({
           <img src={viewerSrc} alt={showingItem.bigName} />
         ) : (
           <PanoramaViewer
+            ref={panoramaRef}
             source={viewerSrc}
             type={showingItem.type}
             alt={showingItem.bigName}
@@ -269,15 +316,19 @@ function ViewerOverlay({
           <button type="button" onClick={onToggleFlatView}>
             {flatView ? '360° view' : 'Flat view'}
           </button>
-          <button
-            type="button"
-            className="fullscreen-button"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit full screen' : 'Full screen'}
-          >
-            {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
-          </button>
-
+          <div className="viewer-center-controls">
+            <button
+              type="button"
+              className="fullscreen-button"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            >
+              {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
+            </button>
+            <button type="button" onClick={openMetadata} title="Show media information" aria-label="Info">
+              <InfoIcon />
+            </button>
+          </div>
           <button type="button" onClick={onDelete} title={'Delete'}>
             Delete
           </button>
@@ -285,6 +336,47 @@ function ViewerOverlay({
             <ArrowRightIcon />
           </button>
         </div>
+        {metadata?.status !== 'idle' && (
+          <div className="metadata-backdrop" onClick={onCloseMetadata}>
+            <section
+              className="metadata-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="media-info-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="metadata-dialog-header">
+                <h2 id="media-info-title">Media information</h2>
+                <button
+                  type="button"
+                  className="icon-button small"
+                  onClick={onCloseMetadata}
+                  aria-label="Close media information"
+                  title="Close media information"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+              <div className="metadata-dialog-content">
+                {metadata.status === 'loading' && <p role="status">Loading media information…</p>}
+                {metadata.status === 'error' && <p role="alert">{metadata.error}</p>}
+                {metadata.status === 'ready' && metadata.entries.length === 0 && (
+                  <p>No metadata is available for this file.</p>
+                )}
+                {metadata.status === 'ready' && metadata.entries.length > 0 && (
+                  <dl className="metadata-list">
+                    {metadata.entries.map((item) => (
+                      <div key={item.key}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );
