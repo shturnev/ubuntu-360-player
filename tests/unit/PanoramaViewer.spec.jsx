@@ -120,8 +120,16 @@ describe('PanoramaViewer', () => {
   test('starts and pauses the panorama video after it is ready', async () => {
     const gl = makeWebGL();
     const source = 'http://localhost:3000/big/clip-1000.mp4';
+    const onVideoPlaybackSuccess = jest.fn();
 
-    render(<PanoramaViewer source={source} type="video" alt="clip-1000.mp4" />);
+    render(
+      <PanoramaViewer
+        source={source}
+        type="video"
+        alt="clip-1000.mp4"
+        onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+      />
+    );
 
     const video = document.querySelector('.panorama-source');
     expect(video.crossOrigin).toBe('anonymous');
@@ -141,8 +149,33 @@ describe('PanoramaViewer', () => {
     });
 
     expect(video.play).toHaveBeenCalledTimes(1);
+    expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
+  });
+
+  test('reports rejected play requests to the parent and shows the video fallback', async () => {
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/broken-video.mp4"
+        type="video"
+        alt="broken-video.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
+    video.play = jest.fn(() => Promise.reject(new Error('decode failed')));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Play video' }));
+      await Promise.resolve();
+    });
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video');
   });
 
   test('shows seeking and volume controls for 360° video playback', () => {
@@ -188,6 +221,7 @@ describe('PanoramaViewer', () => {
         flatView={false}
         conversionProgress={{ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' }}
         hasConvertedVideo={false}
+        hasPlaybackFailure={false}
         onConvertVideo={jest.fn()}
         onClose={jest.fn()}
         onToggleFlatView={jest.fn()}
@@ -241,9 +275,15 @@ describe('PanoramaViewer', () => {
     expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
   });
 
-  test('does not offer conversion for a network or missing file error', () => {
+  test('reports native video errors to the parent after the video is opened', () => {
+    const onVideoPlaybackFailure = jest.fn();
     render(
-      <PanoramaViewer source="http://localhost:3000/big/missing-video.mp4" type="video" alt="missing-video.mp4" />
+      <PanoramaViewer
+        source="http://localhost:3000/big/missing-video.mp4"
+        type="video"
+        alt="missing-video.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
     );
 
     const video = document.querySelector('.panorama-source');
@@ -254,6 +294,7 @@ describe('PanoramaViewer', () => {
     fireEvent.error(video);
 
     expect(screen.getByRole('status')).toHaveTextContent('local media server');
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
   });
 
@@ -273,6 +314,7 @@ describe('PanoramaViewer', () => {
           message: 'Converting video…',
         }}
         hasConvertedVideo={false}
+        hasPlaybackFailure
         onConvertVideo={jest.fn()}
         onClose={jest.fn()}
         onToggleFlatView={jest.fn()}

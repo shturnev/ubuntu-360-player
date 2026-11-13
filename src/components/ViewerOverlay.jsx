@@ -85,7 +85,10 @@ function ViewerOverlay({
   flatView,
   conversionProgress,
   hasConvertedVideo,
+  hasPlaybackFailure,
   onConvertVideo,
+  onVideoPlaybackFailure,
+  onVideoPlaybackSuccess,
   onClose,
   onToggleFlatView,
   onDelete,
@@ -96,7 +99,11 @@ function ViewerOverlay({
   const panelRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const convertButton =
-    showingItem.type === 'video' && onConvertVideo && !conversionProgress?.active && !hasConvertedVideo;
+    showingItem.type === 'video' &&
+    hasPlaybackFailure &&
+    onConvertVideo &&
+    !conversionProgress?.active &&
+    !hasConvertedVideo;
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -160,8 +167,8 @@ function ViewerOverlay({
             type={showingItem.type}
             alt={showingItem.bigName}
             onOpenExternal={onOpenExternal}
-            onConvertVideo={onConvertVideo}
-            conversionProgress={conversionProgress}
+            onVideoPlaybackFailure={onVideoPlaybackFailure}
+            onVideoPlaybackSuccess={onVideoPlaybackSuccess}
             onToggleFullscreen={toggleFullscreen}
             isFullscreen={isFullscreen}
           />

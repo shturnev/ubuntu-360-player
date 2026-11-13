@@ -6,8 +6,21 @@ import App from '../../src/App.jsx';
 jest.mock(
   '../../src/PanoramaViewer.jsx',
   () =>
-    function PanoramaViewer({ source, type }) {
-      return <div data-testid="panorama-viewer" data-source={source} data-type={type} />;
+    function PanoramaViewer({ source, type, onVideoPlaybackFailure, onVideoPlaybackSuccess }) {
+      return (
+        <div data-testid="panorama-viewer" data-source={source} data-type={type}>
+          {type === 'video' && (
+            <>
+              <button type="button" onClick={onVideoPlaybackFailure}>
+                Simulate playback failure
+              </button>
+              <button type="button" onClick={onVideoPlaybackSuccess}>
+                Simulate playback success
+              </button>
+            </>
+          )}
+        </div>
+      );
     }
 );
 
@@ -126,6 +139,38 @@ describe('App', () => {
 
     click(container.querySelector('.media-card'));
 
+    click(button('Simulate playback failure'));
+    expect(button('Convert / fix video')).toBeUndefined();
+  });
+
+  test('offers conversion only after a playback failure for the current video', () => {
+    media = {
+      type: 'video',
+      thumpName: 'clip.jpg',
+      bigName: 'clip.mp4',
+      origPath: '/media/clip.mp4',
+    };
+    const secondMedia = {
+      type: 'video',
+      thumpName: 'second.jpg',
+      bigName: 'second.mp4',
+      origPath: '/media/second.mp4',
+    };
+    renderApp();
+    loadMedia();
+    act(() => listeners['read-media-file']({}, secondMedia));
+
+    click(container.querySelector('.media-card'));
+    expect(button('Convert / fix video')).toBeUndefined();
+
+    click(button('Simulate playback failure'));
+    expect(button('Convert / fix video')).toBeDefined();
+
+    click(container.querySelectorAll('.viewer-controls button')[4]);
+    expect(button('Convert / fix video')).toBeUndefined();
+
+    click(button('✕'));
+    click(container.querySelector('.media-card'));
     expect(button('Convert / fix video')).toBeUndefined();
   });
 

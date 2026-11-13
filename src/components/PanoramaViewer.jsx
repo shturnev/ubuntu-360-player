@@ -152,8 +152,8 @@ function PanoramaViewer({
   type,
   alt,
   onOpenExternal,
-  onConvertVideo,
-  conversionProgress,
+  onVideoPlaybackFailure,
+  onVideoPlaybackSuccess,
   onToggleFullscreen,
   isFullscreen,
 }) {
@@ -161,18 +161,29 @@ function PanoramaViewer({
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
   const renderRequest = useRef(() => {});
+  const playbackGeneration = useRef(0);
+  const onVideoPlaybackFailureRef = useRef(onVideoPlaybackFailure);
+  const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
 
   useEffect(() => {
+    playbackGeneration.current += 1;
     setFallbackMessage('');
     setIsPlaying(false);
     setVideoReady(false);
     setVideoProgress({ duration: 0, currentTime: 0, volume: 1 });
     camera.current = { yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null };
+
+    return () => {
+      playbackGeneration.current += 1;
+    };
   }, [source, type]);
+
+  onVideoPlaybackFailureRef.current = onVideoPlaybackFailure;
+  onVideoPlaybackSuccessRef.current = onVideoPlaybackSuccess;
 
   useEffect(() => {
     const video = mediaRef.current;
@@ -343,6 +354,7 @@ function PanoramaViewer({
 
       const handleMediaError = () => {
         if (type === 'video') {
+          onVideoPlaybackFailureRef.current?.();
           setFailed(`${getVideoFailureMessage(media)} Showing the flat video instead.`);
           return;
         }
@@ -358,6 +370,7 @@ function PanoramaViewer({
         setIsPlaying(true);
         if (type === 'video' && !hasVideoFrame && !noFrameTimer) {
           noFrameTimer = setTimeout(() => {
+            onVideoPlaybackFailureRef.current?.();
             setFailed(`${getVideoFailureMessage(media, null, true)} Showing the flat video instead.`);
           }, 4000);
         }
@@ -448,12 +461,19 @@ function PanoramaViewer({
     if (!video) return;
 
     if (video.paused) {
+      const generation = playbackGeneration.current;
       video
         .play()
-        .then(() => setIsPlaying(true))
-        .catch((error) =>
-          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`)
-        );
+        .then(() => {
+          if (generation !== playbackGeneration.current) return;
+          setIsPlaying(true);
+          onVideoPlaybackSuccessRef.current?.();
+        })
+        .catch((error) => {
+          if (generation !== playbackGeneration.current) return;
+          onVideoPlaybackFailureRef.current?.();
+          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`);
+        });
     } else {
       video.pause();
       setIsPlaying(false);
