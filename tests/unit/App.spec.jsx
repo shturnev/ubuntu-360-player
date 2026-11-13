@@ -253,11 +253,14 @@ describe('App', () => {
     expect(button('Convert / fix video')).toBeUndefined();
 
     act(() =>
-      listeners['video-conversion-result']({}, {
-        success: true,
-        origPath: media.origPath,
-        bigName: 'first-100-h264.mp4',
-      })
+      listeners['video-conversion-result'](
+        {},
+        {
+          success: true,
+          origPath: media.origPath,
+          bigName: 'first-100-h264.mp4',
+        }
+      )
     );
 
     expect(button('Convert / fix video')).toBeDefined();
