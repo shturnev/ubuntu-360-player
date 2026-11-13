@@ -364,6 +364,7 @@ function formatImageMetadata(metadata = {}) {
   const width = metadata.ExifImageWidth || metadata.ImageWidth || metadata.PixelXDimension;
   const height = metadata.ExifImageHeight || metadata.ImageHeight || metadata.PixelYDimension;
   const date = metadata.DateTimeOriginal || metadata.CreateDate || metadata.ModifyDate;
+  const location = metadata.Location || metadata.City || formatCoordinates(metadata.latitude, metadata.longitude);
   return compactEntries([
     entry('dimensions', 'Dimensions', width && height ? `${width} × ${height}` : null),
     entry('orientation', 'Orientation', metadata.Orientation),
@@ -378,7 +379,7 @@ function formatImageMetadata(metadata = {}) {
     entry('software', 'Software', metadata.Software),
     entry('copyright', 'Copyright', metadata.Copyright),
     entry('title', 'Title', metadata.Title || metadata['XMP:Title']),
-    entry('location', 'Location', metadata.Location || metadata.City),
+    entry('location', 'Location', location),
   ]);
 }
 
@@ -409,6 +410,16 @@ function formatDate(value) {
   if (!value) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
   return String(value);
+}
+
+function formatCoordinates(latitude, longitude) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  const formatCoordinate = (value, positiveDirection, negativeDirection) =>
+    `${Math.abs(value).toFixed(6)}° ${value >= 0 ? positiveDirection : negativeDirection}`;
+  return `${formatCoordinate(lat, 'N', 'S')}, ${formatCoordinate(lon, 'E', 'W')}`;
 }
 
 function formatExposure(value) {

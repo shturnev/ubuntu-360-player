@@ -158,12 +158,15 @@ describe('Media', () => {
         Model: 'X1',
         ExposureTime: 0.008,
         ISO: 200,
+        latitude: 50.4501,
+        longitude: 30.5234,
       })
     ).toEqual(
       expect.arrayContaining([
         { key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' },
         { key: 'camera-make', label: 'Camera make', value: 'Example Camera' },
         { key: 'exposure', label: 'Exposure', value: '1/125 s' },
+        { key: 'location', label: 'Location', value: '50.450100° N, 30.523400° E' },
       ])
     );
   });
