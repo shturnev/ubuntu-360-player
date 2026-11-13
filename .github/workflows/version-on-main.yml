@@ -16,7 +16,13 @@ concurrency:
 
 jobs:
   version:
-    if: github.event.pull_request.merged == true
+    if: >-
+      github.event.pull_request.merged == true &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'release:major') ||
+        contains(github.event.pull_request.labels.*.name, 'release:minor') ||
+        contains(github.event.pull_request.labels.*.name, 'release:patch')
+      )
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.version.outputs.release_tag }}

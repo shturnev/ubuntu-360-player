@@ -99,6 +99,52 @@ async function createReactDevtoolsWindow() {
   throw new Error('Standalone React DevTools did not start its local server on port 8097');
 }
 
+function configureApplicationMenu() {
+  if (!isDevelopment) {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+
+  const viewMenu = [
+    { role: 'reload' },
+    { role: 'forceReload' },
+    { role: 'toggleDevTools' },
+    { type: 'separator' },
+    { role: 'resetZoom' },
+    { role: 'zoomIn' },
+    { role: 'zoomOut' },
+    { type: 'separator' },
+    { role: 'togglefullscreen' },
+    { type: 'separator' },
+    {
+      id: 'react-devtools-toggle',
+      label: 'React Developer Tools',
+      type: 'checkbox',
+      checked: Boolean(reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()),
+      click: (menuItem) => {
+        if (menuItem.checked) {
+          createReactDevtoolsWindow().catch((error) => {
+            menuItem.checked = false;
+            console.error('Unable to open React DevTools:', error);
+          });
+        } else if (reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()) {
+          reactDevtoolsWindow.close();
+        }
+      },
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate([
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { label: 'View', submenu: viewMenu },
+    { role: 'windowMenu' },
+    { role: 'help' },
+  ]);
+  reactDevtoolsMenuItem = menu.getMenuItemById('react-devtools-toggle');
+  Menu.setApplicationMenu(menu);
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -144,49 +190,7 @@ app.whenReady().then(async () => {
     }
   }
 
-  const viewMenu = [
-    { role: 'reload' },
-    { role: 'forceReload' },
-    { role: 'toggleDevTools' },
-    { type: 'separator' },
-    { role: 'resetZoom' },
-    { role: 'zoomIn' },
-    { role: 'zoomOut' },
-    { type: 'separator' },
-    { role: 'togglefullscreen' },
-  ];
-
-  if (isDevelopment) {
-    viewMenu.push(
-      { type: 'separator' },
-      {
-        id: 'react-devtools-toggle',
-        label: 'React Developer Tools',
-        type: 'checkbox',
-        checked: Boolean(reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()),
-        click: (menuItem) => {
-          if (menuItem.checked) {
-            createReactDevtoolsWindow().catch((error) => {
-              menuItem.checked = false;
-              console.error('Unable to open React DevTools:', error);
-            });
-          } else if (reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()) {
-            reactDevtoolsWindow.close();
-          }
-        },
-      }
-    );
-  }
-
-  const menu = Menu.buildFromTemplate([
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
-    { label: 'View', submenu: viewMenu },
-    { role: 'windowMenu' },
-    { role: 'help' },
-  ]);
-  reactDevtoolsMenuItem = menu.getMenuItemById('react-devtools-toggle');
-  Menu.setApplicationMenu(menu);
+  configureApplicationMenu();
 
   ipcMain.handle('open-external-url', async (_, url) => {
     try {
@@ -219,4 +223,4 @@ app.on('window-all-closed', () => {
   }
 });
 
-module.exports = { createWindow, isDevelopment, appModel };
+module.exports = { configureApplicationMenu, createWindow, isDevelopment, appModel };
