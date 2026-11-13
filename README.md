@@ -104,7 +104,8 @@ GitHub Release containing the packages and its update metadata.
 ## Why?
 It's straightforward: I love 360 photos and videos, and I also like Linux. To view them, I had to switch to Windows, so I started developing this application. That is how **360 Media Viewer** began, and I hope it will be useful to you too.
 
-[//]: # (### Where can I download?)
+## Where to download the 360 Media Viewer?
+[https://viewer360.app/](https://viewer360.app/) or check the [release page](https://github.com/shturnev/ubuntu-360-player/releases)
 
 ## What can?
 * View directory, convenient preview of media files.
@@ -129,7 +130,7 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 ## How to help the project?
 * The best way is to [**become a sponsor**](https://www.privat24.ua/send/krdrh) . I will be very grateful to you because it will allow me to focus on development, rather than finding food.
 
-* If you are a designer, you can help with the visual design. Help is needed in the design of [tbd](#), and the interface in the application.
+* If you are a designer, you can help with the visual design. Help is needed in the design of [https://viewer360.app/](https://viewer360.app/), and the interface in the application.
 
 * The source code is available under the [Business Source License 1.1](LICENSE). The application is **free** for personal and commercial use on the terms in `LICENSE`. Contributors may create forks, issues, and pull requests to improve this project. Competitive production use is prohibited until the Change Date.
   
