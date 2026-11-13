@@ -204,6 +204,29 @@ describe('App', () => {
     expect(button('Convert / fix video')).toBeDefined();
   });
 
+  test('offers conversion when Flat view starts without a video frame', () => {
+    jest.useFakeTimers();
+    media = {
+      type: 'video',
+      thumpName: 'clip.jpg',
+      bigName: 'clip.mp4',
+      origPath: '/media/clip.mp4',
+    };
+    renderApp();
+    loadMedia();
+
+    click(container.querySelector('.media-card'));
+    click(button('Flat view'));
+    act(() => {
+      container.querySelector('.viewer-panel video').dispatchEvent(new Event('playing'));
+      jest.advanceTimersByTime(4000);
+    });
+
+    expect(container.textContent).toContain('Unable to play this video in Flat view.');
+    expect(button('Convert / fix video')).toBeDefined();
+    jest.useRealTimers();
+  });
+
   test('offers conversion for another failed video after the first conversion completes', () => {
     media = {
       type: 'video',

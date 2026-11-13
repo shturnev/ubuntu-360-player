@@ -79,6 +79,8 @@ describe('PanoramaViewer', () => {
     expect(image.crossOrigin).toBe('anonymous');
     expect(image).toHaveAttribute('src', source);
     expect(gl.texImage2D).toHaveBeenCalledTimes(1);
+    queuedRaf.splice(0).forEach((callback) => callback());
+    expect(gl.texImage2D).toHaveBeenCalledTimes(1);
 
     fireEvent.load(image);
     queuedRaf.splice(0).forEach((callback) => callback());
@@ -341,6 +343,33 @@ describe('PanoramaViewer', () => {
     fireEvent.error(document.querySelector('.panorama-fallback video'));
 
     expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+  });
+
+  test('reports a fallback video that starts without producing a frame', () => {
+    jest.useFakeTimers();
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/audio-only.mp4"
+        type="video"
+        alt="audio-only.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const sourceVideo = document.querySelector('.panorama-source');
+    Object.defineProperty(sourceVideo, 'error', {
+      value: { code: 4, message: 'MEDIA_ERR_SRC_NOT_SUPPORTED' },
+      configurable: true,
+    });
+    fireEvent.error(sourceVideo);
+    onVideoPlaybackFailure.mockClear();
+
+    fireEvent.playing(document.querySelector('.panorama-fallback video'));
+    act(() => jest.advanceTimersByTime(4000));
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('no video frame was decoded');
   });
 
   test('shows a single conversion progress summary during transcoding', () => {

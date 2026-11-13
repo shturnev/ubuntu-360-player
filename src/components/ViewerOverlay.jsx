@@ -97,6 +97,8 @@ function ViewerOverlay({
   onOpenExternal,
 }) {
   const panelRef = useRef(null);
+  const flatVideoFrameTimer = useRef(null);
+  const flatVideoHasFrame = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [flatVideoError, setFlatVideoError] = useState(false);
   const convertButton =
@@ -108,6 +110,14 @@ function ViewerOverlay({
 
   useEffect(() => {
     setFlatVideoError(false);
+    flatVideoHasFrame.current = false;
+    clearTimeout(flatVideoFrameTimer.current);
+    flatVideoFrameTimer.current = null;
+
+    return () => {
+      clearTimeout(flatVideoFrameTimer.current);
+      flatVideoFrameTimer.current = null;
+    };
   }, [showingItem?.origPath, showingItem?.bigName, flatView]);
 
   useEffect(() => {
@@ -156,6 +166,31 @@ function ViewerOverlay({
     }
   };
 
+  const clearFlatVideoFrameTimer = () => {
+    clearTimeout(flatVideoFrameTimer.current);
+    flatVideoFrameTimer.current = null;
+  };
+
+  const reportFlatVideoFailure = () => {
+    clearFlatVideoFrameTimer();
+    setFlatVideoError(true);
+    onVideoPlaybackFailure?.();
+  };
+
+  const handleFlatVideoLoadedData = () => {
+    flatVideoHasFrame.current = true;
+    clearFlatVideoFrameTimer();
+  };
+
+  const handleFlatVideoPlaying = () => {
+    if (flatVideoHasFrame.current || flatVideoFrameTimer.current) return;
+
+    flatVideoFrameTimer.current = setTimeout(() => {
+      flatVideoFrameTimer.current = null;
+      if (!flatVideoHasFrame.current) reportFlatVideoFailure();
+    }, 4000);
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -168,10 +203,11 @@ function ViewerOverlay({
               controls
               autoPlay
               src={viewerSrc}
-              onError={() => {
-                setFlatVideoError(true);
-                onVideoPlaybackFailure?.();
-              }}
+              onLoadedData={handleFlatVideoLoadedData}
+              onPlaying={handleFlatVideoPlaying}
+              onPause={clearFlatVideoFrameTimer}
+              onEnded={clearFlatVideoFrameTimer}
+              onError={reportFlatVideoFailure}
             />
             {flatVideoError && (
               <div className="error-block viewer-flat-error">

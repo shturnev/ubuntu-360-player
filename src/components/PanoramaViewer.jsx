@@ -166,6 +166,8 @@ function PanoramaViewer({
   const playbackGeneration = useRef(0);
   const onVideoPlaybackFailureRef = useRef(onVideoPlaybackFailure);
   const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
+  const fallbackVideoFrameTimer = useRef(null);
+  const fallbackVideoHasFrame = useRef(false);
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
@@ -186,6 +188,17 @@ function PanoramaViewer({
 
   onVideoPlaybackFailureRef.current = onVideoPlaybackFailure;
   onVideoPlaybackSuccessRef.current = onVideoPlaybackSuccess;
+
+  useEffect(() => {
+    fallbackVideoHasFrame.current = false;
+    clearTimeout(fallbackVideoFrameTimer.current);
+    fallbackVideoFrameTimer.current = null;
+
+    return () => {
+      clearTimeout(fallbackVideoFrameTimer.current);
+      fallbackVideoFrameTimer.current = null;
+    };
+  }, [source, type]);
 
   useEffect(() => {
     const video = mediaRef.current;
@@ -525,6 +538,29 @@ function PanoramaViewer({
     setVideoProgress((current) => ({ ...current, volume: nextVolume }));
   };
 
+  const handleFallbackVideoLoadedData = () => {
+    fallbackVideoHasFrame.current = true;
+    clearTimeout(fallbackVideoFrameTimer.current);
+  };
+
+  const handleFallbackVideoPlaying = (event) => {
+    if (fallbackVideoHasFrame.current || fallbackVideoFrameTimer.current) return;
+
+    const video = event.currentTarget;
+    fallbackVideoFrameTimer.current = setTimeout(() => {
+      fallbackVideoFrameTimer.current = null;
+      if (fallbackVideoHasFrame.current) return;
+
+      onVideoPlaybackFailureRef.current?.();
+      setFallbackMessage(`${getVideoFailureMessage(video, null, true)} Showing the flat video instead.`);
+    }, 4000);
+  };
+
+  const handleFallbackVideoPause = () => {
+    clearTimeout(fallbackVideoFrameTimer.current);
+    fallbackVideoFrameTimer.current = null;
+  };
+
   const handleWheel = (event) => {
     camera.current.fieldOfView = Math.max(0.45, Math.min(1.9, camera.current.fieldOfView + event.deltaY * 0.001));
     renderRequest.current();
@@ -560,7 +596,14 @@ function PanoramaViewer({
             autoPlay
             crossOrigin="anonymous"
             src={source}
-            onError={() => onVideoPlaybackFailureRef.current?.()}
+            onLoadedData={handleFallbackVideoLoadedData}
+            onPlaying={handleFallbackVideoPlaying}
+            onPause={handleFallbackVideoPause}
+            onEnded={handleFallbackVideoPause}
+            onError={() => {
+              handleFallbackVideoPause();
+              onVideoPlaybackFailureRef.current?.();
+            }}
           />
         ) : (
           <img src={source} alt={alt} />
