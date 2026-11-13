@@ -27,6 +27,8 @@ const allowedChannels = [
   'convert-video',
   'video-conversion-progress',
   'video-conversion-result',
+  'get-media-metadata',
+  'media-metadata',
 ];
 
 contextBridge.exposeInMainWorld('shtVR', {

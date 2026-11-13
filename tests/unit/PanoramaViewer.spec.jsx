@@ -201,6 +201,43 @@ describe('PanoramaViewer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video');
   });
 
+  test('ignores a pending play rejection after an intentional imperative pause', async () => {
+    const ref = { current: null };
+    const onVideoPlaybackFailure = jest.fn();
+    let rejectPlay;
+    render(
+      <PanoramaViewer
+        ref={ref}
+        source="http://localhost:3000/big/clip.mp4"
+        type="video"
+        alt="clip.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
+    video.play = jest.fn(
+      () =>
+        new Promise((resolve, reject) => {
+          rejectPlay = reject;
+        })
+    );
+    video.pause = jest.fn();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play video' }));
+    Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
+    ref.current.pause();
+
+    await act(async () => {
+      rejectPlay(new DOMException('Playback cancelled', 'AbortError'));
+      await Promise.resolve();
+    });
+
+    expect(video.pause).toHaveBeenCalledTimes(1);
+    expect(onVideoPlaybackFailure).not.toHaveBeenCalled();
+  });
+
   test('shows seeking and volume controls for 360° video playback', () => {
     const gl = makeWebGL();
     render(<PanoramaViewer source="http://localhost:3000/big/clip-1000.mp4" type="video" alt="clip-1000.mp4" />);

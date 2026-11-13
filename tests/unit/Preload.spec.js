@@ -30,4 +30,15 @@ describe('preload IPC listener lifecycle', () => {
     expect(listener).toHaveBeenNthCalledWith(1, {}, { origPath: '/media/first.jpg' });
     expect(listener).toHaveBeenNthCalledWith(2, {}, { origPath: '/media/second.jpg' });
   });
+
+  test('allows metadata response events but blocks unknown channels', () => {
+    const listener = jest.fn();
+
+    api.on('media-metadata', listener);
+    api.on('not-allowed', listener);
+    ipcRenderer.emit('media-metadata', {}, { origPath: '/media/photo.jpg', entries: [] });
+    ipcRenderer.emit('not-allowed', {}, {});
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });

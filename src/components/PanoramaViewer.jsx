@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import './PanoramaViewer.scss';
 
 const vertexShaderSource = `
@@ -147,7 +147,7 @@ function formatTime(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function PanoramaViewer({
+const PanoramaViewer = forwardRef(function PanoramaViewer({
   source,
   type,
   alt,
@@ -158,9 +158,10 @@ function PanoramaViewer({
   onVideoPlaybackSuccess,
   onToggleFullscreen,
   isFullscreen,
-}) {
+}, ref) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
+  const fallbackVideoRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
   const renderRequest = useRef(() => {});
   const playbackGeneration = useRef(0);
@@ -172,6 +173,16 @@ function PanoramaViewer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
+
+  useImperativeHandle(ref, () => ({
+    pause() {
+      const video = [mediaRef.current, fallbackVideoRef.current].find((candidate) => candidate && !candidate.paused);
+      if (video) {
+        playbackGeneration.current += 1;
+        video.pause();
+      }
+    },
+  }));
 
   useEffect(() => {
     playbackGeneration.current += 1;
@@ -592,6 +603,7 @@ function PanoramaViewer({
         </div>
         {type === 'video' ? (
           <video
+            ref={fallbackVideoRef}
             controls
             autoPlay
             crossOrigin="anonymous"
@@ -695,6 +707,6 @@ function PanoramaViewer({
       )}
     </div>
   );
-}
+});
 
 export default PanoramaViewer;

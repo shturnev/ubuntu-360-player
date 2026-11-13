@@ -13,7 +13,7 @@ jest.mock('electron-updater', () => ({
   },
 }));
 
-const { dialog } = require('electron');
+const { dialog, ipcMain } = require('electron');
 
 jest.mock('trash', () => jest.fn(async () => true));
 
@@ -113,11 +113,39 @@ describe('MainModelClass', () => {
       send.mockImplementation((channel) => {
         if (channel === 'open-dir') resolve();
       });
+
       mainModelClass.readDir(sourceDir);
     });
 
     expect(send).toHaveBeenCalledWith('start-read-dir', 0);
     expect(send).toHaveBeenCalledWith('open-dir', false);
+  });
+
+  test('skips an inaccessible media entry without interrupting the directory import', async () => {
+    const sourceDir = path.join(tempDir, 'partially-accessible-media');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, 'available.jpg'), 'image');
+    fs.symlinkSync(path.join(sourceDir, 'missing.jpg'), path.join(sourceDir, 'dangling.jpg'));
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation(() => {});
+
+    await new Promise((resolve) => {
+      send.mockImplementation((channel, payload) => {
+        if (channel === 'read-media-file' && payload.error) resolve();
+      });
+      mainModelClass.readDir(sourceDir);
+    });
+
+    expect(send).toHaveBeenCalledWith('start-read-dir', 2);
+    expect(send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({
+        origPath: path.join(sourceDir, 'dangling.jpg'),
+        error: { message: 'Unable to access this media file.' },
+      })
+    );
+    expect(saveImage).toHaveBeenCalledWith(path.join(sourceDir, 'available.jpg'), mainModelClass.win);
   });
 
   test('deleteCache removes the cache directory and only reports completion on success', async () => {
@@ -143,5 +171,56 @@ describe('MainModelClass', () => {
     expect(mainModelClass.openDir(event)).toBe(false);
     expect(event.reply).toHaveBeenCalledWith('open-dir', false);
     expect(readDir).not.toHaveBeenCalled();
+  });
+
+  test('returns metadata using the original path as its correlation key', async () => {
+    jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }]);
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.authorizedMedia.set('/media/photo.jpg', 'image');
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: '/media/photo.jpg', type: 'image', requestId: 1 });
+
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: '/media/photo.jpg',
+      requestId: 1,
+      entries: [{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }],
+    });
+  });
+
+  test('returns a controlled metadata error', async () => {
+    jest.spyOn(Media, 'getMetadata').mockRejectedValue(new Error('Unable to read image metadata.'));
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.authorizedMedia.set('/media/photo.jpg', 'image');
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: '/media/photo.jpg', type: 'image', requestId: 1 });
+
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: '/media/photo.jpg',
+      requestId: 1,
+      error: 'Unable to read image metadata.',
+    });
+  });
+
+  test('rejects metadata paths that were not imported into the current library', async () => {
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    const getMetadata = jest.spyOn(Media, 'getMetadata');
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: 'https://example.test/video.mp4', type: 'video', requestId: 1 });
+
+    expect(getMetadata).not.toHaveBeenCalled();
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: 'https://example.test/video.mp4',
+      requestId: 1,
+      error: 'This media file is not available in the current library.',
+    });
   });
 });
