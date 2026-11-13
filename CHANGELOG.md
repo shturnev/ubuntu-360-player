@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.1.0] - 2026-11-13
+### Changed
+- Update changelog and donation link ([#48](https://github.com/shturnev/ubuntu-360-player/pull/48))
+
 ## [3.0.2] - 2026-11-12
 ### Changed
 - ci: automate SemVer releases from merged PRs ([#42](https://github.com/shturnev/ubuntu-360-player/pull/42))
