@@ -397,7 +397,11 @@ function formatVideoMetadata(metadata = {}) {
     entry('frame-rate', 'Frame rate', formatFrameRate(video.avg_frame_rate) || formatFrameRate(video.r_frame_rate)),
     entry('video-bitrate', 'Video bitrate', formatBitrate(video.bit_rate)),
     entry('audio-codec', 'Audio codec', audio.codec_long_name || audio.codec_name),
-    entry('audio-channels', 'Audio channels', audio.channels ? `${audio.channels}${audio.channel_layout ? ` (${audio.channel_layout})` : ''}` : null),
+    entry(
+      'audio-channels',
+      'Audio channels',
+      audio.channels ? `${audio.channels}${audio.channel_layout ? ` (${audio.channel_layout})` : ''}` : null
+    ),
     entry('audio-sample-rate', 'Audio sample rate', audio.sample_rate ? `${audio.sample_rate} Hz` : null),
     entry('audio-bitrate', 'Audio bitrate', formatBitrate(audio.bit_rate)),
     entry('creation-date', 'Created', formatDate(tags.creation_time)),
@@ -408,7 +412,11 @@ function formatVideoMetadata(metadata = {}) {
 
 function formatDate(value) {
   if (!value) return null;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+  if (value instanceof Date && !Number.isNaN(value.getTime()))
+    return value
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d{3}Z$/, ' UTC');
   return String(value);
 }
 
