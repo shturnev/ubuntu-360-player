@@ -186,6 +186,24 @@ describe('App', () => {
     expect(button('Convert / fix video')).toBeUndefined();
   });
 
+  test('offers conversion after a Flat view playback error', () => {
+    media = {
+      type: 'video',
+      thumpName: 'clip.jpg',
+      bigName: 'clip.mp4',
+      origPath: '/media/clip.mp4',
+    };
+    renderApp();
+    loadMedia();
+
+    click(container.querySelector('.media-card'));
+    click(button('Flat view'));
+    act(() => container.querySelector('.viewer-panel video').dispatchEvent(new Event('error')));
+
+    expect(container.textContent).toContain('Unable to play this video in Flat view.');
+    expect(button('Convert / fix video')).toBeDefined();
+  });
+
   test('offers conversion for another failed video after the first conversion completes', () => {
     media = {
       type: 'video',

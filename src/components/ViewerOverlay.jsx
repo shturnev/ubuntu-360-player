@@ -98,12 +98,17 @@ function ViewerOverlay({
 }) {
   const panelRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [flatVideoError, setFlatVideoError] = useState(false);
   const convertButton =
     showingItem.type === 'video' &&
     hasPlaybackFailure &&
     onConvertVideo &&
     !conversionProgress?.active &&
     !hasConvertedVideo;
+
+  useEffect(() => {
+    setFlatVideoError(false);
+  }, [showingItem?.origPath, showingItem?.bigName, flatView]);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -158,7 +163,38 @@ function ViewerOverlay({
           ✕
         </button>
         {flatView && showingItem.type === 'video' ? (
-          <video controls autoPlay src={viewerSrc} />
+          <>
+            <video
+              controls
+              autoPlay
+              src={viewerSrc}
+              onError={() => {
+                setFlatVideoError(true);
+                onVideoPlaybackFailure?.();
+              }}
+            />
+            {flatVideoError && (
+              <div className="error-block viewer-flat-error">
+                <p role="status">Unable to play this video in Flat view.</p>
+                <div className="error-block-actions">
+                  {convertButton && (
+                    <button type="button" className="primary-button" onClick={onConvertVideo}>
+                      Convert / fix video
+                    </button>
+                  )}
+                  {onOpenExternal && (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
+                    >
+                      FFmpeg downloads and documentation
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         ) : flatView ? (
           <img src={viewerSrc} alt={showingItem.bigName} />
         ) : (

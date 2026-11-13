@@ -555,7 +555,13 @@ function PanoramaViewer({
           )}
         </div>
         {type === 'video' ? (
-          <video controls autoPlay crossOrigin="anonymous" src={source} />
+          <video
+            controls
+            autoPlay
+            crossOrigin="anonymous"
+            src={source}
+            onError={() => onVideoPlaybackFailureRef.current?.()}
+          />
         ) : (
           <img src={source} alt={alt} />
         )}

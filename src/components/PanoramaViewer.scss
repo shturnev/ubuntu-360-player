@@ -275,6 +275,12 @@
   flex-wrap: wrap;
 }
 
+.viewer-flat-error {
+  margin: 0;
+  border-radius: 0;
+  border-width: 1px 0;
+}
+
 .panorama-fallback img,
 .panorama-fallback video {
   width: 100%;

@@ -319,6 +319,30 @@ describe('PanoramaViewer', () => {
     expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
   });
 
+  test('reports errors from the native fallback video to the parent', () => {
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/missing-video.mp4"
+        type="video"
+        alt="missing-video.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const sourceVideo = document.querySelector('.panorama-source');
+    Object.defineProperty(sourceVideo, 'error', {
+      value: { code: 4, message: 'MEDIA_ERR_SRC_NOT_SUPPORTED' },
+      configurable: true,
+    });
+    fireEvent.error(sourceVideo);
+    onVideoPlaybackFailure.mockClear();
+
+    fireEvent.error(document.querySelector('.panorama-fallback video'));
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+  });
+
   test('shows a single conversion progress summary during transcoding', () => {
     render(
       <ViewerOverlay
