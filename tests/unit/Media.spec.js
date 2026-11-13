@@ -209,9 +209,7 @@ describe('Media', () => {
     );
 
     execFile.mockImplementationOnce((_command, _args, callback) => callback(new Error('missing ffprobe')));
-    await expect(Media.getMetadata('/media/broken.mp4', 'video')).rejects.toThrow(
-      'Unable to read video metadata.'
-    );
+    await expect(Media.getMetadata('/media/broken.mp4', 'video')).rejects.toThrow('Unable to read video metadata.');
   });
 
   test('carries duration rounding into the next minute', () => {

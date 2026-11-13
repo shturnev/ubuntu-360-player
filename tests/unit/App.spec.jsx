@@ -3,41 +3,34 @@ import { createRoot } from 'react-dom/client';
 import { StrictMode } from 'react';
 import App from '../../src/App.jsx';
 
-jest.mock(
-  '../../src/PanoramaViewer.jsx',
-  () => {
-    const React = require('react');
-    return React.forwardRef(function PanoramaViewer({
-      source,
-      type,
-      showConvertVideo,
-      onConvertVideo,
-      onVideoPlaybackFailure,
-      onVideoPlaybackSuccess,
-    }, ref) {
-      React.useImperativeHandle(ref, () => ({ pause: jest.fn() }));
-      return (
-        <div data-testid="panorama-viewer" data-source={source} data-type={type}>
-          {type === 'video' && (
-            <>
-              <button type="button" onClick={onVideoPlaybackFailure}>
-                Simulate playback failure
+jest.mock('../../src/PanoramaViewer.jsx', () => {
+  const React = require('react');
+  return React.forwardRef(function PanoramaViewer(
+    { source, type, showConvertVideo, onConvertVideo, onVideoPlaybackFailure, onVideoPlaybackSuccess },
+    ref
+  ) {
+    React.useImperativeHandle(ref, () => ({ pause: jest.fn() }));
+    return (
+      <div data-testid="panorama-viewer" data-source={source} data-type={type}>
+        {type === 'video' && (
+          <>
+            <button type="button" onClick={onVideoPlaybackFailure}>
+              Simulate playback failure
+            </button>
+            <button type="button" onClick={onVideoPlaybackSuccess}>
+              Simulate playback success
+            </button>
+            {showConvertVideo && (
+              <button type="button" onClick={onConvertVideo}>
+                Convert / fix video
               </button>
-              <button type="button" onClick={onVideoPlaybackSuccess}>
-                Simulate playback success
-              </button>
-              {showConvertVideo && (
-                <button type="button" onClick={onConvertVideo}>
-                  Convert / fix video
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      );
-    });
-  }
-);
+            )}
+          </>
+        )}
+      </div>
+    );
+  });
+});
 
 describe('App', () => {
   let container;
@@ -422,11 +415,14 @@ describe('App', () => {
     expect(container.textContent).toContain('Loading media information');
 
     act(() =>
-      listeners['media-metadata']({}, {
-        origPath: '/media/photo.jpg',
-        requestId: 1,
-        entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
-      })
+      listeners['media-metadata'](
+        {},
+        {
+          origPath: '/media/photo.jpg',
+          requestId: 1,
+          entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
+        }
+      )
     );
 
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
@@ -460,11 +456,14 @@ describe('App', () => {
     click(container.querySelector('.metadata-backdrop'));
 
     act(() =>
-      listeners['media-metadata']({}, {
-        origPath: '/media/photo.jpg',
-        requestId: 1,
-        entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
-      })
+      listeners['media-metadata'](
+        {},
+        {
+          origPath: '/media/photo.jpg',
+          requestId: 1,
+          entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
+        }
+      )
     );
 
     expect(container.querySelector('.metadata-dialog')).toBeNull();
@@ -479,20 +478,26 @@ describe('App', () => {
     click(button('Info'));
 
     act(() =>
-      listeners['media-metadata']({}, {
-        origPath: '/media/photo.jpg',
-        requestId: 1,
-        entries: [{ key: 'dimensions', label: 'Dimensions', value: '800 × 600' }],
-      })
+      listeners['media-metadata'](
+        {},
+        {
+          origPath: '/media/photo.jpg',
+          requestId: 1,
+          entries: [{ key: 'dimensions', label: 'Dimensions', value: '800 × 600' }],
+        }
+      )
     );
     expect(container.textContent).toContain('Loading media information');
 
     act(() =>
-      listeners['media-metadata']({}, {
-        origPath: '/media/photo.jpg',
-        requestId: 2,
-        entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
-      })
+      listeners['media-metadata'](
+        {},
+        {
+          origPath: '/media/photo.jpg',
+          requestId: 2,
+          entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
+        }
+      )
     );
     expect(container.textContent).toContain('1920 × 1080');
     expect(container.textContent).not.toContain('800 × 600');

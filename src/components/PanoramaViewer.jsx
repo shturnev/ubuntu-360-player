@@ -147,18 +147,21 @@ function formatTime(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-const PanoramaViewer = forwardRef(function PanoramaViewer({
-  source,
-  type,
-  alt,
-  onOpenExternal,
-  showConvertVideo,
-  onConvertVideo,
-  onVideoPlaybackFailure,
-  onVideoPlaybackSuccess,
-  onToggleFullscreen,
-  isFullscreen,
-}, ref) {
+const PanoramaViewer = forwardRef(function PanoramaViewer(
+  {
+    source,
+    type,
+    alt,
+    onOpenExternal,
+    showConvertVideo,
+    onConvertVideo,
+    onVideoPlaybackFailure,
+    onVideoPlaybackSuccess,
+    onToggleFullscreen,
+    isFullscreen,
+  },
+  ref
+) {
   const canvasRef = useRef(null);
   const mediaRef = useRef(null);
   const fallbackVideoRef = useRef(null);
