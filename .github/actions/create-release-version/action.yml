@@ -1,0 +1,229 @@
+name: Create release version
+description: Safely create or recover one SemVer release commit and tag.
+
+inputs:
+  release_type:
+    description: SemVer release type accepted by npm version.
+    required: true
+  expected_sha:
+    description: The main SHA that is allowed to be versioned.
+    required: true
+  release_identity:
+    description: Stable identifier for safely recognizing a rerun.
+    required: true
+  changelog_mode:
+    description: Either manual or pull-request.
+    required: true
+  pr_number:
+    description: Merged pull request number when changelog_mode is pull-request.
+    required: false
+
+outputs:
+  release_tag:
+    description: The existing or newly created release tag.
+    value: ${{ steps.result.outputs.release_tag || steps['result-existing'].outputs.release_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate release request and recover rerun
+      id: state
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ inputs.expected_sha }}
+        RELEASE_TYPE: ${{ inputs.release_type }}
+        RELEASE_IDENTITY: ${{ inputs.release_identity }}
+        CHANGELOG_MODE: ${{ inputs.changelog_mode }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        set -euo pipefail
+
+        case "$RELEASE_TYPE" in
+          major|minor|patch) ;;
+          *)
+            echo "Invalid release type: $RELEASE_TYPE" >&2
+            exit 1
+            ;;
+        esac
+
+        case "$CHANGELOG_MODE" in
+          manual) test -z "$PR_NUMBER" ;;
+          pull-request) test "$PR_NUMBER" -gt 0 ;;
+          *)
+            echo "Invalid changelog mode: $CHANGELOG_MODE" >&2
+            exit 1
+            ;;
+        esac
+
+        test -n "$EXPECTED_SHA"
+        test -n "$RELEASE_IDENTITY"
+        git fetch --tags origin
+
+        has_legacy_pr_reference() {
+          local tag="$1"
+          local version="${tag#v}"
+
+          git show "$tag:CHANGELOG.md" | node -e '
+            const fs = require("fs");
+            const [version, prNumber] = process.argv.slice(1);
+            const lines = fs.readFileSync(0, "utf8").split("\n");
+            const header = `## [${version}] - `;
+            const start = lines.findIndex((line) => line.startsWith(header));
+            if (start === -1) process.exit(1);
+            const end = lines.findIndex((line, index) => index > start && /^## \[.+\] - \d{4}-\d{2}-\d{2}$/.test(line));
+            const section = lines.slice(start + 1, end === -1 ? undefined : end).join("\n");
+            const url = `https://github.com/shturnev/ubuntu-360-player/pull/${prNumber}`;
+            const escapedUrl = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            process.exit(new RegExp(`${escapedUrl}(?=$|[)\\s])`).test(section) ? 0 : 1);
+          ' "$version" "$PR_NUMBER"
+        }
+
+        matches=()
+        while IFS= read -r tag; do
+          [ -n "$tag" ] || continue
+          [ "$(git cat-file -t "$tag")" = "tag" ] || continue
+          tag_contents="$(git for-each-ref --format='%(contents)' "refs/tags/$tag")"
+          if printf '%s\n' "$tag_contents" | grep -Fq 'Release identity: '; then
+            printf '%s\n' "$tag_contents" |
+              grep -Fxq "Release identity: $RELEASE_IDENTITY" || continue
+          elif [ "$CHANGELOG_MODE" = "pull-request" ] &&
+            has_legacy_pr_reference "$tag"; then
+            :
+          else
+            continue
+          fi
+          git merge-base --is-ancestor "$tag^{}" origin/main || continue
+          [ "$(git show -s --format=%s "$tag^{}")" = "chore(release): $tag" ] || continue
+          tag_version="${tag#v}"
+          git show "$tag:package.json" | node -e \
+            'let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { process.exit(JSON.parse(input).version === process.argv[1] ? 0 : 1); })' \
+            "$tag_version" || continue
+          matches+=("$tag")
+        done < <(git tag --list 'v*')
+
+        if [ "${#matches[@]}" -eq 1 ]; then
+          echo "needs_release=false" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${matches[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [ "${#matches[@]}" -gt 1 ]; then
+          echo "Multiple release tags match release identity $RELEASE_IDENTITY." >&2
+          exit 1
+        fi
+
+        actual_sha="$(git rev-parse HEAD)"
+        remote_sha="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
+        test "$actual_sha" = "$EXPECTED_SHA"
+        test "$remote_sha" = "$EXPECTED_SHA"
+        echo "needs_release=true" >> "$GITHUB_OUTPUT"
+
+    - name: Install dependencies
+      if: steps.state.outputs.needs_release == 'true'
+      shell: bash
+      run: npm ci
+
+    - name: Bump package version
+      if: steps.state.outputs.needs_release == 'true'
+      id: version
+      shell: bash
+      env:
+        RELEASE_TYPE: ${{ inputs.release_type }}
+      run: |
+        set -euo pipefail
+        npm version "$RELEASE_TYPE" --no-git-tag-version
+        version="$(node -p "require('./package.json').version")"
+        node -e '
+          const packageJson = require("./package.json");
+          const packageLock = require("./package-lock.json");
+          const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+          if (!semver.test(packageJson.version)) throw new Error("package.json version is not SemVer");
+          if (packageLock.packages?.[""]?.version !== packageJson.version) {
+            throw new Error("package-lock.json root version does not match package.json");
+          }
+        '
+        echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+    - name: Add changelog entry
+      if: steps.state.outputs.needs_release == 'true'
+      shell: bash
+      env:
+        RELEASE_TYPE: ${{ inputs.release_type }}
+        CHANGELOG_MODE: ${{ inputs.changelog_mode }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        set -euo pipefail
+        node <<'NODE'
+        const fs = require('fs');
+
+        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        const changelogPath = 'CHANGELOG.md';
+        const changelog = fs.readFileSync(changelogPath, 'utf8');
+        const lines = changelog.split('\n');
+        if (lines[0] !== '# CHANGELOG') {
+          throw new Error('CHANGELOG.md must start with "# CHANGELOG"');
+        }
+
+        const version = packageJson.version;
+        const header = `## [${version}] - ${new Date().toISOString().slice(0, 10)}`;
+        if (lines.some((line) => line.startsWith(`## [${version}] - `))) {
+          throw new Error(`CHANGELOG.md already contains a header for ${version}`);
+        }
+        const firstRelease = lines.findIndex((line) => /^## \[.+\] - \d{4}-\d{2}-\d{2}$/.test(line));
+        if (firstRelease === -1) {
+          throw new Error('CHANGELOG.md has no version header after "# CHANGELOG"');
+        }
+
+        let change;
+        if (process.env.CHANGELOG_MODE === 'manual') {
+          change = `- Manual ${process.env.RELEASE_TYPE} release.`;
+        } else if (process.env.CHANGELOG_MODE === 'pull-request') {
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          let title = event.pull_request.title.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+          if (!title) {
+            throw new Error('Merged pull request title is empty after normalization');
+          }
+          title = title.replace(/([\\`*_{}[\]<>()#+\-.!|])/g, '\\$1');
+          change = `- ${title} ([#${process.env.PR_NUMBER}](https://github.com/shturnev/ubuntu-360-player/pull/${process.env.PR_NUMBER}))`;
+        } else {
+          throw new Error(`Unsupported changelog mode: ${process.env.CHANGELOG_MODE}`);
+        }
+
+        lines.splice(firstRelease, 0, header, '### Changed', change, '');
+        fs.writeFileSync(changelogPath, lines.join('\n'));
+        NODE
+
+    - name: Commit and tag release
+      if: steps.state.outputs.needs_release == 'true'
+      id: result
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ inputs.expected_sha }}
+        RELEASE_IDENTITY: ${{ inputs.release_identity }}
+        TAG: ${{ steps.version.outputs.tag }}
+      run: |
+        set -euo pipefail
+        test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+        test "$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_SHA"
+        if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null ||
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists; refusing to create an ambiguous release." >&2
+          exit 1
+        fi
+        test "$(git diff --name-only | sort)" = "$(printf '%s\n' CHANGELOG.md package-lock.json package.json)"
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add CHANGELOG.md package.json package-lock.json
+        git commit -m "chore(release): $TAG" -m "Release identity: $RELEASE_IDENTITY"
+        git tag -a "$TAG" -m "$TAG" -m "Release identity: $RELEASE_IDENTITY"
+        git push --atomic origin HEAD:refs/heads/main "refs/tags/$TAG"
+        echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+    - name: Return existing release tag
+      if: steps.state.outputs.needs_release == 'false'
+      id: result-existing
+      shell: bash
+      env:
+        TAG: ${{ steps.state.outputs.release_tag }}
+      run: echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"

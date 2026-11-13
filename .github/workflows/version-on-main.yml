@@ -19,7 +19,7 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
-      release_tag: ${{ steps.result.outputs.release_tag || steps['result-existing'].outputs.release_tag }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - name: Select release type
         id: release
@@ -55,150 +55,21 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Verify merge commit or completed release
-        id: state
-        env:
-          EXPECTED_SHA: ${{ steps.release.outputs.expected_sha }}
-          PR_NUMBER: ${{ steps.release.outputs.pr_number }}
-        run: |
-          set -euo pipefail
-          test -n "$EXPECTED_SHA"
-          test "$PR_NUMBER" -gt 0
-
-          actual_sha="$(git rev-parse HEAD)"
-          remote_sha="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
-          test "$actual_sha" = "$remote_sha"
-
-          if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
-            echo "needs_release=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          matches=()
-          while IFS= read -r tag; do
-            [ -n "$tag" ] || continue
-            git merge-base --is-ancestor "$tag" origin/main || continue
-            [ "$(git show -s --format=%s "$tag")" = "chore(release): $tag" ] || continue
-            tag_version="${tag#v}"
-            git show "$tag:package.json" | node -e \
-              'let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { process.exit(JSON.parse(input).version === process.argv[1] ? 0 : 1); })' \
-              "$tag_version" || continue
-            git show "$tag:CHANGELOG.md" | grep -Fq "https://github.com/shturnev/ubuntu-360-player/pull/$PR_NUMBER" || continue
-            matches+=("$tag")
-          done < <(git tag --list 'v*')
-
-          if [ "${#matches[@]}" -eq 1 ]; then
-            echo "needs_release=false" >> "$GITHUB_OUTPUT"
-            echo "release_tag=${matches[0]}" >> "$GITHUB_OUTPUT"
-            {
-              echo "## Release versioning already completed"
-              echo
-              echo "PR #$PR_NUMBER is already released as ${matches[0]}."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          echo "main is at $actual_sha, but merged PR #$PR_NUMBER expected $EXPECTED_SHA. Refusing to version an ambiguous state." >&2
-          exit 1
-
       - name: Set up Node.js
-        if: steps.state.outputs.needs_release == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        if: steps.state.outputs.needs_release == 'true'
-        run: npm ci
-
-      - name: Bump package version
-        if: steps.state.outputs.needs_release == 'true'
-        env:
-          RELEASE_TYPE: ${{ steps.release.outputs.release_type }}
-        run: npm version "$RELEASE_TYPE" --no-git-tag-version
-
-      - name: Add changelog entry
-        if: steps.state.outputs.needs_release == 'true'
-        id: changelog
-        env:
-          PR_NUMBER: ${{ steps.release.outputs.pr_number }}
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-
-          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const packageLock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-          const version = packageJson.version;
-
-          if (packageLock.packages?.['']?.version !== version) {
-            throw new Error('package-lock.json root version does not match package.json');
-          }
-
-          let title = event.pull_request.title.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
-          if (!title) {
-            throw new Error('Merged pull request title is empty after normalization');
-          }
-          title = title.replace(/([\\`*_{}[\]<>()#+\-.!|])/g, '\\$1');
-
-          const changelogPath = 'CHANGELOG.md';
-          const changelog = fs.readFileSync(changelogPath, 'utf8');
-          const lines = changelog.split('\n');
-          if (lines[0] !== '# CHANGELOG') {
-            throw new Error('CHANGELOG.md must start with "# CHANGELOG"');
-          }
-
-          const header = `## [${version}] - ${new Date().toISOString().slice(0, 10)}`;
-          if (lines.includes(header)) {
-            throw new Error(`CHANGELOG.md already contains ${header}`);
-          }
-          const firstRelease = lines.findIndex((line) => /^## \[.+\] - \d{4}-\d{2}-\d{2}$/.test(line));
-          if (firstRelease === -1) {
-            throw new Error('CHANGELOG.md has no version header after "# CHANGELOG"');
-          }
-
-          const entry = [
-            header,
-            '### Changed',
-            `- ${title} ([#${process.env.PR_NUMBER}](https://github.com/shturnev/ubuntu-360-player/pull/${process.env.PR_NUMBER}))`,
-            '',
-          ];
-          lines.splice(firstRelease, 0, ...entry);
-          fs.writeFileSync(changelogPath, lines.join('\n'));
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ntag=v${version}\n`);
-          NODE
-
-      - name: Commit and tag release
-        if: steps.state.outputs.needs_release == 'true'
-        id: result
-        env:
-          EXPECTED_SHA: ${{ steps.release.outputs.expected_sha }}
-          TAG: ${{ steps.changelog.outputs.tag }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          test "$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_SHA"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists; refusing to create an ambiguous release." >&2
-            exit 1
-          fi
-          test "$(git diff --name-only | sort)" = "$(printf '%s\n' CHANGELOG.md package-lock.json package.json)"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md package.json package-lock.json
-          git commit -m "chore(release): $TAG"
-          git tag -a "$TAG" -m "$TAG"
-          git push --atomic origin HEAD:refs/heads/main "refs/tags/$TAG"
-          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Use existing release tag
-        if: steps.state.outputs.needs_release == 'false'
-        id: result-existing
-        env:
-          TAG: ${{ steps.state.outputs.release_tag }}
-        run: echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Create or recover release version
+        id: version
+        uses: ./.github/actions/create-release-version
+        with:
+          release_type: ${{ steps.release.outputs.release_type }}
+          expected_sha: ${{ steps.release.outputs.expected_sha }}
+          release_identity: pull-request-${{ steps.release.outputs.pr_number }}
+          changelog_mode: pull-request
+          pr_number: ${{ steps.release.outputs.pr_number }}
 
   release:
     needs: version

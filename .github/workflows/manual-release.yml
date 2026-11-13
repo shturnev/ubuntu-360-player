@@ -1,0 +1,72 @@
+name: Manual SemVer release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'SemVer bump to publish: major is breaking, minor adds compatible features, patch fixes bugs.'
+        required: true
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: version-on-main
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+    steps:
+      - name: Require main branch
+        env:
+          EVENT_REF: ${{ github.ref }}
+        run: |
+          test "$EVENT_REF" = "refs/heads/main" ||
+            { echo "Manual releases must be dispatched from main, not $EVENT_REF." >&2; exit 1; }
+
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify checked out main
+        id: main
+        run: |
+          set -euo pipefail
+          local_sha="$(git rev-parse HEAD)"
+          remote_sha="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
+          test "$local_sha" = "$remote_sha"
+          echo "sha=$local_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Create or recover release version
+        id: version
+        uses: ./.github/actions/create-release-version
+        with:
+          release_type: ${{ inputs.release_type }}
+          expected_sha: ${{ steps.main.outputs.sha }}
+          release_identity: manual-dispatch-${{ github.run_id }}
+          changelog_mode: manual
+
+  release:
+    needs: version
+    if: needs.version.outputs.release_tag != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.version.outputs.release_tag }}
