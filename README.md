@@ -77,6 +77,11 @@ workflow tests the tagged commit, builds `.deb` and `.AppImage` packages,
 generates the Linux update metadata, and attaches only those release assets to
 the matching GitHub Release.
 
+Maintainers can also run **Manual SemVer release** from the Actions tab while
+on `main`. They must explicitly select `major`, `minor`, or `patch`; the
+workflow creates the same version commit, tag, changelog entry, and release
+assets as the PR-label process.
+
 The application checks published GitHub Releases when update checks are enabled.
 It first offers **Download update**; downloading never restarts the application.
 After the download completes, **Restart and install** requires separate explicit
