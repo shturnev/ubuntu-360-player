@@ -59,22 +59,41 @@ runs:
         test -n "$RELEASE_IDENTITY"
         git fetch --tags origin
 
+        has_legacy_pr_reference() {
+          local tag="$1"
+          local version="${tag#v}"
+
+          git show "$tag:CHANGELOG.md" | node -e '
+            const fs = require("fs");
+            const [version, prNumber] = process.argv.slice(1);
+            const lines = fs.readFileSync(0, "utf8").split("\n");
+            const header = `## [${version}] - `;
+            const start = lines.findIndex((line) => line.startsWith(header));
+            if (start === -1) process.exit(1);
+            const end = lines.findIndex((line, index) => index > start && /^## \[.+\] - \d{4}-\d{2}-\d{2}$/.test(line));
+            const section = lines.slice(start + 1, end === -1 ? undefined : end).join("\n");
+            const url = `https://github.com/shturnev/ubuntu-360-player/pull/${prNumber}`;
+            const escapedUrl = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            process.exit(new RegExp(`${escapedUrl}(?=$|[)\\s])`).test(section) ? 0 : 1);
+          ' "$version" "$PR_NUMBER"
+        }
+
         matches=()
         while IFS= read -r tag; do
           [ -n "$tag" ] || continue
           [ "$(git cat-file -t "$tag")" = "tag" ] || continue
-          if git for-each-ref --format='%(contents)' "refs/tags/$tag" |
-            grep -Fxq "Release identity: $RELEASE_IDENTITY"; then
-            :
+          tag_contents="$(git for-each-ref --format='%(contents)' "refs/tags/$tag")"
+          if printf '%s\n' "$tag_contents" | grep -Fq 'Release identity: '; then
+            printf '%s\n' "$tag_contents" |
+              grep -Fxq "Release identity: $RELEASE_IDENTITY" || continue
           elif [ "$CHANGELOG_MODE" = "pull-request" ] &&
-            git show "$tag:CHANGELOG.md" |
-              grep -Fq "https://github.com/shturnev/ubuntu-360-player/pull/$PR_NUMBER"; then
+            has_legacy_pr_reference "$tag"; then
             :
           else
             continue
           fi
-          git merge-base --is-ancestor "$tag" origin/main || continue
-          [ "$(git show -s --format=%s "$tag")" = "chore(release): $tag" ] || continue
+          git merge-base --is-ancestor "$tag^{}" origin/main || continue
+          [ "$(git show -s --format=%s "$tag^{}")" = "chore(release): $tag" ] || continue
           tag_version="${tag#v}"
           git show "$tag:package.json" | node -e \
             'let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { process.exit(JSON.parse(input).version === process.argv[1] ? 0 : 1); })' \
