@@ -113,11 +113,39 @@ describe('MainModelClass', () => {
       send.mockImplementation((channel) => {
         if (channel === 'open-dir') resolve();
       });
+
       mainModelClass.readDir(sourceDir);
     });
 
     expect(send).toHaveBeenCalledWith('start-read-dir', 0);
     expect(send).toHaveBeenCalledWith('open-dir', false);
+  });
+
+  test('skips an inaccessible media entry without interrupting the directory import', async () => {
+    const sourceDir = path.join(tempDir, 'partially-accessible-media');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, 'available.jpg'), 'image');
+    fs.symlinkSync(path.join(sourceDir, 'missing.jpg'), path.join(sourceDir, 'dangling.jpg'));
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation(() => {});
+
+    await new Promise((resolve) => {
+      send.mockImplementation((channel, payload) => {
+        if (channel === 'read-media-file' && payload.error) resolve();
+      });
+      mainModelClass.readDir(sourceDir);
+    });
+
+    expect(send).toHaveBeenCalledWith('start-read-dir', 2);
+    expect(send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({
+        origPath: path.join(sourceDir, 'dangling.jpg'),
+        error: { message: 'Unable to access this media file.' },
+      })
+    );
+    expect(saveImage).toHaveBeenCalledWith(path.join(sourceDir, 'available.jpg'), mainModelClass.win);
   });
 
   test('deleteCache removes the cache directory and only reports completion on success', async () => {

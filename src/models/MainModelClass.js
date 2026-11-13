@@ -178,7 +178,19 @@ class MainModelClass {
 
       mediaFiles.forEach((file) => {
         const ext = file.split('.').pop().toLowerCase();
-        const origPath = fs.realpathSync(path.join(pathDir, file));
+        const filePath = path.join(pathDir, file);
+        let origPath;
+        try {
+          origPath = fs.realpathSync(filePath);
+        } catch (error) {
+          if (this.win && this.win.webContents) {
+            this.win.webContents.send('read-media-file', {
+              error: { message: 'Unable to access this media file.' },
+              origPath: filePath,
+            });
+          }
+          return;
+        }
         const type = ext === 'mp4' ? 'video' : 'image';
         this.authorizedMedia.set(origPath, type);
 
