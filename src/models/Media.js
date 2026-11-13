@@ -393,7 +393,7 @@ function formatVideoMetadata(metadata = {}) {
     entry('duration', 'Duration', formatDuration(format.duration)),
     entry('dimensions', 'Dimensions', video.width && video.height ? `${video.width} × ${video.height}` : null),
     entry('video-codec', 'Video codec', video.codec_long_name || video.codec_name),
-    entry('frame-rate', 'Frame rate', formatFrameRate(video.avg_frame_rate || video.r_frame_rate)),
+    entry('frame-rate', 'Frame rate', formatFrameRate(video.avg_frame_rate) || formatFrameRate(video.r_frame_rate)),
     entry('video-bitrate', 'Video bitrate', formatBitrate(video.bit_rate)),
     entry('audio-codec', 'Audio codec', audio.codec_long_name || audio.codec_name),
     entry('audio-channels', 'Audio channels', audio.channels ? `${audio.channels}${audio.channel_layout ? ` (${audio.channel_layout})` : ''}` : null),
@@ -414,15 +414,21 @@ function formatDate(value) {
 function formatExposure(value) {
   const seconds = Number(value);
   if (!Number.isFinite(seconds) || seconds <= 0) return value || null;
-  return seconds < 1 ? `1/${Math.round(1 / seconds)} s` : `${seconds} s`;
+  const reciprocal = 1 / seconds;
+  const roundedReciprocal = Math.round(reciprocal);
+  if (seconds < 1 && Math.abs(reciprocal - roundedReciprocal) < 1e-9) {
+    return `1/${roundedReciprocal} s`;
+  }
+  return `${seconds} s`;
 }
 
 function formatDuration(value) {
   const seconds = Number(value);
   if (!Number.isFinite(seconds) || seconds < 0) return null;
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const rawRemaining = String((seconds % 60).toFixed(seconds % 1 ? 1 : 0));
+  const roundedSeconds = Math.round(seconds * 10) / 10;
+  const hours = Math.floor(roundedSeconds / 3600);
+  const minutes = Math.floor((roundedSeconds % 3600) / 60);
+  const rawRemaining = String((roundedSeconds % 60).toFixed(roundedSeconds % 1 ? 1 : 0));
   const remaining = Number(rawRemaining) < 10 ? `0${rawRemaining}` : rawRemaining;
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${remaining}` : `${minutes}:${remaining}`;
 }

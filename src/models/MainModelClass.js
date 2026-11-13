@@ -24,6 +24,7 @@ class MainModelClass {
     this.static_dir = homedir + '/static';
     this.config = new ConfigModel();
     this.updater = updater;
+    this.authorizedMedia = new Map();
   }
 
   init() {
@@ -38,16 +39,28 @@ class MainModelClass {
     ipcMain.on('delete-selected', (event, arg) => this.deleteSelected(arg));
     ipcMain.on('get-media-metadata', async (event, payload) => {
       const origPath = payload?.origPath;
-      if (!origPath || !['image', 'video'].includes(payload?.type)) {
-        event.reply('media-metadata', { origPath: origPath || '', error: 'Unable to identify this media file.' });
+      const requestId = payload?.requestId;
+      const type = payload?.type;
+      if (
+        typeof origPath !== 'string' ||
+        !Number.isSafeInteger(requestId) ||
+        !['image', 'video'].includes(type) ||
+        this.authorizedMedia.get(origPath) !== type
+      ) {
+        event.reply('media-metadata', {
+          origPath: typeof origPath === 'string' ? origPath : '',
+          requestId,
+          error: 'This media file is not available in the current library.',
+        });
         return;
       }
       try {
-        const entries = await Media.getMetadata(origPath, payload.type);
-        event.reply('media-metadata', { origPath, entries });
+        const entries = await Media.getMetadata(origPath, type);
+        event.reply('media-metadata', { origPath, requestId, entries });
       } catch (error) {
         event.reply('media-metadata', {
           origPath,
+          requestId,
           error: error?.message || 'Unable to read media metadata.',
         });
       }
@@ -135,6 +148,7 @@ class MainModelClass {
   }
 
   readDir(pathDir) {
+    this.authorizedMedia = new Map();
     fs.readdir(pathDir, (err, files) => {
       if (err) {
         if (this.win && this.win.webContents) {
@@ -164,9 +178,11 @@ class MainModelClass {
 
       mediaFiles.forEach((file) => {
         const ext = file.split('.').pop().toLowerCase();
-        const origPath = pathDir + '/' + file;
+        const origPath = fs.realpathSync(path.join(pathDir, file));
+        const type = ext === 'mp4' ? 'video' : 'image';
+        this.authorizedMedia.set(origPath, type);
 
-        if (ext === 'mp4') {
+        if (type === 'video') {
           Media.saveVideo(origPath, this.win);
         } else {
           Media.saveImage(origPath, this.win);
@@ -177,6 +193,7 @@ class MainModelClass {
 
   deleteSelected(dataArray = []) {
     dataArray.forEach(async (item) => {
+      this.authorizedMedia.delete(item.origPath);
       const thumpPath = this.static_dir + '/small/' + item.thumpName;
       const symlPath = this.static_dir + '/big/' + item.bigName;
 

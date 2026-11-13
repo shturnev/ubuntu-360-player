@@ -160,7 +160,7 @@ function ViewerOverlay({
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState);
   }, []);
 
-  const metadataOpen = metadata?.status !== 'idle';
+  const metadataOpen = Boolean(metadata && metadata.status !== 'idle');
 
   useEffect(() => {
     if (!metadataOpen) return undefined;
@@ -401,7 +401,7 @@ function ViewerOverlay({
                   <CloseIcon />
                 </button>
               </div>
-              <div className="metadata-dialog-content">
+              <div className="metadata-dialog-content" tabIndex={0} aria-label="Media metadata">
                 {metadata.status === 'loading' && <p role="status">Loading media information…</p>}
                 {metadata.status === 'error' && <p role="alert">{metadata.error}</p>}
                 {metadata.status === 'ready' && metadata.entries.length === 0 && (

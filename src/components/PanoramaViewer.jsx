@@ -177,7 +177,10 @@ const PanoramaViewer = forwardRef(function PanoramaViewer({
   useImperativeHandle(ref, () => ({
     pause() {
       const video = [mediaRef.current, fallbackVideoRef.current].find((candidate) => candidate && !candidate.paused);
-      if (video) video.pause();
+      if (video) {
+        playbackGeneration.current += 1;
+        video.pause();
+      }
     },
   }));
 

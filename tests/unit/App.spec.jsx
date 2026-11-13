@@ -417,12 +417,14 @@ describe('App', () => {
     expect(api.send).toHaveBeenCalledWith('get-media-metadata', {
       origPath: '/media/photo.jpg',
       type: 'image',
+      requestId: 1,
     });
     expect(container.textContent).toContain('Loading media information');
 
     act(() =>
       listeners['media-metadata']({}, {
         origPath: '/media/photo.jpg',
+        requestId: 1,
         entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
       })
     );
@@ -460,11 +462,40 @@ describe('App', () => {
     act(() =>
       listeners['media-metadata']({}, {
         origPath: '/media/photo.jpg',
+        requestId: 1,
         entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
       })
     );
 
     expect(container.querySelector('.metadata-dialog')).toBeNull();
+  });
+
+  test('ignores a response from an earlier metadata request for the same file', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    click(button('Info'));
+    click(container.querySelector('.metadata-backdrop'));
+    click(button('Info'));
+
+    act(() =>
+      listeners['media-metadata']({}, {
+        origPath: '/media/photo.jpg',
+        requestId: 1,
+        entries: [{ key: 'dimensions', label: 'Dimensions', value: '800 × 600' }],
+      })
+    );
+    expect(container.textContent).toContain('Loading media information');
+
+    act(() =>
+      listeners['media-metadata']({}, {
+        origPath: '/media/photo.jpg',
+        requestId: 2,
+        entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
+      })
+    );
+    expect(container.textContent).toContain('1920 × 1080');
+    expect(container.textContent).not.toContain('800 × 600');
   });
 
   test('moves focus into the metadata dialog and restores it when closed', () => {
@@ -475,6 +506,10 @@ describe('App', () => {
     click(infoButton);
 
     expect(document.activeElement).toBe(container.querySelector('[aria-label="Close media information"]'));
+
+    const metadataContent = container.querySelector('[aria-label="Media metadata"]');
+    metadataContent.focus();
+    expect(document.activeElement).toBe(metadataContent);
 
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
     expect(document.activeElement).toBe(container.querySelector('[aria-label="Close media information"]'));

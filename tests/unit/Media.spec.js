@@ -168,6 +168,14 @@ describe('Media', () => {
     );
   });
 
+  test('preserves non-reciprocal exposure values', () => {
+    expect(formatImageMetadata({ ExposureTime: 0.8 })).toContainEqual({
+      key: 'exposure',
+      label: 'Exposure',
+      value: '0.8 s',
+    });
+  });
+
   test('returns an empty result when an image has no EXIF metadata', async () => {
     exifr.parse.mockResolvedValue({});
 
@@ -178,7 +186,14 @@ describe('Media', () => {
     const rawMetadata = {
       format: { format_long_name: 'QuickTime / MOV', duration: '65.2', tags: { title: 'Holiday' } },
       streams: [
-        { codec_type: 'video', codec_long_name: 'H.264', width: 1920, height: 1080, avg_frame_rate: '30000/1001' },
+        {
+          codec_type: 'video',
+          codec_long_name: 'H.264',
+          width: 1920,
+          height: 1080,
+          avg_frame_rate: '0/0',
+          r_frame_rate: '30000/1001',
+        },
         { codec_type: 'audio', codec_long_name: 'AAC', channels: 2, channel_layout: 'stereo' },
       ],
     };
@@ -194,5 +209,13 @@ describe('Media', () => {
     await expect(Media.getMetadata('/media/broken.mp4', 'video')).rejects.toThrow(
       'Unable to read video metadata.'
     );
+  });
+
+  test('carries duration rounding into the next minute', () => {
+    expect(formatVideoMetadata({ format: { duration: '59.99' } })).toContainEqual({
+      key: 'duration',
+      label: 'Duration',
+      value: '1:00',
+    });
   });
 });

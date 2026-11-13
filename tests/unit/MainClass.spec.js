@@ -148,14 +148,16 @@ describe('MainModelClass', () => {
   test('returns metadata using the original path as its correlation key', async () => {
     jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }]);
     jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.authorizedMedia.set('/media/photo.jpg', 'image');
     mainModelClass.init();
-    const handler = ipcMain.on.mock.calls.find(([channel]) => channel === 'get-media-metadata')[1];
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
     const event = { reply: jest.fn() };
 
-    await handler(event, { origPath: '/media/photo.jpg', type: 'image' });
+    await handler(event, { origPath: '/media/photo.jpg', type: 'image', requestId: 1 });
 
     expect(event.reply).toHaveBeenCalledWith('media-metadata', {
       origPath: '/media/photo.jpg',
+      requestId: 1,
       entries: [{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }],
     });
   });
@@ -163,15 +165,34 @@ describe('MainModelClass', () => {
   test('returns a controlled metadata error', async () => {
     jest.spyOn(Media, 'getMetadata').mockRejectedValue(new Error('Unable to read image metadata.'));
     jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.authorizedMedia.set('/media/photo.jpg', 'image');
     mainModelClass.init();
-    const handler = ipcMain.on.mock.calls.find(([channel]) => channel === 'get-media-metadata')[1];
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
     const event = { reply: jest.fn() };
 
-    await handler(event, { origPath: '/media/photo.jpg', type: 'image' });
+    await handler(event, { origPath: '/media/photo.jpg', type: 'image', requestId: 1 });
 
     expect(event.reply).toHaveBeenCalledWith('media-metadata', {
       origPath: '/media/photo.jpg',
+      requestId: 1,
       error: 'Unable to read image metadata.',
+    });
+  });
+
+  test('rejects metadata paths that were not imported into the current library', async () => {
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    const getMetadata = jest.spyOn(Media, 'getMetadata');
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: 'https://example.test/video.mp4', type: 'video', requestId: 1 });
+
+    expect(getMetadata).not.toHaveBeenCalled();
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: 'https://example.test/video.mp4',
+      requestId: 1,
+      error: 'This media file is not available in the current library.',
     });
   });
 });

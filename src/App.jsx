@@ -40,6 +40,7 @@ function App() {
   const [playbackFailedVideoId, setPlaybackFailedVideoId] = useState('');
   const [metadata, setMetadata] = useState({ identity: '', status: 'idle', entries: [], error: '' });
   const showingItemIdRef = useRef('');
+  const metadataRequestIdRef = useRef(0);
 
   const closeViewer = () => {
     setShowingItem(null);
@@ -200,9 +201,16 @@ function App() {
       'media-metadata': (_, data) => {
         if (!data || data.origPath !== showingItemIdRef.current) return;
         setMetadata((current) => {
-          if (current.status !== 'loading' || current.identity !== data.origPath) return current;
+          if (
+            current.status !== 'loading' ||
+            current.identity !== data.origPath ||
+            current.requestId !== data.requestId
+          ) {
+            return current;
+          }
           return {
             identity: data.origPath,
+            requestId: data.requestId,
             status: data.error ? 'error' : 'ready',
             entries: Array.isArray(data.entries) ? data.entries : [],
             error: data.error || '',
@@ -330,8 +338,9 @@ function App() {
   const openMetadata = () => {
     if (!showingItem?.origPath) return;
     const identity = getMediaIdentity(showingItem);
-    setMetadata({ identity, status: 'loading', entries: [], error: '' });
-    request('get-media-metadata', { origPath: showingItem.origPath, type: showingItem.type });
+    const requestId = ++metadataRequestIdRef.current;
+    setMetadata({ identity, requestId, status: 'loading', entries: [], error: '' });
+    request('get-media-metadata', { origPath: showingItem.origPath, type: showingItem.type, requestId });
   };
 
   const updateCheckSetting = () => {
