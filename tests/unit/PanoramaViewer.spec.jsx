@@ -67,16 +67,23 @@ describe('PanoramaViewer', () => {
   test('uploads an image texture once the image finishes loading', () => {
     const gl = makeWebGL();
     const source = 'http://localhost:3000/big/photo-1000.jpg';
+    const queuedRaf = [];
+    window.requestAnimationFrame = jest.fn((callback) => {
+      queuedRaf.push(callback);
+      return queuedRaf.length;
+    });
 
     render(<PanoramaViewer source={source} type="image" alt="photo-1000.jpg" />);
 
     const image = document.querySelector('.panorama-source');
     expect(image.crossOrigin).toBe('anonymous');
     expect(image).toHaveAttribute('src', source);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(1);
 
     fireEvent.load(image);
+    queuedRaf.splice(0).forEach((callback) => callback());
 
-    expect(gl.texImage2D).toHaveBeenCalled();
+    expect(gl.texImage2D).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
@@ -152,6 +159,20 @@ describe('PanoramaViewer', () => {
     expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
+  });
+
+  test('does not upload a video texture before a video frame is available', () => {
+    const gl = makeWebGL();
+    render(<PanoramaViewer source="http://localhost:3000/big/audio-only.mp4" type="video" alt="audio-only.mp4" />);
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(video, 'videoWidth', { value: 0, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 0, configurable: true });
+
+    fireEvent(video, new Event('loadeddata'));
+
+    expect(gl.texImage2D).toHaveBeenCalledTimes(1);
   });
 
   test('reports rejected play requests to the parent and shows the video fallback', async () => {

@@ -152,6 +152,8 @@ function PanoramaViewer({
   type,
   alt,
   onOpenExternal,
+  showConvertVideo,
+  onConvertVideo,
   onVideoPlaybackFailure,
   onVideoPlaybackSuccess,
   onToggleFullscreen,
@@ -231,6 +233,7 @@ function PanoramaViewer({
     let failed = false;
     let disposed = false;
     let hasVideoFrame = false;
+    let hasImageFrame = false;
     let render = () => {};
     let noFrameTimer;
     let resizeObserver;
@@ -266,6 +269,11 @@ function PanoramaViewer({
       requestRender();
     };
 
+    const handleImageLoad = () => {
+      hasImageFrame = true;
+      scheduleImageUpload();
+    };
+
     try {
       program = createProgram(gl);
       texture = gl.createTexture();
@@ -297,16 +305,18 @@ function PanoramaViewer({
         try {
           gl.bindTexture(gl.TEXTURE_2D, texture);
           if (type === 'video') {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
-            if (media.readyState >= 2 && media.videoWidth > 0 && media.videoHeight > 0) {
-              hasVideoFrame = true;
-              clearTimeout(noFrameTimer);
-              setVideoReady(true);
+            if (media.readyState < 2 || media.videoWidth <= 0 || media.videoHeight <= 0) {
+              return;
             }
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
+            hasVideoFrame = true;
+            clearTimeout(noFrameTimer);
+            setVideoReady(true);
             return;
           }
 
           if (!media) return;
+          if (!hasImageFrame) return;
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
           needsImageUpload.current = false;
         } catch (error) {
@@ -384,7 +394,7 @@ function PanoramaViewer({
         media.addEventListener('pause', handlePause);
         media.addEventListener('ended', handlePause);
       } else {
-        media.addEventListener('load', scheduleImageUpload);
+        media.addEventListener('load', handleImageLoad);
         media.addEventListener('error', handleMediaError);
       }
 
@@ -419,7 +429,7 @@ function PanoramaViewer({
           }
           media.removeAttribute('src');
         }
-        media.removeEventListener('load', scheduleImageUpload);
+        media.removeEventListener('load', handleImageLoad);
         media.removeEventListener('error', handleMediaError);
         media.removeEventListener('loadeddata', uploadMedia);
         media.removeEventListener('canplay', uploadMedia);
@@ -523,16 +533,29 @@ function PanoramaViewer({
   if (fallbackMessage) {
     return (
       <div className="panorama-fallback">
-        <p role="status">{fallbackMessage}</p>
+        <div className="error-block">
+          <p role="status">{fallbackMessage}</p>
+          {type === 'video' && (
+            <div className="error-block-actions">
+              {showConvertVideo && (
+                <button type="button" className="primary-button" onClick={onConvertVideo}>
+                  Convert / fix video
+                </button>
+              )}
+              {onOpenExternal && (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
+                >
+                  FFmpeg downloads and documentation
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {type === 'video' ? (
-          <>
-            <video controls autoPlay crossOrigin="anonymous" src={source} />
-            {onOpenExternal && (
-              <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
-                FFmpeg downloads and documentation
-              </button>
-            )}
-          </>
+          <video controls autoPlay crossOrigin="anonymous" src={source} />
         ) : (
           <img src={source} alt={alt} />
         )}

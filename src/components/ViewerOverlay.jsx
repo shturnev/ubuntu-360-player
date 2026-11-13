@@ -167,6 +167,8 @@ function ViewerOverlay({
             type={showingItem.type}
             alt={showingItem.bigName}
             onOpenExternal={onOpenExternal}
+            showConvertVideo={convertButton}
+            onConvertVideo={onConvertVideo}
             onVideoPlaybackFailure={onVideoPlaybackFailure}
             onVideoPlaybackSuccess={onVideoPlaybackSuccess}
             onToggleFullscreen={toggleFullscreen}
@@ -186,13 +188,6 @@ function ViewerOverlay({
                 ? 'unknown'
                 : `${Math.round((Number(conversionProgress.etaMs) || 0) / 1000)}s`}
             </small>
-          </div>
-        )}
-        {convertButton && (
-          <div className="viewer-convert-actions">
-            <button type="button" onClick={onConvertVideo}>
-              Convert / fix video
-            </button>
           </div>
         )}
         <div className="viewer-controls">

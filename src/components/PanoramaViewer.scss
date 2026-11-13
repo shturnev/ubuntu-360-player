@@ -249,18 +249,30 @@
   background: #000;
 }
 
-.panorama-fallback p {
-  max-height: 9rem;
-  margin: 0 0 0.75rem;
-  padding: 0.75rem;
-  overflow: auto;
+.error-block {
   border: 1px solid $border-soft;
-  border-radius: 8px;
+  border-radius: 10px;
   background: $bg-surface;
+  margin-bottom: 1rem;
+  padding: 0.9rem;
+}
+
+.error-block p {
+  max-height: 9rem;
+  margin: 0;
+  overflow: auto;
   color: $warning;
   line-height: 1.4;
   white-space: pre-line;
   overflow-wrap: anywhere;
+}
+
+.error-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
 }
 
 .panorama-fallback img,
@@ -270,8 +282,15 @@
   object-fit: contain;
 }
 
-.panorama-fallback button {
-  margin-bottom: 0.75rem;
+@media (max-width: 520px) {
+  .error-block-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .error-block-actions button {
+    width: 100%;
+  }
 }
 
 .close-viewer {
