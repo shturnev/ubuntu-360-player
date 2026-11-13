@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.1.2] - 2026-11-13
+### Changed
+- Manual patch release.
+
 ## [3.1.1] - 2026-11-13
 ### Changed
 - Manual patch release.
