@@ -1,5 +1,8 @@
 import './SettingsPanel.scss';
 
+const donateUrl = 'https://www.privat24.ua/send/krdrh';
+const changeLogUrl = 'https://github.com/shturnev/ubuntu-360-player/releases';
+
 const TrashIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <path
@@ -65,17 +68,13 @@ function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting
       <div className="donate-box">
         <p>Please donate to support the project.</p>
         <div className="donate-actions">
-          <button type="button" className="primary-button" onClick={() => onOpenExternal('#')}>
+          <button type="button" className="primary-button" onClick={() => onOpenExternal(donateUrl)}>
             <span className="button-icon">
               <DonationIcon />
             </span>
             <span>Donate</span>
           </button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => onOpenExternal('https://github.com/shturnev/ubuntu-360-player/releases')}
-          >
+          <button type="button" className="ghost-button" onClick={() => onOpenExternal(changeLogUrl)}>
             View changelog
           </button>
         </div>
