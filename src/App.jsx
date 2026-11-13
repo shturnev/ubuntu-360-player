@@ -11,6 +11,8 @@ import ViewerOverlay from './components/ViewerOverlay.jsx';
 
 const EMPTY_PROGRESS = { show: false, total: 0, complete: 0 };
 
+const getMediaIdentity = (item) => item?.origPath || item?.bigName || item?.thumpName || '';
+
 function App() {
   const [selectedPath, setSelectedPath] = useState('');
   const [items, setItems] = useState([]);
@@ -35,10 +37,12 @@ function App() {
     message: '',
   });
   const [convertedVideos, setConvertedVideos] = useState(new Set());
+  const [playbackFailedVideoId, setPlaybackFailedVideoId] = useState('');
 
   const closeViewer = () => {
     setShowingItem(null);
     setFlatView(false);
+    setPlaybackFailedVideoId('');
   };
 
   const api = typeof window !== 'undefined' ? window.shtVR : null;
@@ -159,6 +163,9 @@ function App() {
 
         if (data.success) {
           setConvertedVideos((current) => new Set([...current, data.origPath]));
+          setPlaybackFailedVideoId((current) =>
+            current === getMediaIdentity(data) ? '' : current
+          );
           setItems((current) =>
             current.map((item) => (item.origPath === data.origPath ? { ...item, bigName: data.bigName } : item))
           );
@@ -316,6 +323,10 @@ function App() {
   const hasConvertedVideo = Boolean(
     showingItem && (convertedVideos.has(showingItem.origPath) || /-\d+-h264\.mp4$/i.test(showingItem.bigName || ''))
   );
+  const showingItemId = getMediaIdentity(showingItem);
+  const hasPlaybackFailure = Boolean(
+    showingItem && showingItem.type === 'video' && showingItemId === playbackFailedVideoId
+  );
   const downloadUpdate = () => {
     request('download-update', null);
     setUpdateState((current) => ({ ...current, status: 'downloading', progress: 0 }));
@@ -408,7 +419,10 @@ function App() {
         maxSizePx={maxSizePx}
         canSelect={canSelect}
         onToggleSelection={toggleSelection}
-        onOpenItem={(item) => setShowingItem(item)}
+        onOpenItem={(item) => {
+          setPlaybackFailedVideoId('');
+          setShowingItem(item);
+        }}
       />
 
       {showingItem && (
@@ -419,7 +433,10 @@ function App() {
           flatView={flatView}
           conversionProgress={conversionProgress}
           hasConvertedVideo={hasConvertedVideo}
+          hasPlaybackFailure={hasPlaybackFailure}
           onConvertVideo={convertCurrentVideo}
+          onVideoPlaybackFailure={() => setPlaybackFailedVideoId(getMediaIdentity(showingItem))}
+          onVideoPlaybackSuccess={() => setPlaybackFailedVideoId('')}
           onClose={closeViewer}
           onToggleFlatView={() => setFlatView((current) => !current)}
           onOpenExternal={openExternalLink}
@@ -427,11 +444,13 @@ function App() {
           onPrevious={() => {
             if (items.length < 2) return;
             const previousIndex = (showingItem.index - 1 + items.length) % items.length;
+            setPlaybackFailedVideoId('');
             setShowingItem({ ...items[previousIndex], index: previousIndex });
           }}
           onNext={() => {
             if (items.length < 2) return;
             const nextIndex = (showingItem.index + 1) % items.length;
+            setPlaybackFailedVideoId('');
             setShowingItem({ ...items[nextIndex], index: nextIndex });
           }}
         />

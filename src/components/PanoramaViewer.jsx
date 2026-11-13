@@ -152,8 +152,10 @@ function PanoramaViewer({
   type,
   alt,
   onOpenExternal,
+  showConvertVideo,
   onConvertVideo,
-  conversionProgress,
+  onVideoPlaybackFailure,
+  onVideoPlaybackSuccess,
   onToggleFullscreen,
   isFullscreen,
 }) {
@@ -161,17 +163,41 @@ function PanoramaViewer({
   const mediaRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
   const renderRequest = useRef(() => {});
+  const playbackGeneration = useRef(0);
+  const onVideoPlaybackFailureRef = useRef(onVideoPlaybackFailure);
+  const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
+  const fallbackVideoFrameTimer = useRef(null);
+  const fallbackVideoHasFrame = useRef(false);
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
 
   useEffect(() => {
+    playbackGeneration.current += 1;
     setFallbackMessage('');
     setIsPlaying(false);
     setVideoReady(false);
     setVideoProgress({ duration: 0, currentTime: 0, volume: 1 });
     camera.current = { yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null };
+
+    return () => {
+      playbackGeneration.current += 1;
+    };
+  }, [source, type]);
+
+  onVideoPlaybackFailureRef.current = onVideoPlaybackFailure;
+  onVideoPlaybackSuccessRef.current = onVideoPlaybackSuccess;
+
+  useEffect(() => {
+    fallbackVideoHasFrame.current = false;
+    clearTimeout(fallbackVideoFrameTimer.current);
+    fallbackVideoFrameTimer.current = null;
+
+    return () => {
+      clearTimeout(fallbackVideoFrameTimer.current);
+      fallbackVideoFrameTimer.current = null;
+    };
   }, [source, type]);
 
   useEffect(() => {
@@ -220,6 +246,7 @@ function PanoramaViewer({
     let failed = false;
     let disposed = false;
     let hasVideoFrame = false;
+    let hasImageFrame = false;
     let render = () => {};
     let noFrameTimer;
     let resizeObserver;
@@ -255,6 +282,11 @@ function PanoramaViewer({
       requestRender();
     };
 
+    const handleImageLoad = () => {
+      hasImageFrame = true;
+      scheduleImageUpload();
+    };
+
     try {
       program = createProgram(gl);
       texture = gl.createTexture();
@@ -286,16 +318,18 @@ function PanoramaViewer({
         try {
           gl.bindTexture(gl.TEXTURE_2D, texture);
           if (type === 'video') {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
-            if (media.readyState >= 2 && media.videoWidth > 0 && media.videoHeight > 0) {
-              hasVideoFrame = true;
-              clearTimeout(noFrameTimer);
-              setVideoReady(true);
+            if (media.readyState < 2 || media.videoWidth <= 0 || media.videoHeight <= 0) {
+              return;
             }
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
+            hasVideoFrame = true;
+            clearTimeout(noFrameTimer);
+            setVideoReady(true);
             return;
           }
 
           if (!media) return;
+          if (!hasImageFrame) return;
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
           needsImageUpload.current = false;
         } catch (error) {
@@ -343,6 +377,7 @@ function PanoramaViewer({
 
       const handleMediaError = () => {
         if (type === 'video') {
+          onVideoPlaybackFailureRef.current?.();
           setFailed(`${getVideoFailureMessage(media)} Showing the flat video instead.`);
           return;
         }
@@ -358,6 +393,7 @@ function PanoramaViewer({
         setIsPlaying(true);
         if (type === 'video' && !hasVideoFrame && !noFrameTimer) {
           noFrameTimer = setTimeout(() => {
+            onVideoPlaybackFailureRef.current?.();
             setFailed(`${getVideoFailureMessage(media, null, true)} Showing the flat video instead.`);
           }, 4000);
         }
@@ -371,7 +407,7 @@ function PanoramaViewer({
         media.addEventListener('pause', handlePause);
         media.addEventListener('ended', handlePause);
       } else {
-        media.addEventListener('load', scheduleImageUpload);
+        media.addEventListener('load', handleImageLoad);
         media.addEventListener('error', handleMediaError);
       }
 
@@ -406,7 +442,7 @@ function PanoramaViewer({
           }
           media.removeAttribute('src');
         }
-        media.removeEventListener('load', scheduleImageUpload);
+        media.removeEventListener('load', handleImageLoad);
         media.removeEventListener('error', handleMediaError);
         media.removeEventListener('loadeddata', uploadMedia);
         media.removeEventListener('canplay', uploadMedia);
@@ -448,12 +484,19 @@ function PanoramaViewer({
     if (!video) return;
 
     if (video.paused) {
+      const generation = playbackGeneration.current;
       video
         .play()
-        .then(() => setIsPlaying(true))
-        .catch((error) =>
-          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`)
-        );
+        .then(() => {
+          if (generation !== playbackGeneration.current) return;
+          setIsPlaying(true);
+          onVideoPlaybackSuccessRef.current?.();
+        })
+        .catch((error) => {
+          if (generation !== playbackGeneration.current) return;
+          onVideoPlaybackFailureRef.current?.();
+          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`);
+        });
     } else {
       video.pause();
       setIsPlaying(false);
@@ -495,6 +538,29 @@ function PanoramaViewer({
     setVideoProgress((current) => ({ ...current, volume: nextVolume }));
   };
 
+  const handleFallbackVideoLoadedData = () => {
+    fallbackVideoHasFrame.current = true;
+    clearTimeout(fallbackVideoFrameTimer.current);
+  };
+
+  const handleFallbackVideoPlaying = (event) => {
+    if (fallbackVideoHasFrame.current || fallbackVideoFrameTimer.current) return;
+
+    const video = event.currentTarget;
+    fallbackVideoFrameTimer.current = setTimeout(() => {
+      fallbackVideoFrameTimer.current = null;
+      if (fallbackVideoHasFrame.current) return;
+
+      onVideoPlaybackFailureRef.current?.();
+      setFallbackMessage(`${getVideoFailureMessage(video, null, true)} Showing the flat video instead.`);
+    }, 4000);
+  };
+
+  const handleFallbackVideoPause = () => {
+    clearTimeout(fallbackVideoFrameTimer.current);
+    fallbackVideoFrameTimer.current = null;
+  };
+
   const handleWheel = (event) => {
     camera.current.fieldOfView = Math.max(0.45, Math.min(1.9, camera.current.fieldOfView + event.deltaY * 0.001));
     renderRequest.current();
@@ -503,16 +569,42 @@ function PanoramaViewer({
   if (fallbackMessage) {
     return (
       <div className="panorama-fallback">
-        <p role="status">{fallbackMessage}</p>
+        <div className="error-block">
+          <p role="status">{fallbackMessage}</p>
+          {type === 'video' && (
+            <div className="error-block-actions">
+              {showConvertVideo && (
+                <button type="button" className="primary-button" onClick={onConvertVideo}>
+                  Convert / fix video
+                </button>
+              )}
+              {onOpenExternal && (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
+                >
+                  FFmpeg downloads and documentation
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {type === 'video' ? (
-          <>
-            <video controls autoPlay crossOrigin="anonymous" src={source} />
-            {onOpenExternal && (
-              <button type="button" onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}>
-                FFmpeg downloads and documentation
-              </button>
-            )}
-          </>
+          <video
+            controls
+            autoPlay
+            crossOrigin="anonymous"
+            src={source}
+            onLoadedData={handleFallbackVideoLoadedData}
+            onPlaying={handleFallbackVideoPlaying}
+            onPause={handleFallbackVideoPause}
+            onEnded={handleFallbackVideoPause}
+            onError={() => {
+              handleFallbackVideoPause();
+              onVideoPlaybackFailureRef.current?.();
+            }}
+          />
         ) : (
           <img src={source} alt={alt} />
         )}

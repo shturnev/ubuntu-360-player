@@ -67,16 +67,25 @@ describe('PanoramaViewer', () => {
   test('uploads an image texture once the image finishes loading', () => {
     const gl = makeWebGL();
     const source = 'http://localhost:3000/big/photo-1000.jpg';
+    const queuedRaf = [];
+    window.requestAnimationFrame = jest.fn((callback) => {
+      queuedRaf.push(callback);
+      return queuedRaf.length;
+    });
 
     render(<PanoramaViewer source={source} type="image" alt="photo-1000.jpg" />);
 
     const image = document.querySelector('.panorama-source');
     expect(image.crossOrigin).toBe('anonymous');
     expect(image).toHaveAttribute('src', source);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(1);
+    queuedRaf.splice(0).forEach((callback) => callback());
+    expect(gl.texImage2D).toHaveBeenCalledTimes(1);
 
     fireEvent.load(image);
+    queuedRaf.splice(0).forEach((callback) => callback());
 
-    expect(gl.texImage2D).toHaveBeenCalled();
+    expect(gl.texImage2D).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
@@ -120,8 +129,16 @@ describe('PanoramaViewer', () => {
   test('starts and pauses the panorama video after it is ready', async () => {
     const gl = makeWebGL();
     const source = 'http://localhost:3000/big/clip-1000.mp4';
+    const onVideoPlaybackSuccess = jest.fn();
 
-    render(<PanoramaViewer source={source} type="video" alt="clip-1000.mp4" />);
+    render(
+      <PanoramaViewer
+        source={source}
+        type="video"
+        alt="clip-1000.mp4"
+        onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+      />
+    );
 
     const video = document.querySelector('.panorama-source');
     expect(video.crossOrigin).toBe('anonymous');
@@ -141,8 +158,47 @@ describe('PanoramaViewer', () => {
     });
 
     expect(video.play).toHaveBeenCalledTimes(1);
+    expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
+  });
+
+  test('does not upload a video texture before a video frame is available', () => {
+    const gl = makeWebGL();
+    render(<PanoramaViewer source="http://localhost:3000/big/audio-only.mp4" type="video" alt="audio-only.mp4" />);
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(video, 'videoWidth', { value: 0, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 0, configurable: true });
+
+    fireEvent(video, new Event('loadeddata'));
+
+    expect(gl.texImage2D).toHaveBeenCalledTimes(1);
+  });
+
+  test('reports rejected play requests to the parent and shows the video fallback', async () => {
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/broken-video.mp4"
+        type="video"
+        alt="broken-video.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
+    video.play = jest.fn(() => Promise.reject(new Error('decode failed')));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Play video' }));
+      await Promise.resolve();
+    });
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video');
   });
 
   test('shows seeking and volume controls for 360° video playback', () => {
@@ -188,6 +244,7 @@ describe('PanoramaViewer', () => {
         flatView={false}
         conversionProgress={{ active: false, percent: 0, elapsedMs: 0, etaMs: null, status: 'idle', message: '' }}
         hasConvertedVideo={false}
+        hasPlaybackFailure={false}
         onConvertVideo={jest.fn()}
         onClose={jest.fn()}
         onToggleFlatView={jest.fn()}
@@ -241,9 +298,15 @@ describe('PanoramaViewer', () => {
     expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
   });
 
-  test('does not offer conversion for a network or missing file error', () => {
+  test('reports native video errors to the parent after the video is opened', () => {
+    const onVideoPlaybackFailure = jest.fn();
     render(
-      <PanoramaViewer source="http://localhost:3000/big/missing-video.mp4" type="video" alt="missing-video.mp4" />
+      <PanoramaViewer
+        source="http://localhost:3000/big/missing-video.mp4"
+        type="video"
+        alt="missing-video.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
     );
 
     const video = document.querySelector('.panorama-source');
@@ -254,7 +317,59 @@ describe('PanoramaViewer', () => {
     fireEvent.error(video);
 
     expect(screen.getByRole('status')).toHaveTextContent('local media server');
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: 'Convert / fix video' })).not.toBeInTheDocument();
+  });
+
+  test('reports errors from the native fallback video to the parent', () => {
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/missing-video.mp4"
+        type="video"
+        alt="missing-video.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const sourceVideo = document.querySelector('.panorama-source');
+    Object.defineProperty(sourceVideo, 'error', {
+      value: { code: 4, message: 'MEDIA_ERR_SRC_NOT_SUPPORTED' },
+      configurable: true,
+    });
+    fireEvent.error(sourceVideo);
+    onVideoPlaybackFailure.mockClear();
+
+    fireEvent.error(document.querySelector('.panorama-fallback video'));
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+  });
+
+  test('reports a fallback video that starts without producing a frame', () => {
+    jest.useFakeTimers();
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/audio-only.mp4"
+        type="video"
+        alt="audio-only.mp4"
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    const sourceVideo = document.querySelector('.panorama-source');
+    Object.defineProperty(sourceVideo, 'error', {
+      value: { code: 4, message: 'MEDIA_ERR_SRC_NOT_SUPPORTED' },
+      configurable: true,
+    });
+    fireEvent.error(sourceVideo);
+    onVideoPlaybackFailure.mockClear();
+
+    fireEvent.playing(document.querySelector('.panorama-fallback video'));
+    act(() => jest.advanceTimersByTime(4000));
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('no video frame was decoded');
   });
 
   test('shows a single conversion progress summary during transcoding', () => {
@@ -273,6 +388,7 @@ describe('PanoramaViewer', () => {
           message: 'Converting video…',
         }}
         hasConvertedVideo={false}
+        hasPlaybackFailure
         onConvertVideo={jest.fn()}
         onClose={jest.fn()}
         onToggleFlatView={jest.fn()}

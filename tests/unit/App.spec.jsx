@@ -6,8 +6,33 @@ import App from '../../src/App.jsx';
 jest.mock(
   '../../src/PanoramaViewer.jsx',
   () =>
-    function PanoramaViewer({ source, type }) {
-      return <div data-testid="panorama-viewer" data-source={source} data-type={type} />;
+    function PanoramaViewer({
+      source,
+      type,
+      showConvertVideo,
+      onConvertVideo,
+      onVideoPlaybackFailure,
+      onVideoPlaybackSuccess,
+    }) {
+      return (
+        <div data-testid="panorama-viewer" data-source={source} data-type={type}>
+          {type === 'video' && (
+            <>
+              <button type="button" onClick={onVideoPlaybackFailure}>
+                Simulate playback failure
+              </button>
+              <button type="button" onClick={onVideoPlaybackSuccess}>
+                Simulate playback success
+              </button>
+              {showConvertVideo && (
+                <button type="button" onClick={onConvertVideo}>
+                  Convert / fix video
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      );
     }
 );
 
@@ -126,7 +151,116 @@ describe('App', () => {
 
     click(container.querySelector('.media-card'));
 
+    click(button('Simulate playback failure'));
     expect(button('Convert / fix video')).toBeUndefined();
+  });
+
+  test('offers conversion only after a playback failure for the current video', () => {
+    media = {
+      type: 'video',
+      thumpName: 'clip.jpg',
+      bigName: 'clip.mp4',
+      origPath: '/media/clip.mp4',
+    };
+    const secondMedia = {
+      type: 'video',
+      thumpName: 'second.jpg',
+      bigName: 'second.mp4',
+      origPath: '/media/second.mp4',
+    };
+    renderApp();
+    loadMedia();
+    act(() => listeners['read-media-file']({}, secondMedia));
+
+    click(container.querySelector('.media-card'));
+    expect(button('Convert / fix video')).toBeUndefined();
+
+    click(button('Simulate playback failure'));
+    expect(button('Convert / fix video')).toBeDefined();
+
+    click(container.querySelectorAll('.viewer-controls button')[4]);
+    expect(button('Convert / fix video')).toBeUndefined();
+
+    click(button('✕'));
+    click(container.querySelector('.media-card'));
+    expect(button('Convert / fix video')).toBeUndefined();
+  });
+
+  test('offers conversion after a Flat view playback error', () => {
+    media = {
+      type: 'video',
+      thumpName: 'clip.jpg',
+      bigName: 'clip.mp4',
+      origPath: '/media/clip.mp4',
+    };
+    renderApp();
+    loadMedia();
+
+    click(container.querySelector('.media-card'));
+    click(button('Flat view'));
+    act(() => container.querySelector('.viewer-panel video').dispatchEvent(new Event('error')));
+
+    expect(container.textContent).toContain('Unable to play this video in Flat view.');
+    expect(button('Convert / fix video')).toBeDefined();
+  });
+
+  test('offers conversion when Flat view starts without a video frame', () => {
+    jest.useFakeTimers();
+    media = {
+      type: 'video',
+      thumpName: 'clip.jpg',
+      bigName: 'clip.mp4',
+      origPath: '/media/clip.mp4',
+    };
+    renderApp();
+    loadMedia();
+
+    click(container.querySelector('.media-card'));
+    click(button('Flat view'));
+    act(() => {
+      container.querySelector('.viewer-panel video').dispatchEvent(new Event('playing'));
+      jest.advanceTimersByTime(4000);
+    });
+
+    expect(container.textContent).toContain('Unable to play this video in Flat view.');
+    expect(button('Convert / fix video')).toBeDefined();
+    jest.useRealTimers();
+  });
+
+  test('offers conversion for another failed video after the first conversion completes', () => {
+    media = {
+      type: 'video',
+      thumpName: 'first.jpg',
+      bigName: 'first.mp4',
+      origPath: '/media/first.mp4',
+    };
+    const secondMedia = {
+      type: 'video',
+      thumpName: 'second.jpg',
+      bigName: 'second.mp4',
+      origPath: '/media/second.mp4',
+    };
+    renderApp();
+    loadMedia();
+    act(() => listeners['read-media-file']({}, secondMedia));
+
+    click(container.querySelector('.media-card'));
+    click(button('Simulate playback failure'));
+    click(button('Convert / fix video'));
+    click(container.querySelectorAll('.viewer-controls button')[4]);
+    click(button('Simulate playback failure'));
+
+    expect(button('Convert / fix video')).toBeUndefined();
+
+    act(() =>
+      listeners['video-conversion-result']({}, {
+        success: true,
+        origPath: media.origPath,
+        bigName: 'first-100-h264.mp4',
+      })
+    );
+
+    expect(button('Convert / fix video')).toBeDefined();
   });
 
   test('subscribes once to media events when StrictMode replays effects', () => {

@@ -85,7 +85,10 @@ function ViewerOverlay({
   flatView,
   conversionProgress,
   hasConvertedVideo,
+  hasPlaybackFailure,
   onConvertVideo,
+  onVideoPlaybackFailure,
+  onVideoPlaybackSuccess,
   onClose,
   onToggleFlatView,
   onDelete,
@@ -94,9 +97,28 @@ function ViewerOverlay({
   onOpenExternal,
 }) {
   const panelRef = useRef(null);
+  const flatVideoFrameTimer = useRef(null);
+  const flatVideoHasFrame = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [flatVideoError, setFlatVideoError] = useState(false);
   const convertButton =
-    showingItem.type === 'video' && onConvertVideo && !conversionProgress?.active && !hasConvertedVideo;
+    showingItem.type === 'video' &&
+    hasPlaybackFailure &&
+    onConvertVideo &&
+    !conversionProgress?.active &&
+    !hasConvertedVideo;
+
+  useEffect(() => {
+    setFlatVideoError(false);
+    flatVideoHasFrame.current = false;
+    clearTimeout(flatVideoFrameTimer.current);
+    flatVideoFrameTimer.current = null;
+
+    return () => {
+      clearTimeout(flatVideoFrameTimer.current);
+      flatVideoFrameTimer.current = null;
+    };
+  }, [showingItem?.origPath, showingItem?.bigName, flatView]);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -144,6 +166,31 @@ function ViewerOverlay({
     }
   };
 
+  const clearFlatVideoFrameTimer = () => {
+    clearTimeout(flatVideoFrameTimer.current);
+    flatVideoFrameTimer.current = null;
+  };
+
+  const reportFlatVideoFailure = () => {
+    clearFlatVideoFrameTimer();
+    setFlatVideoError(true);
+    onVideoPlaybackFailure?.();
+  };
+
+  const handleFlatVideoLoadedData = () => {
+    flatVideoHasFrame.current = true;
+    clearFlatVideoFrameTimer();
+  };
+
+  const handleFlatVideoPlaying = () => {
+    if (flatVideoHasFrame.current || flatVideoFrameTimer.current) return;
+
+    flatVideoFrameTimer.current = setTimeout(() => {
+      flatVideoFrameTimer.current = null;
+      if (!flatVideoHasFrame.current) reportFlatVideoFailure();
+    }, 4000);
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -151,7 +198,39 @@ function ViewerOverlay({
           ✕
         </button>
         {flatView && showingItem.type === 'video' ? (
-          <video controls autoPlay src={viewerSrc} />
+          <>
+            <video
+              controls
+              autoPlay
+              src={viewerSrc}
+              onLoadedData={handleFlatVideoLoadedData}
+              onPlaying={handleFlatVideoPlaying}
+              onPause={clearFlatVideoFrameTimer}
+              onEnded={clearFlatVideoFrameTimer}
+              onError={reportFlatVideoFailure}
+            />
+            {flatVideoError && (
+              <div className="error-block viewer-flat-error">
+                <p role="status">Unable to play this video in Flat view.</p>
+                <div className="error-block-actions">
+                  {convertButton && (
+                    <button type="button" className="primary-button" onClick={onConvertVideo}>
+                      Convert / fix video
+                    </button>
+                  )}
+                  {onOpenExternal && (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
+                    >
+                      FFmpeg downloads and documentation
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         ) : flatView ? (
           <img src={viewerSrc} alt={showingItem.bigName} />
         ) : (
@@ -160,8 +239,10 @@ function ViewerOverlay({
             type={showingItem.type}
             alt={showingItem.bigName}
             onOpenExternal={onOpenExternal}
+            showConvertVideo={convertButton}
             onConvertVideo={onConvertVideo}
-            conversionProgress={conversionProgress}
+            onVideoPlaybackFailure={onVideoPlaybackFailure}
+            onVideoPlaybackSuccess={onVideoPlaybackSuccess}
             onToggleFullscreen={toggleFullscreen}
             isFullscreen={isFullscreen}
           />
@@ -179,13 +260,6 @@ function ViewerOverlay({
                 ? 'unknown'
                 : `${Math.round((Number(conversionProgress.etaMs) || 0) / 1000)}s`}
             </small>
-          </div>
-        )}
-        {convertButton && (
-          <div className="viewer-convert-actions">
-            <button type="button" onClick={onConvertVideo}>
-              Convert / fix video
-            </button>
           </div>
         )}
         <div className="viewer-controls">
