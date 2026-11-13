@@ -163,9 +163,7 @@ function App() {
 
         if (data.success) {
           setConvertedVideos((current) => new Set([...current, data.origPath]));
-          setPlaybackFailedVideoId((current) =>
-            current === getMediaIdentity(data) ? '' : current
-          );
+          setPlaybackFailedVideoId((current) => (current === getMediaIdentity(data) ? '' : current));
           setItems((current) =>
             current.map((item) => (item.origPath === data.origPath ? { ...item, bigName: data.bigName } : item))
           );
