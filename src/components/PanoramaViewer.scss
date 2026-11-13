@@ -314,7 +314,7 @@
   background: $bg-surface;
 }
 
-.viewer-center-controls{
+.viewer-center-controls {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
@@ -331,7 +331,7 @@
 }
 
 .metadata-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 4;
   display: grid;

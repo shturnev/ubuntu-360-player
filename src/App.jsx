@@ -199,11 +199,14 @@ function App() {
       },
       'media-metadata': (_, data) => {
         if (!data || data.origPath !== showingItemIdRef.current) return;
-        setMetadata({
-          identity: data.origPath,
-          status: data.error ? 'error' : 'ready',
-          entries: Array.isArray(data.entries) ? data.entries : [],
-          error: data.error || '',
+        setMetadata((current) => {
+          if (current.status !== 'loading' || current.identity !== data.origPath) return current;
+          return {
+            identity: data.origPath,
+            status: data.error ? 'error' : 'ready',
+            entries: Array.isArray(data.entries) ? data.entries : [],
+            error: data.error || '',
+          };
         });
       },
     };

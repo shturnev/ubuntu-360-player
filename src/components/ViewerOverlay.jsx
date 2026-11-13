@@ -123,6 +123,8 @@ function ViewerOverlay({
   onCloseMetadata,
 }) {
   const panelRef = useRef(null);
+  const metadataDialogRef = useRef(null);
+  const metadataButtonRef = useRef(null);
   const flatVideoRef = useRef(null);
   const panoramaRef = useRef(null);
   const flatVideoFrameTimer = useRef(null);
@@ -158,14 +160,49 @@ function ViewerOverlay({
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState);
   }, []);
 
+  const metadataOpen = metadata?.status !== 'idle';
+
   useEffect(() => {
-    if (metadata?.status === 'idle') return undefined;
+    if (!metadataOpen) return undefined;
+
+    const opener = metadataButtonRef.current;
+    const dialog = metadataDialogRef.current;
+    const focusableElements = () =>
+      dialog?.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) || [];
+    focusableElements()[0]?.focus();
+
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onCloseMetadata?.();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseMetadata?.();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const elements = focusableElements();
+      if (!elements.length) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [metadata?.status, onCloseMetadata]);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      opener?.focus();
+    };
+  }, [metadataOpen, onCloseMetadata]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -310,7 +347,7 @@ function ViewerOverlay({
           </div>
         )}
         <div className="viewer-controls">
-          <button type="button" onClick={onPrevious} disabled={items.length < 2}>
+          <button type="button" onClick={onPrevious} disabled={items.length < 2} aria-label="Previous media">
             <ArrowLeftIcon />
           </button>
           <button type="button" onClick={onToggleFlatView}>
@@ -325,20 +362,27 @@ function ViewerOverlay({
             >
               {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
             </button>
-            <button type="button" onClick={openMetadata} title="Show media information" aria-label="Info">
+            <button
+              ref={metadataButtonRef}
+              type="button"
+              onClick={openMetadata}
+              title="Show media information"
+              aria-label="Info"
+            >
               <InfoIcon />
             </button>
           </div>
           <button type="button" onClick={onDelete} title={'Delete'}>
             Delete
           </button>
-          <button type="button" onClick={onNext} disabled={items.length < 2}>
+          <button type="button" onClick={onNext} disabled={items.length < 2} aria-label="Next media">
             <ArrowRightIcon />
           </button>
         </div>
-        {metadata?.status !== 'idle' && (
+        {metadataOpen && (
           <div className="metadata-backdrop" onClick={onCloseMetadata}>
             <section
+              ref={metadataDialogRef}
               className="metadata-dialog"
               role="dialog"
               aria-modal="true"

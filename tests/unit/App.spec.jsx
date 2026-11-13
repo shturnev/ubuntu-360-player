@@ -84,7 +84,9 @@ describe('App', () => {
   };
 
   const button = (name) =>
-    [...container.querySelectorAll('button')].find((element) => element.textContent.trim() === name);
+    [...container.querySelectorAll('button')].find(
+      (element) => element.textContent.trim() === name || element.getAttribute('aria-label') === name
+    );
 
   const loadMedia = () => {
     act(() => {
@@ -117,9 +119,8 @@ describe('App', () => {
     act(() => listeners['read-media-file']({}, secondMedia));
 
     click(container.querySelector('.media-card'));
-    const controls = container.querySelectorAll('.viewer-controls button');
-    const previousButton = controls[0];
-    const nextButton = controls[4];
+    const previousButton = container.querySelector('button[aria-label="Previous media"]');
+    const nextButton = container.querySelector('button[aria-label="Next media"]');
 
     click(previousButton);
     expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
@@ -181,7 +182,7 @@ describe('App', () => {
     click(button('Simulate playback failure'));
     expect(button('Convert / fix video')).toBeDefined();
 
-    click(container.querySelectorAll('.viewer-controls button')[4]);
+    click(container.querySelector('button[aria-label="Next media"]'));
     expect(button('Convert / fix video')).toBeUndefined();
 
     click(button('✕'));
@@ -250,7 +251,7 @@ describe('App', () => {
     click(container.querySelector('.media-card'));
     click(button('Simulate playback failure'));
     click(button('Convert / fix video'));
-    click(container.querySelectorAll('.viewer-controls button')[4]);
+    click(container.querySelector('button[aria-label="Next media"]'));
     click(button('Simulate playback failure'));
 
     expect(button('Convert / fix video')).toBeUndefined();
@@ -447,5 +448,39 @@ describe('App', () => {
     click(button('Info'));
 
     expect(video.pause).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not reopen the dialog after it is closed while metadata is loading', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    click(button('Info'));
+    click(container.querySelector('.metadata-backdrop'));
+
+    act(() =>
+      listeners['media-metadata']({}, {
+        origPath: '/media/photo.jpg',
+        entries: [{ key: 'dimensions', label: 'Dimensions', value: '1920 × 1080' }],
+      })
+    );
+
+    expect(container.querySelector('.metadata-dialog')).toBeNull();
+  });
+
+  test('moves focus into the metadata dialog and restores it when closed', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    const infoButton = button('Info');
+    click(infoButton);
+
+    expect(document.activeElement).toBe(container.querySelector('[aria-label="Close media information"]'));
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
+    expect(document.activeElement).toBe(container.querySelector('[aria-label="Close media information"]'));
+
+    click(container.querySelector('[aria-label="Close media information"]'));
+
+    expect(document.activeElement).toBe(infoButton);
   });
 });
