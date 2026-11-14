@@ -18,6 +18,7 @@
     "target": ["deb", "AppImage"],
     "category": "Graphics",
     "icon": "build_resources/icon/png",
+    "mimeTypes": ["inode/directory"],
     "syncDesktopName": true,
     "synopsis": "360-degree media viewer for Linux.",
     "description": "Browse and view 360-degree photos and videos on Linux."

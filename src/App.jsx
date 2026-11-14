@@ -8,6 +8,7 @@ import NoticeBanner from './components/NoticeBanner.jsx';
 import SelectionBar from './components/SelectionBar.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import ViewerOverlay from './components/ViewerOverlay.jsx';
+import { isConvertedVideoName } from './mediaUtils.js';
 
 const EMPTY_PROGRESS = { show: false, total: 0, complete: 0 };
 
@@ -369,7 +370,7 @@ function App() {
 
   const viewerSrc = showingItem ? `${serverUrl}big/${encodeURIComponent(showingItem.bigName)}` : '';
   const hasConvertedVideo = Boolean(
-    showingItem && (convertedVideos.has(showingItem.origPath) || /-\d+-h264\.mp4$/i.test(showingItem.bigName || ''))
+    showingItem && (convertedVideos.has(showingItem.origPath) || isConvertedVideoName(showingItem.bigName))
   );
   const showingItemId = getMediaIdentity(showingItem);
   const hasPlaybackFailure = Boolean(

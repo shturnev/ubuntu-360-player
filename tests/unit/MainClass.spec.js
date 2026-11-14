@@ -149,7 +149,54 @@ describe('MainModelClass', () => {
         error: { message: 'Unable to access this media file.' },
       })
     );
-    expect(saveImage).toHaveBeenCalledWith(path.join(sourceDir, 'available.jpg'), mainModelClass.win);
+    expect(saveImage).toHaveBeenCalledWith(
+      path.join(sourceDir, 'available.jpg'),
+      mainModelClass.win,
+      expect.any(Function)
+    );
+  });
+
+  test('ignores delayed media results from a superseded directory import', async () => {
+    const firstDirectory = path.join(tempDir, 'first-media');
+    const secondDirectory = path.join(tempDir, 'second-media');
+    fs.mkdirSync(firstDirectory);
+    fs.mkdirSync(secondDirectory);
+    fs.writeFileSync(path.join(firstDirectory, 'first.jpg'), 'image');
+    fs.writeFileSync(path.join(secondDirectory, 'second.jpg'), 'image');
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+
+    const callbacks = new Map();
+    const callbackWaiters = new Map();
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation((filePath, _win, onResult) => {
+      const fileName = path.basename(filePath);
+      callbacks.set(fileName, onResult);
+      const resolve = callbackWaiters.get(fileName);
+      if (resolve) {
+        resolve(onResult);
+      }
+    });
+    const waitForCallback = (fileName) =>
+      new Promise((resolve) => {
+        callbackWaiters.set(fileName, resolve);
+      });
+
+    const firstCallbackPromise = waitForCallback('first.jpg');
+    mainModelClass.readDir(firstDirectory);
+    await firstCallbackPromise;
+    const secondCallbackPromise = waitForCallback('second.jpg');
+    mainModelClass.readDir(secondDirectory);
+    await secondCallbackPromise;
+
+    send.mockClear();
+    callbacks.get('first.jpg')({ origPath: path.join(firstDirectory, 'first.jpg') });
+    callbacks.get('second.jpg')({ origPath: path.join(secondDirectory, 'second.jpg') });
+
+    expect(saveImage).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith('read-media-file', {
+      origPath: path.join(secondDirectory, 'second.jpg'),
+    });
   });
 
   test('deleteCache removes the cache directory and only reports completion on success', async () => {

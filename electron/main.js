@@ -1,4 +1,6 @@
+const fs = require('fs');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const { loadProjectDotenv, getCandidatePorts, normalizePort } = require('../src/config/env');
 
 loadProjectDotenv();
@@ -14,6 +16,77 @@ let mainWindow;
 let reactDevtoolsWindow;
 let reactDevtoolsMenuItem;
 let appModel;
+let pendingDirectory;
+
+function getDirectoryFromArgv(argv, { isDevelopment = false } = {}) {
+  if (!Array.isArray(argv)) {
+    return null;
+  }
+
+  const userArguments = argv.slice(isDevelopment ? 2 : 1);
+  for (const argument of userArguments) {
+    if (typeof argument !== 'string' || argument.length === 0 || argument.startsWith('-')) {
+      continue;
+    }
+
+    let directoryPath;
+    try {
+      if (argument.startsWith('file:')) {
+        directoryPath = fileURLToPath(argument);
+      } else if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(argument)) {
+        continue;
+      } else {
+        directoryPath = path.resolve(argument);
+      }
+
+      if (fs.statSync(directoryPath).isDirectory()) {
+        return directoryPath;
+      }
+    } catch (error) {
+      // Desktop launch arguments can be malformed or point to removed paths.
+    }
+  }
+
+  return null;
+}
+
+function focusMainWindow() {
+  if (!mainWindow || (typeof mainWindow.isDestroyed === 'function' && mainWindow.isDestroyed())) {
+    return;
+  }
+
+  if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function importPendingDirectory() {
+  if (!pendingDirectory || !appModel) {
+    return false;
+  }
+
+  const directory = pendingDirectory;
+  pendingDirectory = null;
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('open-dir', directory);
+  }
+  appModel.readDir(directory);
+  return true;
+}
+
+function handleSecondInstance(_event, argv) {
+  const directory = getDirectoryFromArgv(argv, { isDevelopment });
+  if (!directory) {
+    return;
+  }
+
+  pendingDirectory = directory;
+  if (importPendingDirectory()) {
+    focusMainWindow();
+  }
+}
 
 async function loadDevelopmentUrl() {
   const basePort = normalizePort(process.env.DEV_SERVER_PORT, { defaultPort: 5173, portName: 'DEV_SERVER_PORT' });
@@ -181,7 +254,7 @@ async function createWindow() {
   });
 }
 
-app.whenReady().then(async () => {
+async function initializeApplication() {
   if (isDevelopment) {
     try {
       await createReactDevtoolsWindow();
@@ -208,6 +281,7 @@ app.whenReady().then(async () => {
   });
 
   await createWindow();
+  importPendingDirectory();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -216,17 +290,41 @@ app.whenReady().then(async () => {
           await createReactDevtoolsWindow();
         }
         await createWindow();
+        importPendingDirectory();
       };
 
       startWindows().catch((error) => console.error('Unable to create application windows:', error));
     }
   });
-});
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+function startApplication() {
+  if (!app.requestSingleInstanceLock()) {
     app.quit();
+    return false;
   }
-});
 
-module.exports = { configureApplicationMenu, createWindow, isDevelopment, appModel };
+  pendingDirectory = getDirectoryFromArgv(process.argv, { isDevelopment });
+  app.on('second-instance', handleSecondInstance);
+  app
+    .whenReady()
+    .then(() => initializeApplication().catch((error) => console.error('Unable to initialize application:', error)));
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  return true;
+}
+
+startApplication();
+
+module.exports = {
+  configureApplicationMenu,
+  createWindow,
+  getDirectoryFromArgv,
+  handleSecondInstance,
+  isDevelopment,
+  startApplication,
+};

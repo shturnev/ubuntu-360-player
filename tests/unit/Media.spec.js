@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile, exec, spawn } = require('child_process');
 
 jest.mock('exifr', () => ({ parse: jest.fn() }));
@@ -27,6 +28,12 @@ jest.mock('child_process', () => ({
 
 const exifr = require('exifr');
 const { Media, formatImageMetadata, formatVideoMetadata } = require('../../src/models/Media');
+
+function getCacheName(filePath, suffix = '') {
+  const parsed = path.parse(filePath);
+  const hash = crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 12);
+  return `${parsed.name}-${fs.statSync(filePath).size}-${hash}${suffix}${parsed.ext}`;
+}
 
 describe('Media', () => {
   let tempDir;
@@ -77,8 +84,8 @@ describe('Media', () => {
     const filePath = path.join(tempDir, 'reused-video.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');
 
-    const rawBigName = `reused-video-${fs.statSync(filePath).size}.mp4`;
-    const convertedBigName = `reused-video-${fs.statSync(filePath).size}-h264.mp4`;
+    const rawBigName = getCacheName(filePath);
+    const convertedBigName = getCacheName(filePath, '-h264');
     const convertedBigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', convertedBigName);
     fs.writeFileSync(convertedBigPath, 'converted-video');
     fs.symlinkSync(filePath, path.join(tempDir, '.sht-vr-player', 'static', 'big', rawBigName));
@@ -96,13 +103,7 @@ describe('Media', () => {
     const filePath = path.join(tempDir, 'hevc-video.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');
 
-    const originalBigPath = path.join(
-      tempDir,
-      '.sht-vr-player',
-      'static',
-      'big',
-      `hevc-video-${fs.statSync(filePath).size}.mp4`
-    );
+    const originalBigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', getCacheName(filePath));
     fs.symlinkSync(filePath, originalBigPath);
 
     execFile.mockImplementationOnce((_cmd, _args, callback) => {
@@ -125,13 +126,7 @@ describe('Media', () => {
       on: jest.fn((event, handler) => {
         if (event === 'close') {
           setTimeout(() => {
-            const outputPath = path.join(
-              tempDir,
-              '.sht-vr-player',
-              'static',
-              'big',
-              `hevc-video-${fs.statSync(filePath).size}-h264.mp4`
-            );
+            const outputPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', getCacheName(filePath, '-h264'));
             fs.writeFileSync(outputPath, 'converted-video');
             handler(0);
           }, 0);
@@ -147,6 +142,25 @@ describe('Media', () => {
     expect(result.bigName).toContain('h264');
     expect(fs.existsSync(originalBigPath)).toBe(false);
     expect(execFile).toHaveBeenCalledWith('ffprobe', expect.arrayContaining(['-show_streams']), expect.any(Function));
+  });
+
+  test('uses distinct cache entries for same-named, same-sized media in different directories', () => {
+    const firstDirectory = path.join(tempDir, 'first');
+    const secondDirectory = path.join(tempDir, 'second');
+    fs.mkdirSync(firstDirectory);
+    fs.mkdirSync(secondDirectory);
+    const firstFile = path.join(firstDirectory, 'photo.jpg');
+    const secondFile = path.join(secondDirectory, 'photo.jpg');
+    fs.writeFileSync(firstFile, 'image');
+    fs.writeFileSync(secondFile, 'image');
+
+    const firstResult = Media.saveImage(firstFile, { webContents: { send: jest.fn() } });
+    const secondResult = Media.saveImage(secondFile, { webContents: { send: jest.fn() } });
+    const bigDir = path.join(tempDir, '.sht-vr-player', 'static', 'big');
+
+    expect(firstResult.bigName).not.toBe(secondResult.bigName);
+    expect(fs.realpathSync(path.join(bigDir, firstResult.bigName))).toBe(firstFile);
+    expect(fs.realpathSync(path.join(bigDir, secondResult.bigName))).toBe(secondFile);
   });
 
   test('normalizes image metadata into human-readable entries', () => {

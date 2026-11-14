@@ -13,6 +13,8 @@ function loadMainWithPackagedState(isPackaged) {
       isPackaged,
       whenReady: jest.fn(() => ({ then: jest.fn() })),
       on: jest.fn(),
+      quit: jest.fn(),
+      requestSingleInstanceLock: jest.fn(() => true),
       setDesktopName: jest.fn(),
     },
     BrowserWindow: jest.fn(),

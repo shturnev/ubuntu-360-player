@@ -1,14 +1,22 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const gm = require('gm');
 const exifr = require('exifr');
 const { getStorageRoot } = require('../config/env');
 
 const getBigDir = () => path.join(getStorageRoot(), 'static', 'big');
+const sendMediaResult = (win, result, onResult) => {
+  if (onResult) {
+    onResult(result);
+  } else if (win && win.webContents) {
+    win.webContents.send('read-media-file', result);
+  }
+};
 
 class Media {
-  static saveImage(filePath, win) {
+  static saveImage(filePath, win, onResult) {
     const newFileName = getNewFileName(filePath);
     createLink(filePath, newFileName);
 
@@ -24,7 +32,7 @@ class Media {
 
     try {
       fs.statSync(thumpPath);
-      if (win && win.webContents) win.webContents.send('read-media-file', res);
+      sendMediaResult(win, res, onResult);
       return res;
     } catch (e) {
       gm(filePath)
@@ -34,13 +42,13 @@ class Media {
           if (err) {
             res.error = err;
           }
-          if (win && win.webContents) win.webContents.send('read-media-file', res);
+          sendMediaResult(win, res, onResult);
         });
       return res;
     }
   }
 
-  static saveVideo(filePath, win) {
+  static saveVideo(filePath, win, onResult) {
     const newFileName = getPreferredVideoName(filePath);
     createLink(filePath, newFileName);
 
@@ -56,7 +64,7 @@ class Media {
 
     try {
       fs.statSync(thumpPath);
-      if (win && win.webContents) win.webContents.send('read-media-file', res);
+      sendMediaResult(win, res, onResult);
       return res;
     } catch (e) {
       execFile(
@@ -69,7 +77,7 @@ class Media {
           if (stderr && stderr.search('deprecated pixel format used') === -1) {
             res.error = { message: stderr };
           }
-          if (win && win.webContents) win.webContents.send('read-media-file', res);
+          sendMediaResult(win, res, onResult);
         }
       );
       return res;
@@ -494,7 +502,7 @@ function createLink(origPath, newFileName) {
 function getConvertedVideoName(origPath) {
   const stats = fs.statSync(origPath);
   const parsed = path.parse(origPath);
-  return `${parsed.name}-${stats.size}-h264${parsed.ext}`;
+  return `${parsed.name}-${stats.size}-${getPathHash(origPath)}-h264${parsed.ext}`;
 }
 
 function getPreferredVideoName(origPath) {
@@ -514,7 +522,11 @@ function getNewFileName(origPath) {
   const stats = fs.statSync(origPath);
   const parsed = path.parse(origPath);
 
-  return parsed.name + '-' + stats.size + parsed.ext;
+  return `${parsed.name}-${stats.size}-${getPathHash(origPath)}${parsed.ext}`;
+}
+
+function getPathHash(origPath) {
+  return crypto.createHash('sha256').update(origPath).digest('hex').slice(0, 12);
 }
 
 module.exports = { Media, formatImageMetadata, formatVideoMetadata };

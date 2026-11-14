@@ -25,6 +25,7 @@ class MainModelClass {
     this.config = new ConfigModel();
     this.updater = updater;
     this.authorizedMedia = new Map();
+    this.directoryImportGeneration = 0;
   }
 
   init() {
@@ -184,8 +185,13 @@ class MainModelClass {
   }
 
   readDir(pathDir) {
+    const importGeneration = ++this.directoryImportGeneration;
     this.authorizedMedia = new Map();
     fs.readdir(pathDir, (err, files) => {
+      if (importGeneration !== this.directoryImportGeneration) {
+        return;
+      }
+
       if (err) {
         if (this.win && this.win.webContents) {
           this.win.webContents.send('show-error', err);
@@ -229,11 +235,16 @@ class MainModelClass {
         }
         const type = ext === 'mp4' ? 'video' : 'image';
         this.authorizedMedia.set(origPath, type);
+        const sendMediaResult = (result) => {
+          if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
+            this.win.webContents.send('read-media-file', result);
+          }
+        };
 
         if (type === 'video') {
-          Media.saveVideo(origPath, this.win);
+          Media.saveVideo(origPath, this.win, sendMediaResult);
         } else {
-          Media.saveImage(origPath, this.win);
+          Media.saveImage(origPath, this.win, sendMediaResult);
         }
       });
     });
