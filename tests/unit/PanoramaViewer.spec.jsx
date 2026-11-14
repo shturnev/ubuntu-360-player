@@ -163,6 +163,76 @@ describe('PanoramaViewer', () => {
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
   });
 
+  test('toggles flat video playback with Space without interfering with text inputs', async () => {
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'clip.mp4' }}
+        items={[{ type: 'video', bigName: 'clip.mp4' }]}
+        viewerSrc="http://localhost:3000/big/clip.mp4"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+      />
+    );
+
+    const video = document.querySelector('.viewer-panel video');
+    Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
+    video.play = jest.fn(() => Promise.resolve());
+    video.pause = jest.fn();
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: ' ' });
+    expect(video.play).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: ' ', repeat: true });
+    expect(video.play).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: '360° view' }), { key: ' ' });
+    expect(video.play).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: ' ' });
+      await Promise.resolve();
+    });
+    expect(video.play).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
+    fireEvent.keyDown(document, { key: ' ' });
+    expect(video.pause).toHaveBeenCalledTimes(1);
+    input.remove();
+  });
+
+  test('toggles 360° video playback with Space', async () => {
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'clip.mp4' }}
+        items={[{ type: 'video', bigName: 'clip.mp4' }]}
+        viewerSrc="http://localhost:3000/big/clip.mp4"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+      />
+    );
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'paused', { value: true, writable: true, configurable: true });
+    video.play = jest.fn(() => Promise.resolve());
+    video.pause = jest.fn();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: ' ' });
+      await Promise.resolve();
+    });
+    expect(video.play).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
+    fireEvent.keyDown(document, { key: ' ' });
+    expect(video.pause).toHaveBeenCalledTimes(1);
+  });
+
   test('does not upload a video texture before a video frame is available', () => {
     const gl = makeWebGL();
     render(<PanoramaViewer source="http://localhost:3000/big/audio-only.mp4" type="video" alt="audio-only.mp4" />);

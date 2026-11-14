@@ -186,13 +186,29 @@ function ViewerOverlay({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (metadataOpen || items.length < 2) return;
+      if (metadataOpen) return;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) || event.target?.isContentEditable) return;
 
-      if (event.key === 'ArrowLeft') {
+      if (event.key === ' ' || event.key === 'Spacebar') {
+        if (showingItem?.type !== 'video' || event.repeat || event.target?.closest?.('button, a')) return;
+
+        const video = flatView ? flatVideoRef.current : panoramaRef.current;
+        if (!video) return;
+
+        event.preventDefault();
+        if (flatView) {
+          if (video.paused) {
+            video.play?.()?.catch?.(() => {});
+          } else {
+            video.pause?.();
+          }
+        } else {
+          video.togglePlayback?.();
+        }
+      } else if (items.length >= 2 && event.key === 'ArrowLeft') {
         event.preventDefault();
         onPrevious?.();
-      } else if (event.key === 'ArrowRight') {
+      } else if (items.length >= 2 && event.key === 'ArrowRight') {
         event.preventDefault();
         onNext?.();
       }
@@ -200,7 +216,7 @@ function ViewerOverlay({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [items.length, metadataOpen, onNext, onPrevious]);
+  }, [flatView, items.length, metadataOpen, onNext, onPrevious, showingItem?.type]);
 
   useEffect(() => {
     if (!metadataOpen) return undefined;
