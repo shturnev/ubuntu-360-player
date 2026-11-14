@@ -186,7 +186,32 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     onCaptureReadyChange?.(ready);
   };
 
+  const startOrPauseVideo = () => {
+    const video = mediaRef.current || fallbackVideoRef.current;
+    if (!video) return;
+
+    if (video.paused) {
+      const generation = playbackGeneration.current;
+      video
+        .play()
+        .then(() => {
+          if (generation !== playbackGeneration.current) return;
+          setIsPlaying(true);
+          onVideoPlaybackSuccessRef.current?.();
+        })
+        .catch((error) => {
+          if (generation !== playbackGeneration.current) return;
+          onVideoPlaybackFailureRef.current?.();
+          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`);
+        });
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
+  };
+
   useImperativeHandle(ref, () => ({
+    togglePlayback: startOrPauseVideo,
     pause() {
       const video = [mediaRef.current, fallbackVideoRef.current].find((candidate) => candidate && !candidate.paused);
       if (video) {
@@ -532,30 +557,6 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
       };
     }
   }, [source, type]);
-
-  const startOrPauseVideo = () => {
-    const video = mediaRef.current;
-    if (!video) return;
-
-    if (video.paused) {
-      const generation = playbackGeneration.current;
-      video
-        .play()
-        .then(() => {
-          if (generation !== playbackGeneration.current) return;
-          setIsPlaying(true);
-          onVideoPlaybackSuccessRef.current?.();
-        })
-        .catch((error) => {
-          if (generation !== playbackGeneration.current) return;
-          onVideoPlaybackFailureRef.current?.();
-          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`);
-        });
-    } else {
-      video.pause();
-      setIsPlaying(false);
-    }
-  };
 
   const handlePointerDown = (event) => {
     camera.current.drag = { x: event.clientX, y: event.clientY };
