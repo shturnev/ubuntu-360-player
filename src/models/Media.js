@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const gm = require('gm');
 const exifr = require('exifr');
@@ -501,7 +502,7 @@ function createLink(origPath, newFileName) {
 function getConvertedVideoName(origPath) {
   const stats = fs.statSync(origPath);
   const parsed = path.parse(origPath);
-  return `${parsed.name}-${stats.size}-h264${parsed.ext}`;
+  return `${parsed.name}-${stats.size}-${getPathHash(origPath)}-h264${parsed.ext}`;
 }
 
 function getPreferredVideoName(origPath) {
@@ -521,7 +522,11 @@ function getNewFileName(origPath) {
   const stats = fs.statSync(origPath);
   const parsed = path.parse(origPath);
 
-  return parsed.name + '-' + stats.size + parsed.ext;
+  return `${parsed.name}-${stats.size}-${getPathHash(origPath)}${parsed.ext}`;
+}
+
+function getPathHash(origPath) {
+  return crypto.createHash('sha256').update(origPath).digest('hex').slice(0, 12);
 }
 
 module.exports = { Media, formatImageMetadata, formatVideoMetadata };
