@@ -101,6 +101,23 @@ const CloseIcon = () => (
   </svg>
 );
 
+const CameraIcon = (props) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    {...props}
+  >
+    <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+      <path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" />
+      <circle cx="12" cy="13" r="3" />
+    </g>
+  </svg>
+);
+
 function ViewerOverlay({
   showingItem,
   items,
@@ -121,6 +138,8 @@ function ViewerOverlay({
   metadata,
   onOpenMetadata,
   onCloseMetadata,
+  onSaveScreenshot,
+  onScreenshotError,
 }) {
   const panelRef = useRef(null);
   const metadataDialogRef = useRef(null);
@@ -129,8 +148,11 @@ function ViewerOverlay({
   const panoramaRef = useRef(null);
   const flatVideoFrameTimer = useRef(null);
   const flatVideoHasFrame = useRef(false);
+  const screenshotSaveInProgress = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [flatVideoError, setFlatVideoError] = useState(false);
+  const [canSaveScreenshot, setCanSaveScreenshot] = useState(false);
+  const [isSavingScreenshot, setIsSavingScreenshot] = useState(false);
   const convertButton =
     showingItem.type === 'video' &&
     hasPlaybackFailure &&
@@ -291,6 +313,25 @@ function ViewerOverlay({
     onOpenMetadata?.();
   };
 
+  const saveScreenshot = async () => {
+    if (screenshotSaveInProgress.current || !panoramaRef.current || !onSaveScreenshot) return;
+
+    screenshotSaveInProgress.current = true;
+    setIsSavingScreenshot(true);
+    try {
+      const screenshot = await panoramaRef.current.captureScreenshot();
+      const data = await screenshot.arrayBuffer();
+      const result = await onSaveScreenshot(data);
+      if (result?.success || result?.cancelled) return;
+      throw new Error('Unable to save the 360° screenshot.');
+    } catch (error) {
+      onScreenshotError?.(error?.message || 'Unable to save the 360° screenshot.');
+    } finally {
+      screenshotSaveInProgress.current = false;
+      setIsSavingScreenshot(false);
+    }
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -347,6 +388,7 @@ function ViewerOverlay({
             onVideoPlaybackSuccess={onVideoPlaybackSuccess}
             onToggleFullscreen={toggleFullscreen}
             isFullscreen={isFullscreen}
+            onCaptureReadyChange={setCanSaveScreenshot}
           />
         )}
         {showingItem.type === 'video' && conversionProgress?.active && (
@@ -371,6 +413,7 @@ function ViewerOverlay({
           <button type="button" onClick={onToggleFlatView}>
             {flatView ? '360° view' : 'Flat view'}
           </button>
+
           <div className="viewer-center-controls">
             <button
               type="button"
@@ -380,6 +423,18 @@ function ViewerOverlay({
             >
               {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
             </button>
+            {!flatView && canSaveScreenshot && (
+              <button
+                type="button"
+                onClick={saveScreenshot}
+                disabled={isSavingScreenshot}
+                aria-label="Save screenshot"
+                title="Save screenshot"
+                aria-busy={isSavingScreenshot}
+              >
+                {isSavingScreenshot ? 'Saving screenshot…' : <CameraIcon />}
+              </button>
+            )}
             <button
               ref={metadataButtonRef}
               type="button"

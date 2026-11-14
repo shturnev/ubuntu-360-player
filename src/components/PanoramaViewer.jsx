@@ -159,6 +159,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     onVideoPlaybackSuccess,
     onToggleFullscreen,
     isFullscreen,
+    onCaptureReadyChange,
   },
   ref
 ) {
@@ -167,6 +168,8 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   const fallbackVideoRef = useRef(null);
   const camera = useRef({ yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null });
   const renderRequest = useRef(() => {});
+  const captureFrame = useRef(null);
+  const captureReady = useRef(false);
   const playbackGeneration = useRef(0);
   const onVideoPlaybackFailureRef = useRef(onVideoPlaybackFailure);
   const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
@@ -177,12 +180,35 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   const [videoReady, setVideoReady] = useState(false);
   const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
 
+  const setCaptureReady = (ready) => {
+    if (captureReady.current === ready) return;
+    captureReady.current = ready;
+    onCaptureReadyChange?.(ready);
+  };
+
   useImperativeHandle(ref, () => ({
     pause() {
       const video = [mediaRef.current, fallbackVideoRef.current].find((candidate) => candidate && !candidate.paused);
       if (video) {
         playbackGeneration.current += 1;
         video.pause();
+      }
+    },
+    async captureScreenshot() {
+      const canvas = canvasRef.current;
+      if (!captureReady.current || !canvas || !captureFrame.current) {
+        throw new Error('The 360° view is not ready to save.');
+      }
+
+      try {
+        captureFrame.current();
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob((result) => resolve(result), 'image/jpeg', 0.92);
+        });
+        if (!blob) throw new Error('Unable to encode the 360° view.');
+        return blob;
+      } catch (error) {
+        throw new Error('Unable to capture the current 360° view.');
       }
     },
   }));
@@ -194,9 +220,12 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     setVideoReady(false);
     setVideoProgress({ duration: 0, currentTime: 0, volume: 1 });
     camera.current = { yaw: 0, pitch: 0, fieldOfView: 1.2, drag: null };
+    setCaptureReady(false);
 
     return () => {
       playbackGeneration.current += 1;
+      captureFrame.current = null;
+      setCaptureReady(false);
     };
   }, [source, type]);
 
@@ -246,7 +275,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     const media = mediaRef.current;
     if (!canvas || !media) return undefined;
 
-    const gl = canvas.getContext('webgl', { alpha: false, antialias: true });
+    const gl = canvas.getContext('webgl', { alpha: false, antialias: true, preserveDrawingBuffer: true });
     if (!gl) {
       setFallbackMessage('360° viewing is unavailable; showing the media flat.');
       return undefined;
@@ -270,6 +299,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     const setFailed = (message) => {
       if (disposed) return;
       failed = true;
+      setCaptureReady(false);
       setFallbackMessage(message);
     };
 
@@ -337,6 +367,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
             }
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
             hasVideoFrame = true;
+            setCaptureReady(true);
             clearTimeout(noFrameTimer);
             setVideoReady(true);
             return;
@@ -346,6 +377,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
           if (!hasImageFrame) return;
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, media);
           needsImageUpload.current = false;
+          setCaptureReady(true);
         } catch (error) {
           setFailed(
             `360° viewing failed: ${error && error.message ? error.message : 'Unable to upload the media texture'}`
@@ -364,7 +396,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         gl.viewport(0, 0, width, height);
       };
 
-      render = () => {
+      const drawFrame = () => {
         if (failed || disposed) return;
 
         resize();
@@ -374,19 +406,19 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         gl.uniform1f(gl.getUniformLocation(program, 'fieldOfView'), fieldOfView);
         gl.uniform1f(gl.getUniformLocation(program, 'aspectRatio'), canvas.width / canvas.height);
 
-        if (type === 'video') {
-          if (media.readyState >= 2) {
-            uploadMedia();
-          }
-          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-          animationFrame = window.requestAnimationFrame(render);
-          return;
+        if (type === 'video' && media.readyState >= 2) {
+          uploadMedia();
         }
-
-        if (needsImageUpload.current) {
+        if (type !== 'video' && needsImageUpload.current) {
           uploadMedia();
         }
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      };
+      render = () => {
+        drawFrame();
+        if (type === 'video' && !failed && !disposed) {
+          animationFrame = window.requestAnimationFrame(render);
+        }
       };
 
       const handleMediaError = () => {
@@ -428,6 +460,10 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
       media.crossOrigin = 'anonymous';
       media.src = source;
       renderRequest.current = requestRender;
+      captureFrame.current = () => {
+        drawFrame();
+        gl.finish?.();
+      };
       if (type === 'video') {
         animationFrame = window.requestAnimationFrame(render);
       } else {
@@ -445,6 +481,8 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
 
       return () => {
         disposed = true;
+        captureFrame.current = null;
+        setCaptureReady(false);
         if (animationFrame !== null) {
           window.cancelAnimationFrame(animationFrame);
         }
@@ -476,6 +514,8 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
       );
       return () => {
         disposed = true;
+        captureFrame.current = null;
+        setCaptureReady(false);
         if (type === 'video') {
           try {
             media.pause();

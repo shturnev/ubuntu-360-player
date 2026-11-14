@@ -3,8 +3,8 @@ const os = require('os');
 const path = require('path');
 
 jest.mock('electron', () => ({
-  dialog: { showOpenDialogSync: jest.fn() },
-  ipcMain: { on: jest.fn() },
+  dialog: { showOpenDialogSync: jest.fn(), showSaveDialog: jest.fn() },
+  ipcMain: { on: jest.fn(), handle: jest.fn() },
 }));
 
 jest.mock('electron-updater', () => ({
@@ -23,6 +23,10 @@ const { Media } = require('../../src/models/Media');
 describe('MainModelClass', () => {
   let tempDir;
   let mainModelClass;
+  const validJpeg = new Uint8Array([
+    0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xda, 0x00, 0x08,
+    0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x00, 0xff, 0xd9,
+  ]).buffer;
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sht-vr-main-'));
@@ -222,5 +226,60 @@ describe('MainModelClass', () => {
       requestId: 1,
       error: 'This media file is not available in the current library.',
     });
+  });
+
+  test('saves validated JPEG screenshot bytes through the native save dialog', async () => {
+    dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: path.join(tempDir, 'panorama.jpg') });
+    const writeFile = jest.spyOn(fs.promises, 'writeFile').mockResolvedValue();
+
+    await expect(mainModelClass.savePanoramaScreenshot({ data: validJpeg })).resolves.toEqual({ success: true });
+
+    expect(dialog.showSaveDialog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        defaultPath: expect.stringMatching(/^360-screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.jpg$/),
+        filters: [{ name: 'JPEG image', extensions: ['jpg', 'jpeg'] }],
+      })
+    );
+    expect(writeFile).toHaveBeenCalledWith(path.join(tempDir, 'panorama.jpg'), expect.any(Buffer));
+  });
+
+  test('does not write screenshots when saving is cancelled or the JPEG payload is invalid', async () => {
+    dialog.showSaveDialog.mockResolvedValue({ canceled: true });
+    const writeFile = jest.spyOn(fs.promises, 'writeFile').mockResolvedValue();
+
+    await expect(mainModelClass.savePanoramaScreenshot({ data: validJpeg })).resolves.toEqual({ cancelled: true });
+    await expect(
+      mainModelClass.savePanoramaScreenshot({ data: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer })
+    ).resolves.toEqual({
+      success: false,
+      message: 'Screenshot data is invalid.',
+    });
+
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  test('returns a controlled error when the save dialog or file write fails', async () => {
+    dialog.showSaveDialog.mockRejectedValue(new Error('dialog failed'));
+    await expect(mainModelClass.savePanoramaScreenshot({ data: validJpeg })).resolves.toEqual({
+      success: false,
+      message: 'Unable to save the 360° screenshot.',
+    });
+
+    dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: path.join(tempDir, 'panorama.jpg') });
+    jest.spyOn(fs.promises, 'writeFile').mockRejectedValue(new Error('disk full'));
+    await expect(mainModelClass.savePanoramaScreenshot({ data: validJpeg })).resolves.toEqual({
+      success: false,
+      message: 'Unable to save the 360° screenshot.',
+    });
+  });
+
+  test('does not register the screenshot IPC handler when windows are initialized repeatedly', () => {
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+
+    mainModelClass.init();
+    mainModelClass.init();
+
+    expect(ipcMain.handle).not.toHaveBeenCalledWith('save-panorama-screenshot', expect.any(Function));
   });
 });

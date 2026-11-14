@@ -116,9 +116,9 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * Ability to delete when viewing in full size
 * Display ordinary photos and videos, not just 360-degree media.
 * Ability to view exif information. (date / time / location, etc.)
+* Ability to take screenshot of the panorama area
 
 ## What is planned?
-- Ability to take screenshot of the panorama area
 - Ability to edit photos. Horizon alignment (a vital feature, as for me)
 - Support for other formats:
     - insta360

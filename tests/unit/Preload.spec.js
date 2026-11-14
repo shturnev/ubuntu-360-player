@@ -2,7 +2,7 @@ jest.mock('electron', () => {
   const { EventEmitter: MockEventEmitter } = require('events');
   return {
     contextBridge: { exposeInMainWorld: jest.fn() },
-    ipcRenderer: new MockEventEmitter(),
+    ipcRenderer: Object.assign(new MockEventEmitter(), { invoke: jest.fn() }),
   };
 });
 
@@ -40,5 +40,14 @@ describe('preload IPC listener lifecycle', () => {
     ipcRenderer.emit('not-allowed', {}, {});
 
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  test('uses only the dedicated invoke channel to save panorama screenshots', async () => {
+    const data = new ArrayBuffer(4);
+    ipcRenderer.invoke.mockResolvedValue({ success: true });
+
+    await expect(api.savePanoramaScreenshot({ data })).resolves.toEqual({ success: true });
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-panorama-screenshot', { data });
   });
 });

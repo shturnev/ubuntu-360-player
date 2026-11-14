@@ -6,10 +6,24 @@ import App from '../../src/App.jsx';
 jest.mock('../../src/PanoramaViewer.jsx', () => {
   const React = require('react');
   return React.forwardRef(function PanoramaViewer(
-    { source, type, showConvertVideo, onConvertVideo, onVideoPlaybackFailure, onVideoPlaybackSuccess },
+    {
+      source,
+      type,
+      showConvertVideo,
+      onConvertVideo,
+      onVideoPlaybackFailure,
+      onVideoPlaybackSuccess,
+      onCaptureReadyChange,
+    },
     ref
   ) {
-    React.useImperativeHandle(ref, () => ({ pause: jest.fn() }));
+    React.useImperativeHandle(ref, () => ({
+      pause: jest.fn(),
+      captureScreenshot: jest.fn(async () => ({
+        arrayBuffer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer,
+      })),
+    }));
+    React.useEffect(() => onCaptureReadyChange?.(true), [onCaptureReadyChange]);
     return (
       <div data-testid="panorama-viewer" data-source={source} data-type={type}>
         {type === 'video' && (
@@ -52,6 +66,7 @@ describe('App', () => {
       }),
       removeListener: jest.fn(),
       openExternal: jest.fn().mockResolvedValue(undefined),
+      savePanoramaScreenshot: jest.fn().mockResolvedValue({ success: true }),
     };
     window.shtVR = api;
     media = { type: 'image', thumpName: 'photo.jpg', bigName: 'photo-1000.jpg', origPath: '/media/photo.jpg' };
@@ -484,6 +499,68 @@ describe('App', () => {
     );
 
     expect(container.querySelector('.metadata-dialog')).toBeNull();
+  });
+
+  test('saves canvas JPEG bytes only through the dedicated bridge and restores the control after cancellation', async () => {
+    api.savePanoramaScreenshot.mockResolvedValue({ cancelled: true });
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+
+    await act(async () => {
+      click(button('Save screenshot'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.savePanoramaScreenshot).toHaveBeenCalledWith({
+      data: expect.any(ArrayBuffer),
+    });
+    expect(button('Save screenshot')).toBeDefined();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  test('reports screenshot save failures without leaving the control disabled', async () => {
+    api.savePanoramaScreenshot.mockResolvedValue({ success: false });
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+
+    await act(async () => {
+      click(button('Save screenshot'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('Unable to save the 360° screenshot.');
+    expect(button('Save screenshot')).toBeDefined();
+  });
+
+  test('does not start parallel screenshot saves', async () => {
+    let resolveSave;
+    api.savePanoramaScreenshot.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+
+    click(button('Save screenshot'));
+    click(button('Save screenshot'));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.savePanoramaScreenshot).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSave({ success: true });
+      await Promise.resolve();
+    });
+    expect(button('Save screenshot')).toBeDefined();
   });
 
   test('ignores a response from an earlier metadata request for the same file', () => {
