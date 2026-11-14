@@ -108,15 +108,17 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 [https://viewer360.app/](https://viewer360.app/) or check the [release page](https://github.com/shturnev/ubuntu-360-player/releases)
 
 ## What can?
-* View directory, convenient preview of media files.
-* Support 360-photo (jpg)
-* Support 360-video (mp4 HEVC/H.264 and convert other to H.264)
-* Ability to delete unnecessary media
-* Ability to clear accumulated cache
-* Ability to delete when viewing in full size
-* Display ordinary photos and videos, not just 360-degree media.
-* Ability to view exif information. (date / time / location, etc.)
-* Ability to take screenshot of the panorama area
+* Open a media directory and browse it in a thumbnail grid.
+* View ordinary photos and videos as well as 360° photos and videos.
+* Explore 360° media in an interactive panorama viewer, with a flat-view fallback.
+* Navigate between media items, adjust thumbnail size, and select multiple items.
+* Play MP4 video (H.264/HEVC) and convert incompatible videos to H.264 with progress reporting.
+* View EXIF and other media metadata, including date, time, and location when available.
+* Save a screenshot of the panorama area.
+* Delete one or multiple media files, including from the full-size viewer.
+* Inspect and clear the local media cache.
+* Check, download, and install application updates for supported installations.
+* Start the application with a media directory passed as a command-line argument.
 
 ## What is planned?
 - Ability to edit photos. Horizon alignment (a vital feature, as for me)
