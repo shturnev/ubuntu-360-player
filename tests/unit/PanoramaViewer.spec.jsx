@@ -186,6 +186,12 @@ describe('PanoramaViewer', () => {
     fireEvent.keyDown(input, { key: ' ' });
     expect(video.play).not.toHaveBeenCalled();
 
+    fireEvent.keyDown(document, { key: ' ', repeat: true });
+    expect(video.play).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: '360° view' }), { key: ' ' });
+    expect(video.play).not.toHaveBeenCalled();
+
     await act(async () => {
       fireEvent.keyDown(document, { key: ' ' });
       await Promise.resolve();
