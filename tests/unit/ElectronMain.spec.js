@@ -131,6 +131,7 @@ describe('Electron main process directory launch flow', () => {
 
     expect(appModel.readDir).toHaveBeenCalledTimes(1);
     expect(appModel.readDir).toHaveBeenCalledWith(directory);
+    expect(windows[0].webContents.send).toHaveBeenCalledWith('open-dir', directory);
     expect(windows[0].restore).toHaveBeenCalledTimes(1);
     expect(windows[0].show).toHaveBeenCalledTimes(1);
     expect(windows[0].focus).toHaveBeenCalledTimes(1);

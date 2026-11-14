@@ -69,6 +69,9 @@ function importPendingDirectory() {
 
   const directory = pendingDirectory;
   pendingDirectory = null;
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('open-dir', directory);
+  }
   appModel.readDir(directory);
   return true;
 }
