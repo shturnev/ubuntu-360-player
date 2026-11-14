@@ -202,7 +202,7 @@ class MainModelClass {
       Helper.checkDir(this.static_dir + '/small/');
       Helper.checkDir(this.static_dir + '/big/');
 
-      const goodExt = ['jpg', 'jpeg', 'png', 'mp4'];
+      const goodExt = ['jpg', 'jpeg', 'png', 'insp', 'mp4'];
       const mediaFiles = files.filter((element) => {
         const ext = element.split('.').pop().toLowerCase();
         return goodExt.indexOf(ext) !== -1;
@@ -236,6 +236,9 @@ class MainModelClass {
         const type = ext === 'mp4' ? 'video' : 'image';
         this.authorizedMedia.set(origPath, type);
         const sendMediaResult = (result) => {
+          if (result && result.error) {
+            this.authorizedMedia.delete(origPath);
+          }
           if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
             this.win.webContents.send('read-media-file', result);
           }
@@ -243,6 +246,8 @@ class MainModelClass {
 
         if (type === 'video') {
           Media.saveVideo(origPath, this.win, sendMediaResult);
+        } else if (ext === 'insp') {
+          Media.saveInsta360Image(origPath, this.win, sendMediaResult);
         } else {
           Media.saveImage(origPath, this.win, sendMediaResult);
         }

@@ -106,6 +106,34 @@ describe('MainModelClass', () => {
     expect(saveVideo.mock.calls.map(([file]) => path.basename(file))).toEqual(['third.mp4']);
   });
 
+  test('readDir routes .insp files through the Insta360 converter and preserves image authorization', async () => {
+    const sourceDir = path.join(tempDir, 'insta360-media');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, 'one-x2.insp'), 'image');
+    fs.writeFileSync(path.join(sourceDir, 'one-x2-uppercase.INSP'), 'image');
+    fs.writeFileSync(path.join(sourceDir, 'regular.jpg'), 'image');
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation(() => {});
+    const saveInsta360Image = jest.spyOn(Media, 'saveInsta360Image').mockImplementation(() => Promise.resolve());
+
+    await new Promise((resolve) => {
+      send.mockImplementation((channel) => {
+        if (channel === 'start-read-dir') resolve();
+      });
+      mainModelClass.readDir(sourceDir);
+    });
+
+    expect(send).toHaveBeenCalledWith('start-read-dir', 3);
+    expect(saveImage.mock.calls.map(([file]) => path.basename(file))).toEqual(['regular.jpg']);
+    expect(saveInsta360Image.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual([
+      'one-x2-uppercase.INSP',
+      'one-x2.insp',
+    ]);
+    expect(mainModelClass.authorizedMedia.get(path.join(sourceDir, 'one-x2.insp'))).toBe('image');
+    expect(mainModelClass.authorizedMedia.get(path.join(sourceDir, 'one-x2-uppercase.INSP'))).toBe('image');
+  });
+
   test('readDir keeps the empty-directory behavior when no media files are supported', async () => {
     const sourceDir = path.join(tempDir, 'empty-media');
     fs.mkdirSync(sourceDir);
@@ -238,6 +266,24 @@ describe('MainModelClass', () => {
       origPath: '/media/photo.jpg',
       requestId: 1,
       entries: [{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }],
+    });
+  });
+
+  test('requests .insp metadata as image metadata', async () => {
+    jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' }]);
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.authorizedMedia.set('/media/photo.INSP', 'image');
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: '/media/photo.INSP', type: 'image', requestId: 2 });
+
+    expect(Media.getMetadata).toHaveBeenCalledWith('/media/photo.INSP', 'image');
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: '/media/photo.INSP',
+      requestId: 2,
+      entries: [{ key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' }],
     });
   });
 

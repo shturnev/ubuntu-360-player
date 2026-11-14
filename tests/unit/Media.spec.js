@@ -35,6 +35,16 @@ function getCacheName(filePath, suffix = '') {
   return `${parsed.name}-${fs.statSync(filePath).size}-${hash}${suffix}${parsed.ext}`;
 }
 
+function getInsta360CacheName(filePath) {
+  const parsed = path.parse(filePath);
+  const hash = crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 12);
+  return `${parsed.name}-${fs.statSync(filePath).size}-${hash}-insta360-v6.jpg`;
+}
+
+function writeJpeg(filePath) {
+  fs.writeFileSync(filePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+}
+
 describe('Media', () => {
   let tempDir;
   let originalHome;
@@ -161,6 +171,101 @@ describe('Media', () => {
     expect(firstResult.bigName).not.toBe(secondResult.bigName);
     expect(fs.realpathSync(path.join(bigDir, firstResult.bigName))).toBe(firstFile);
     expect(fs.realpathSync(path.join(bigDir, secondResult.bigName))).toBe(secondFile);
+  });
+
+  test('converts an Insta360 photo into cached JPEG panorama and thumbnail after ffmpeg succeeds', async () => {
+    const filePath = path.join(tempDir, 'one-x2.INSP');
+    fs.writeFileSync(filePath, 'dual-fisheye');
+    const bigName = getInsta360CacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    const child = {
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            writeJpeg(bigPath);
+            callback(0);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((_target, callback) => {
+        writeJpeg(thumpPath);
+        callback(null);
+      }),
+    }));
+
+    const result = await Media.saveInsta360Image(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result).toEqual({
+      error: null,
+      type: 'image',
+      origPath: filePath,
+      thumpName: bigName,
+      bigName,
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining([
+        '-i',
+        filePath,
+        '-vf',
+        'v360=input=dfisheye:output=equirect:ih_fov=199:iv_fov=199:w=6080:h=3040:interp=lanczos:yaw=0:pitch=0:roll=180',
+        '-frames:v',
+        '1',
+        bigPath,
+      ])
+    );
+    expect(fs.existsSync(bigPath)).toBe(true);
+    expect(fs.existsSync(thumpPath)).toBe(true);
+  });
+
+  test('reuses a complete Insta360 cache without running ffmpeg again', async () => {
+    const filePath = path.join(tempDir, 'one-x2.insp');
+    fs.writeFileSync(filePath, 'dual-fisheye');
+    const bigName = getInsta360CacheName(filePath);
+    const bigDir = path.join(tempDir, '.sht-vr-player', 'static', 'big');
+    const smallDir = path.join(tempDir, '.sht-vr-player', 'static', 'small');
+    writeJpeg(path.join(bigDir, bigName));
+    writeJpeg(path.join(smallDir, bigName));
+
+    const result = await Media.saveInsta360Image(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result.error).toBeNull();
+    expect(result.bigName).toBe(bigName);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  test('reports converter failures and removes partial Insta360 cache files', async () => {
+    const filePath = path.join(tempDir, 'broken.insp');
+    fs.writeFileSync(filePath, 'dual-fisheye');
+    const bigName = getInsta360CacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const child = {
+      stderr: { on: jest.fn((event, callback) => callback(Buffer.from('conversion failed'))) },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            fs.writeFileSync(bigPath, 'partial output');
+            callback(1);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+
+    const result = await Media.saveInsta360Image(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result).toMatchObject({ type: 'image', origPath: filePath });
+    expect(result.error).toBeInstanceOf(Error);
+    expect(fs.existsSync(bigPath)).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName))).toBe(false);
   });
 
   test('normalizes image metadata into human-readable entries', () => {
