@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.2.0] - 2026-11-14
+### Changed
+- feat: save 360 panorama screenshots ([#66](https://github.com/shturnev/ubuntu-360-player/pull/66))
+
 ## [3.1.4] - 2026-11-13
 ### Changed
 - style: format release validation files ([#63](https://github.com/shturnev/ubuntu-360-player/pull/63))
