@@ -200,6 +200,12 @@ app.whenReady().then(async () => {
       return false;
     }
   });
+  ipcMain.handle('save-panorama-screenshot', async (_, payload) => {
+    if (!appModel) {
+      return { success: false, message: 'Saving screenshots is unavailable.' };
+    }
+    return appModel.savePanoramaScreenshot(payload);
+  });
 
   await createWindow();
 

@@ -118,7 +118,6 @@ class MainModelClass {
       );
     });
     ipcMain.on('install-update', () => this.updater.install());
-    ipcMain.handle('save-panorama-screenshot', async (_, payload) => this.savePanoramaScreenshot(payload));
   }
 
   async savePanoramaScreenshot(payload) {
@@ -131,15 +130,7 @@ class MainModelClass {
     }
 
     const maxScreenshotBytes = 50 * 1024 * 1024;
-    if (
-      !bytes ||
-      bytes.length < 4 ||
-      bytes.length > maxScreenshotBytes ||
-      bytes[0] !== 0xff ||
-      bytes[1] !== 0xd8 ||
-      bytes[bytes.length - 2] !== 0xff ||
-      bytes[bytes.length - 1] !== 0xd9
-    ) {
+    if (!bytes || bytes.length > maxScreenshotBytes || !isStructurallyValidJpeg(bytes)) {
       return { success: false, message: 'Screenshot data is invalid.' };
     }
 
@@ -311,6 +302,73 @@ class MainModelClass {
 
     event.reply('delete-cache-finish', true);
   }
+}
+
+function isStructurallyValidJpeg(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return false;
+
+  let offset = 2;
+  let hasFrame = false;
+  let hasScan = false;
+  let inScanData = false;
+
+  while (offset < bytes.length) {
+    if (inScanData) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+
+      const markerStart = offset;
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      if (offset >= bytes.length) return false;
+
+      const marker = bytes[offset];
+      if (marker === 0x00 || (marker >= 0xd0 && marker <= 0xd7)) {
+        offset += 1;
+        continue;
+      }
+      if (marker === 0xd9) {
+        return hasFrame && hasScan && offset + 1 === bytes.length;
+      }
+
+      inScanData = false;
+      offset = markerStart;
+    }
+
+    if (bytes[offset] !== 0xff) return false;
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    if (offset >= bytes.length) return false;
+
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0xd9 || marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      return false;
+    }
+    if (offset + 2 > bytes.length) return false;
+
+    const segmentLength = bytes.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) return false;
+
+    if (isStartOfFrameMarker(marker)) {
+      const componentCount = bytes[offset + 7];
+      if (segmentLength !== 8 + componentCount * 3) return false;
+      hasFrame = true;
+    } else if (marker === 0xda) {
+      const componentCount = bytes[offset + 2];
+      if (!hasFrame || segmentLength !== 6 + componentCount * 2) return false;
+      hasScan = true;
+      inScanData = true;
+    }
+
+    offset += segmentLength;
+  }
+
+  return false;
+}
+
+function isStartOfFrameMarker(marker) {
+  return [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker);
 }
 
 function removeFilesHelper(dirPath, names) {

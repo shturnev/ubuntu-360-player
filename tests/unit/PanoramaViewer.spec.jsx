@@ -503,6 +503,28 @@ describe('PanoramaViewer', () => {
     expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/jpeg', 0.92);
   });
 
+  test('captures a decoded video frame without pausing playback', async () => {
+    const ref = { current: null };
+    const blob = new Blob(['jpeg'], { type: 'image/jpeg' });
+    HTMLCanvasElement.prototype.toBlob = jest.fn((callback) => callback(blob));
+
+    render(
+      <PanoramaViewer ref={ref} source="http://localhost:3000/big/clip-1000.mp4" type="video" alt="clip-1000.mp4" />
+    );
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(video, 'videoWidth', { value: 1920, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { value: 960, configurable: true });
+    video.pause = jest.fn();
+    await act(async () => {
+      fireEvent.loadedData(video);
+      await expect(ref.current.captureScreenshot()).resolves.toBe(blob);
+    });
+
+    expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/jpeg', 0.92);
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
   test('does not expose screenshot capture when the panorama falls back', () => {
     const onCaptureReadyChange = jest.fn();
     render(
