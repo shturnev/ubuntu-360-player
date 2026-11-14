@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - 2026-11-14
+### Changed
+- Support opening media directories from desktop ([#69](https://github.com/shturnev/ubuntu-360-player/pull/69))
+
 ## [3.2.0] - 2026-11-14
 ### Changed
 - feat: save 360 panorama screenshots ([#66](https://github.com/shturnev/ubuntu-360-player/pull/66))
