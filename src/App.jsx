@@ -343,6 +343,20 @@ function App() {
     request('get-media-metadata', { origPath: showingItem.origPath, type: showingItem.type, requestId });
   };
 
+  const savePanoramaScreenshot = async (data) => {
+    if (!api || typeof api.savePanoramaScreenshot !== 'function') {
+      throw new Error('Saving screenshots is unavailable.');
+    }
+
+    try {
+      const result = await api.savePanoramaScreenshot({ data });
+      if (result?.success || result?.cancelled) return result;
+    } catch (error) {
+      // The renderer only exposes a controlled message, not IPC details.
+    }
+    throw new Error('Unable to save the 360° screenshot.');
+  };
+
   const updateCheckSetting = () => {
     const nextValue = !configData.checkUpdates;
     const payload = { ...configData, checkUpdates: nextValue };
@@ -478,6 +492,8 @@ function App() {
           metadata={metadata}
           onOpenMetadata={openMetadata}
           onCloseMetadata={() => setMetadata((current) => ({ ...current, status: 'idle' }))}
+          onSaveScreenshot={savePanoramaScreenshot}
+          onScreenshotError={setErrorMessage}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
             if (items.length < 2) return;

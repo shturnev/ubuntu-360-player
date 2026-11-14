@@ -118,6 +118,51 @@ class MainModelClass {
       );
     });
     ipcMain.on('install-update', () => this.updater.install());
+    ipcMain.handle('save-panorama-screenshot', async (_, payload) => this.savePanoramaScreenshot(payload));
+  }
+
+  async savePanoramaScreenshot(payload) {
+    const data = payload?.data;
+    let bytes;
+    if (data instanceof ArrayBuffer) {
+      bytes = Buffer.from(data);
+    } else if (ArrayBuffer.isView(data)) {
+      bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    }
+
+    const maxScreenshotBytes = 50 * 1024 * 1024;
+    if (
+      !bytes ||
+      bytes.length < 4 ||
+      bytes.length > maxScreenshotBytes ||
+      bytes[0] !== 0xff ||
+      bytes[1] !== 0xd8 ||
+      bytes[bytes.length - 2] !== 0xff ||
+      bytes[bytes.length - 1] !== 0xd9
+    ) {
+      return { success: false, message: 'Screenshot data is invalid.' };
+    }
+
+    const now = new Date();
+    const timestamp =
+      [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join(
+        '-'
+      ) +
+      `-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+
+    try {
+      const result = await dialog.showSaveDialog(this.win, {
+        title: 'Save 360° screenshot',
+        defaultPath: `360-screenshot-${timestamp}.jpg`,
+        filters: [{ name: 'JPEG image', extensions: ['jpg', 'jpeg'] }],
+      });
+      if (result.canceled || !result.filePath) return { cancelled: true };
+
+      await fs.promises.writeFile(result.filePath, bytes);
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: 'Unable to save the 360° screenshot.' };
+    }
   }
 
   startFileServer() {

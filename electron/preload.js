@@ -52,4 +52,7 @@ contextBridge.exposeInMainWorld('shtVR', {
   async openExternal(url) {
     return ipcRenderer.invoke('open-external-url', url);
   },
+  async savePanoramaScreenshot(payload) {
+    return ipcRenderer.invoke('save-panorama-screenshot', payload);
+  },
 });

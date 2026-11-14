@@ -483,4 +483,40 @@ describe('PanoramaViewer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Unable to load this image; showing it flat.');
     expect(screen.getByRole('img', { name: 'broken-1000.jpg' })).toHaveAttribute('src', source);
   });
+
+  test('captures only the active 360° canvas as a JPEG through its ref', async () => {
+    const ref = { current: null };
+    const blob = new Blob(['jpeg'], { type: 'image/jpeg' });
+    window.requestAnimationFrame = jest.fn((callback) => {
+      callback();
+      return 1;
+    });
+    HTMLCanvasElement.prototype.toBlob = jest.fn((callback, type, quality) => callback(blob));
+
+    render(
+      <PanoramaViewer ref={ref} source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />
+    );
+    fireEvent.load(document.querySelector('.panorama-source'));
+
+    await expect(ref.current.captureScreenshot()).resolves.toBe(blob);
+
+    expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/jpeg', 0.92);
+  });
+
+  test('does not expose screenshot capture when the panorama falls back', () => {
+    const onCaptureReadyChange = jest.fn();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/broken-1000.jpg"
+        type="image"
+        alt="broken-1000.jpg"
+        onCaptureReadyChange={onCaptureReadyChange}
+      />
+    );
+
+    fireEvent.error(document.querySelector('.panorama-source'));
+
+    expect(onCaptureReadyChange).not.toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('button', { name: 'Save screenshot' })).not.toBeInTheDocument();
+  });
 });
