@@ -163,6 +163,24 @@ function ViewerOverlay({
   const metadataOpen = Boolean(metadata && metadata.status !== 'idle');
 
   useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (metadataOpen || items.length < 2) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) || event.target?.isContentEditable) return;
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        onPrevious?.();
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        onNext?.();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [items.length, metadataOpen, onNext, onPrevious]);
+
+  useEffect(() => {
     if (!metadataOpen) return undefined;
 
     const opener = metadataButtonRef.current;

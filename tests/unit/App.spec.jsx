@@ -136,6 +136,23 @@ describe('App', () => {
     );
   });
 
+  test('navigates the viewer with the left and right arrow keys', () => {
+    renderApp();
+    loadMedia();
+    act(() => listeners['read-media-file']({}, { ...media, thumpName: 'second.jpg', bigName: 'second-1000.jpg' }));
+    click(container.querySelector('.media-card'));
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      'http://localhost:3000/big/second-1000.jpg'
+    );
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })));
+    expect(container.querySelector('[data-testid="panorama-viewer"]').getAttribute('data-source')).toBe(
+      'http://localhost:3000/big/photo-1000.jpg'
+    );
+  });
+
   test('does not offer conversion for a video that was already converted', () => {
     media = {
       type: 'video',
