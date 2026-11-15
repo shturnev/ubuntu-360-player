@@ -375,6 +375,94 @@ describe('PanoramaViewer', () => {
     expect(exitFullscreen).toHaveBeenCalledTimes(1);
   });
 
+  test('applies live yaw, pitch, and roll corrections from the viewer menu', () => {
+    const gl = makeWebGL();
+    const queuedRaf = [];
+    window.requestAnimationFrame = jest.fn((callback) => {
+      queuedRaf.push(callback);
+      return queuedRaf.length;
+    });
+
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={jest.fn()}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    fireEvent.load(document.querySelector('.panorama-source'));
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+
+    expect(screen.getByLabelText('Yaw correction')).toHaveValue('0');
+    fireEvent.change(screen.getByLabelText('Roll correction value'), { target: { value: '35' } });
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+
+    expect(screen.getByLabelText('Roll correction value')).toHaveValue(35);
+    expect(gl.uniform1f).toHaveBeenCalledWith(1, (35 * Math.PI) / 180);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByLabelText('Roll correction value')).toHaveValue(0);
+  });
+
+  test('applies orientation correction in Flat view and preserves it when switching views', () => {
+    const onToggleFlatView = jest.fn();
+    const { rerender } = render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={onToggleFlatView}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+    fireEvent.change(screen.getByLabelText('Roll correction value'), { target: { value: '35' } });
+
+    expect(document.querySelector('.panorama-viewer')).toHaveClass('flat-projection');
+
+    rerender(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={onToggleFlatView}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('Roll correction value')).toHaveValue(35);
+  });
+
   test('reports a missing video frame even when playback starts', async () => {
     jest.useFakeTimers();
     render(

@@ -118,6 +118,22 @@ const CameraIcon = (props) => (
   </svg>
 );
 
+const OrientationIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <circle cx="9" cy="7" r="2" fill="currentColor" />
+    <circle cx="15" cy="12" r="2" fill="currentColor" />
+    <circle cx="7" cy="17" r="2" fill="currentColor" />
+  </svg>
+);
+
+const DEFAULT_ORIENTATION = { yaw: 0, pitch: 0, roll: 0 };
+const ORIENTATION_CONTROLS = [
+  { key: 'yaw', label: 'Yaw', min: -180, max: 180 },
+  { key: 'pitch', label: 'Pitch', min: -90, max: 90 },
+  { key: 'roll', label: 'Roll', min: -180, max: 180 },
+];
+
 function ViewerOverlay({
   showingItem,
   items,
@@ -144,15 +160,13 @@ function ViewerOverlay({
   const panelRef = useRef(null);
   const metadataDialogRef = useRef(null);
   const metadataButtonRef = useRef(null);
-  const flatVideoRef = useRef(null);
   const panoramaRef = useRef(null);
-  const flatVideoFrameTimer = useRef(null);
-  const flatVideoHasFrame = useRef(false);
   const screenshotSaveInProgress = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [flatVideoError, setFlatVideoError] = useState(false);
   const [canSaveScreenshot, setCanSaveScreenshot] = useState(false);
   const [isSavingScreenshot, setIsSavingScreenshot] = useState(false);
+  const [orientationOpen, setOrientationOpen] = useState(false);
+  const [orientation, setOrientation] = useState(DEFAULT_ORIENTATION);
   const convertButton =
     showingItem.type === 'video' &&
     hasPlaybackFailure &&
@@ -161,16 +175,9 @@ function ViewerOverlay({
     !hasConvertedVideo;
 
   useEffect(() => {
-    setFlatVideoError(false);
-    flatVideoHasFrame.current = false;
-    clearTimeout(flatVideoFrameTimer.current);
-    flatVideoFrameTimer.current = null;
-
-    return () => {
-      clearTimeout(flatVideoFrameTimer.current);
-      flatVideoFrameTimer.current = null;
-    };
-  }, [showingItem?.origPath, showingItem?.bigName, flatView]);
+    setOrientationOpen(false);
+    setOrientation(DEFAULT_ORIENTATION);
+  }, [showingItem?.origPath, showingItem?.bigName]);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -187,24 +194,18 @@ function ViewerOverlay({
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (metadataOpen) return;
+      if (orientationOpen && event.key === 'Escape') {
+        event.preventDefault();
+        setOrientationOpen(false);
+        return;
+      }
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) || event.target?.isContentEditable) return;
 
       if (event.key === ' ' || event.key === 'Spacebar') {
         if (showingItem?.type !== 'video' || event.repeat || event.target?.closest?.('button, a')) return;
 
-        const video = flatView ? flatVideoRef.current : panoramaRef.current;
-        if (!video) return;
-
         event.preventDefault();
-        if (flatView) {
-          if (video.paused) {
-            video.play?.()?.catch?.(() => {});
-          } else {
-            video.pause?.();
-          }
-        } else {
-          video.togglePlayback?.();
-        }
+        panoramaRef.current?.togglePlayback?.();
       } else if (items.length >= 2 && event.key === 'ArrowLeft') {
         event.preventDefault();
         onPrevious?.();
@@ -216,7 +217,7 @@ function ViewerOverlay({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [flatView, items.length, metadataOpen, onNext, onPrevious, showingItem?.type]);
+  }, [flatView, items.length, metadataOpen, onNext, onPrevious, orientationOpen, showingItem?.type]);
 
   useEffect(() => {
     if (!metadataOpen) return undefined;
@@ -296,35 +297,9 @@ function ViewerOverlay({
     }
   };
 
-  const clearFlatVideoFrameTimer = () => {
-    clearTimeout(flatVideoFrameTimer.current);
-    flatVideoFrameTimer.current = null;
-  };
-
-  const reportFlatVideoFailure = () => {
-    clearFlatVideoFrameTimer();
-    setFlatVideoError(true);
-    onVideoPlaybackFailure?.();
-  };
-
-  const handleFlatVideoLoadedData = () => {
-    flatVideoHasFrame.current = true;
-    clearFlatVideoFrameTimer();
-  };
-
-  const handleFlatVideoPlaying = () => {
-    if (flatVideoHasFrame.current || flatVideoFrameTimer.current) return;
-
-    flatVideoFrameTimer.current = setTimeout(() => {
-      flatVideoFrameTimer.current = null;
-      if (!flatVideoHasFrame.current) reportFlatVideoFailure();
-    }, 4000);
-  };
-
   const openMetadata = () => {
     if (showingItem.type === 'video') {
-      const video = flatView ? flatVideoRef.current : panoramaRef.current;
-      video?.pause?.();
+      panoramaRef.current?.pause?.();
     }
     onOpenMetadata?.();
   };
@@ -348,65 +323,33 @@ function ViewerOverlay({
     }
   };
 
+  const setOrientationValue = (key, value) => {
+    if (!Number.isFinite(value)) return;
+    setOrientation((current) => ({ ...current, [key]: value }));
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="close-viewer" onClick={onClose}>
           ✕
         </button>
-        {flatView && showingItem.type === 'video' ? (
-          <>
-            <video
-              ref={flatVideoRef}
-              controls
-              autoPlay
-              src={viewerSrc}
-              onLoadedData={handleFlatVideoLoadedData}
-              onPlaying={handleFlatVideoPlaying}
-              onPause={clearFlatVideoFrameTimer}
-              onEnded={clearFlatVideoFrameTimer}
-              onError={reportFlatVideoFailure}
-            />
-            {flatVideoError && (
-              <div className="error-block viewer-flat-error">
-                <p role="status">Unable to play this video in Flat view.</p>
-                <div className="error-block-actions">
-                  {convertButton && (
-                    <button type="button" className="primary-button" onClick={onConvertVideo}>
-                      Convert / fix video
-                    </button>
-                  )}
-                  {onOpenExternal && (
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
-                    >
-                      FFmpeg downloads and documentation
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        ) : flatView ? (
-          <img src={viewerSrc} alt={showingItem.bigName} />
-        ) : (
-          <PanoramaViewer
-            ref={panoramaRef}
-            source={viewerSrc}
-            type={showingItem.type}
-            alt={showingItem.bigName}
-            onOpenExternal={onOpenExternal}
-            showConvertVideo={convertButton}
-            onConvertVideo={onConvertVideo}
-            onVideoPlaybackFailure={onVideoPlaybackFailure}
-            onVideoPlaybackSuccess={onVideoPlaybackSuccess}
-            onToggleFullscreen={toggleFullscreen}
-            isFullscreen={isFullscreen}
-            onCaptureReadyChange={setCanSaveScreenshot}
-          />
-        )}
+        <PanoramaViewer
+          ref={panoramaRef}
+          source={viewerSrc}
+          type={showingItem.type}
+          alt={showingItem.bigName}
+          onOpenExternal={onOpenExternal}
+          showConvertVideo={convertButton}
+          onConvertVideo={onConvertVideo}
+          onVideoPlaybackFailure={onVideoPlaybackFailure}
+          onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+          onToggleFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
+          onCaptureReadyChange={setCanSaveScreenshot}
+          orientation={orientation}
+          flatProjection={flatView}
+        />
         {showingItem.type === 'video' && conversionProgress?.active && (
           <div className="conversion-progress" role="status" aria-live="polite">
             <strong>{conversionProgress.message || 'Converting video…'}</strong>
@@ -452,6 +395,16 @@ function ViewerOverlay({
               </button>
             )}
             <button
+              type="button"
+              onClick={() => setOrientationOpen((open) => !open)}
+              aria-expanded={orientationOpen}
+              aria-controls="orientation-correction"
+              aria-label="Adjust panorama orientation"
+              title="Adjust panorama orientation"
+            >
+              <OrientationIcon />
+            </button>
+            <button
               ref={metadataButtonRef}
               type="button"
               onClick={openMetadata}
@@ -468,6 +421,55 @@ function ViewerOverlay({
             <ArrowRightIcon />
           </button>
         </div>
+        {orientationOpen && (
+          <section
+            id="orientation-correction"
+            className="orientation-correction"
+            aria-label="Panorama orientation correction"
+          >
+            <div className="orientation-correction-header">
+              <div>
+                <strong>Orientation correction</strong>
+                <p>Changes apply only while this media is open.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button small"
+                onClick={() => setOrientationOpen(false)}
+                aria-label="Close orientation correction"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            {ORIENTATION_CONTROLS.map(({ key, label, min, max }) => (
+              <label className="orientation-control" key={key}>
+                <span>{label}</span>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step="1"
+                  value={orientation[key]}
+                  onChange={(event) => setOrientationValue(key, event.target.valueAsNumber)}
+                  aria-label={`${label} correction`}
+                />
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  step="1"
+                  value={orientation[key]}
+                  onChange={(event) => setOrientationValue(key, event.target.valueAsNumber)}
+                  aria-label={`${label} correction value`}
+                />
+                <span>°</span>
+              </label>
+            ))}
+            <button type="button" className="ghost-button" onClick={() => setOrientation(DEFAULT_ORIENTATION)}>
+              Reset
+            </button>
+          </section>
+        )}
         {metadataOpen && (
           <div className="metadata-backdrop" onClick={onCloseMetadata}>
             <section
