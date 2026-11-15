@@ -2,6 +2,7 @@ import './SettingsPanel.scss';
 
 const donateUrl = 'https://www.privat24.ua/send/krdrh';
 const changeLogUrl = 'https://github.com/shturnev/ubuntu-360-player/releases';
+const websiteUrl = 'https://viewer360.app/';
 
 const TrashIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -64,6 +65,16 @@ function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting
         <span>Check for updates</span>
         <input type="checkbox" checked={Boolean(checkUpdates)} onChange={onUpdateSetting} />
       </label>
+
+      <div className="website-box">
+        <div>
+          <strong>Project website</strong>
+          <p>viewer360.app</p>
+        </div>
+        <button type="button" className="ghost-button" onClick={() => onOpenExternal(websiteUrl)}>
+          Visit website
+        </button>
+      </div>
 
       <div className="donate-box">
         <p>Please donate to support the project.</p>

@@ -111,6 +111,94 @@ describe('App', () => {
     });
   };
 
+  test.each([undefined, true])('opens the project website through the bridge resolving to %s', async (result) => {
+    api.openExternal.mockResolvedValue(result);
+    const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null);
+    renderApp();
+    loadMedia();
+    act(() => listeners['config-data']({}, { checkUpdates: true }));
+    click(container.querySelector('.media-card'));
+    const panorama = container.querySelector('[data-testid="panorama-viewer"]');
+    click(button('Open settings'));
+
+    const settings = container.querySelector('[role="dialog"][aria-label="Settings"]');
+    expect(settings.textContent).toContain('Project website');
+    expect(settings.textContent).toContain('viewer360.app');
+    expect(button('Visit website').type).toBe('button');
+
+    await act(async () => {
+      click(button('Visit website'));
+    });
+
+    expect(api.openExternal).toHaveBeenCalledTimes(1);
+    expect(api.openExternal).toHaveBeenCalledWith('https://viewer360.app/');
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"][aria-label="Settings"]')).toBe(settings);
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).toBe(panorama);
+    expect(settings.querySelector('input[type="checkbox"]').checked).toBe(true);
+    expect(container.querySelector('.notice.error')).toBeNull();
+
+    click(button('Close settings'));
+    expect(container.querySelector('[role="dialog"][aria-label="Settings"]')).toBeNull();
+  });
+
+  test('shows an error when the external-link bridge resolves to false', async () => {
+    api.openExternal.mockResolvedValue(false);
+    renderApp();
+    click(button('Open settings'));
+
+    await act(async () => {
+      click(button('Visit website'));
+    });
+
+    expect(container.querySelector('.notice.error').textContent).toContain('Unable to open external link');
+    expect(button('Visit website')).toBeDefined();
+  });
+
+  test('shows an error when the external-link bridge rejects', async () => {
+    api.openExternal.mockRejectedValue(new Error('Browser launch failed'));
+    renderApp();
+    click(button('Open settings'));
+
+    await act(async () => {
+      click(button('Visit website'));
+    });
+
+    expect(container.querySelector('.notice.error').textContent).toContain('Browser launch failed');
+    expect(button('Visit website')).toBeDefined();
+  });
+
+  test('opens the project website with the browser-preview fallback when no bridge is available', async () => {
+    delete window.shtVR;
+    const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null);
+    renderApp();
+    click(button('Open settings'));
+
+    await act(async () => {
+      click(button('Visit website'));
+    });
+
+    expect(windowOpen).toHaveBeenCalledTimes(1);
+    expect(windowOpen).toHaveBeenCalledWith('https://viewer360.app/', '_blank', 'noopener,noreferrer');
+    expect(button('Visit website')).toBeDefined();
+  });
+
+  test.each([
+    ['Donate', 'https://www.privat24.ua/send/krdrh'],
+    ['View changelog', 'https://github.com/shturnev/ubuntu-360-player/releases'],
+  ])('preserves the %s external link in Settings', async (label, url) => {
+    renderApp();
+    click(button('Open settings'));
+
+    await act(async () => {
+      click(button(label));
+    });
+
+    expect(api.openExternal).toHaveBeenCalledTimes(1);
+    expect(api.openExternal).toHaveBeenCalledWith(url);
+    expect(button('Visit website')).toBeDefined();
+  });
+
   test('opens images in 360° mode and allows switching to a flat view', () => {
     renderApp();
     loadMedia();
