@@ -477,6 +477,7 @@ describe('PanoramaViewer', () => {
 
     expect(onToggleFlatView).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('region', { name: 'Panorama orientation correction' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Flat view' })).toBeDisabled();
   });
 
   test('applies orientation correction in Flat view and preserves it when switching views', () => {

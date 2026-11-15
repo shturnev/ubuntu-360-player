@@ -420,7 +420,7 @@ function ViewerOverlay({
           <button type="button" onClick={onPrevious} disabled={items.length < 2} aria-label="Previous media">
             <ArrowLeftIcon />
           </button>
-          <button type="button" onClick={onToggleFlatView}>
+          <button type="button" onClick={onToggleFlatView} disabled={orientationOpen}>
             {flatView ? '360° view' : 'Flat view'}
           </button>
 
