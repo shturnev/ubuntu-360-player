@@ -230,6 +230,21 @@ describe('Media', () => {
     expect(fs.existsSync(thumpPath)).toBe(true);
   });
 
+  function mockOrientationRender(writeOutput) {
+    const child = {
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            writeOutput(spawn.mock.calls[0][1].at(-1));
+            callback(0);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+  }
+
   test('saves an orientation correction with the same rotation mapping as the preview', async () => {
     const filePath = path.join(tempDir, 'panorama.jpg');
     fs.writeFileSync(filePath, 'image');
@@ -237,19 +252,7 @@ describe('Media', () => {
     const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
     const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
     writeJpeg(bigPath);
-    const child = {
-      stderr: { on: jest.fn() },
-      on: jest.fn((event, callback) => {
-        if (event === 'close') {
-          setTimeout(() => {
-            const outputPath = spawn.mock.calls[0][1].at(-1);
-            writeJpeg(outputPath);
-            callback(0);
-          }, 0);
-        }
-      }),
-    };
-    spawn.mockReturnValueOnce(child);
+    mockOrientationRender(writeJpeg);
     const gm = require('gm');
     gm.mockImplementationOnce(() => ({
       resize: jest.fn().mockReturnThis(),
@@ -282,18 +285,7 @@ describe('Media', () => {
     const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
     const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
     writePng(bigPath);
-    const child = {
-      stderr: { on: jest.fn() },
-      on: jest.fn((event, callback) => {
-        if (event === 'close') {
-          setTimeout(() => {
-            writePng(spawn.mock.calls[0][1].at(-1));
-            callback(0);
-          }, 0);
-        }
-      }),
-    };
-    spawn.mockReturnValueOnce(child);
+    mockOrientationRender(writePng);
     const gm = require('gm');
     gm.mockImplementationOnce(() => ({
       resize: jest.fn().mockReturnThis(),
@@ -317,6 +309,42 @@ describe('Media', () => {
     expect(fs.readFileSync(thumpPath).subarray(0, 8)).toEqual(
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     );
+  });
+
+  test('restores both cache files when replacing the thumbnail fails', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    const originalBig = Buffer.from([0xff, 0xd8, 0xff, 0x01, 0xff, 0xd9]);
+    const originalThumbnail = Buffer.from([0xff, 0xd8, 0xff, 0x02, 0xff, 0xd9]);
+    fs.writeFileSync(bigPath, originalBig);
+    fs.writeFileSync(thumpPath, originalThumbnail);
+    mockOrientationRender(writeJpeg);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+    const renameSync = fs.renameSync;
+    let renameCount = 0;
+    jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      renameCount += 1;
+      if (renameCount === 4) throw new Error('Unable to replace thumbnail');
+      return renameSync(source, destination);
+    });
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
+      'Unable to replace thumbnail'
+    );
+
+    expect(fs.readFileSync(bigPath)).toEqual(originalBig);
+    expect(fs.readFileSync(thumpPath)).toEqual(originalThumbnail);
   });
 
   test('reuses a complete Insta360 cache without running ffmpeg again', async () => {

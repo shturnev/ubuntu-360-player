@@ -106,8 +106,7 @@ class Media {
     try {
       await renderEquirectangularOrientation(bigPath, renderedPath, orientation);
       await createImageThumbnail(renderedPath, thumbnailPath);
-      fs.renameSync(renderedPath, bigPath);
-      fs.renameSync(thumbnailPath, thumpPath);
+      replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffix);
       return { bigName };
     } catch (error) {
       removeFileIfPresent(renderedPath);
@@ -665,10 +664,42 @@ function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
   });
 }
 
+function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffix) {
+  const entries = [
+    { destination: bigPath, replacement: renderedPath, backup: `${bigPath}.${suffix}.backup` },
+    { destination: thumpPath, replacement: thumbnailPath, backup: `${thumpPath}.${suffix}.backup` },
+  ];
+
+  try {
+    for (const entry of entries) {
+      entry.hadDestination = fs.existsSync(entry.destination);
+      if (entry.hadDestination) {
+        fs.renameSync(entry.destination, entry.backup);
+      }
+      fs.renameSync(entry.replacement, entry.destination);
+      entry.replaced = true;
+    }
+  } catch (error) {
+    for (const entry of [...entries].reverse()) {
+      if (entry.replaced) {
+        removeFileIfPresent(entry.destination);
+      }
+      if (entry.hadDestination) {
+        fs.renameSync(entry.backup, entry.destination);
+      }
+    }
+    throw error;
+  }
+
+  entries.forEach((entry) => {
+    if (entry.hadDestination) removeFileIfPresent(entry.backup);
+  });
+}
+
 async function getInsta360Orientation(filePath) {
   try {
     const metadata = await exifr.parse(filePath, { makerNote: true, xmp: false, icc: false });
-    const makerNoteSample = parseMakerNoteImuSample(metadata && metadata.makerNote);
+    const makerNoteSample = parseMakerNoteImuSample(metadata?.MakerNote ?? metadata?.makerNote);
     const imuSample = makerNoteSample && readInsta360ImuSnapshot(filePath, makerNoteSample);
     if (imuSample) return imuSnapshotToV360Orientation(imuSample);
   } catch (error) {
