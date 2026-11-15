@@ -95,8 +95,9 @@ class Media {
     const bigPath = path.join(getBigDir(), bigName);
     const thumpPath = path.join(getStorageRoot(), 'static', 'small', bigName);
     const suffix = `${process.pid}-${Date.now()}`;
-    const renderedPath = `${bigPath}.${suffix}.jpg`;
-    const thumbnailPath = `${thumpPath}.${suffix}.jpg`;
+    const extension = path.extname(bigPath).toLowerCase();
+    const renderedPath = `${bigPath}.${suffix}${extension}`;
+    const thumbnailPath = `${thumpPath}.${suffix}${extension}`;
 
     if (!isUsableFile(bigPath)) {
       throw new Error('The rendered panorama is no longer available.');
@@ -629,6 +630,7 @@ function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
     'interp=lanczos',
   ].join(':');
 
+  const isJpeg = ['.jpg', '.jpeg'].includes(path.extname(outputPath).toLowerCase());
   return new Promise((resolve, reject) => {
     const child = spawn('ffmpeg', [
       '-y',
@@ -640,8 +642,7 @@ function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
       filter,
       '-frames:v',
       '1',
-      '-q:v',
-      '1',
+      ...(isJpeg ? ['-q:v', '1'] : []),
       outputPath,
     ]);
     let output = '';
@@ -655,7 +656,7 @@ function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
         reject(new Error(output || 'ffmpeg failed to render orientation correction.'));
         return;
       }
-      if (!isUsableFile(outputPath) || !isJpegFile(outputPath)) {
+      if (!isUsableFile(outputPath) || !hasExpectedImageFormat(outputPath)) {
         reject(new Error('ffmpeg did not create a valid corrected panorama.'));
         return;
       }
@@ -811,6 +812,24 @@ function isJpegFile(filePath) {
     const header = Buffer.alloc(3);
     const bytesRead = fs.readSync(descriptor, header, 0, header.length, 0);
     return bytesRead === 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  } catch (error) {
+    return false;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function hasExpectedImageFormat(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (['.jpg', '.jpeg'].includes(extension)) return isJpegFile(filePath);
+  if (extension !== '.png') return false;
+
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, 'r');
+    const header = Buffer.alloc(8);
+    const bytesRead = fs.readSync(descriptor, header, 0, header.length, 0);
+    return bytesRead === 8 && header.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   } catch (error) {
     return false;
   } finally {

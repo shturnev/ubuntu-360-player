@@ -45,6 +45,10 @@ function writeJpeg(filePath) {
   fs.writeFileSync(filePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 }
 
+function writePng(filePath) {
+  fs.writeFileSync(filePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+}
+
 describe('Media', () => {
   let tempDir;
   let originalHome;
@@ -269,6 +273,50 @@ describe('Media', () => {
     );
     expect(fs.existsSync(bigPath)).toBe(true);
     expect(fs.existsSync(thumpPath)).toBe(true);
+  });
+
+  test('preserves PNG bytes and extension when saving an orientation correction', async () => {
+    const filePath = path.join(tempDir, 'panorama.png');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    writePng(bigPath);
+    const child = {
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            writePng(spawn.mock.calls[0][1].at(-1));
+            callback(0);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writePng(target);
+        callback(null);
+      }),
+    }));
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).resolves.toEqual({
+      bigName,
+    });
+
+    const args = spawn.mock.calls[0][1];
+    expect(args).not.toContain('-q:v');
+    expect(args.at(-1)).toMatch(/\.png\.\d+-\d+\.png$/);
+    expect(fs.readFileSync(bigPath).subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    );
+    expect(fs.readFileSync(thumpPath).subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    );
   });
 
   test('reuses a complete Insta360 cache without running ffmpeg again', async () => {
