@@ -675,6 +675,7 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
       entry.hadDestination = fs.existsSync(entry.destination);
       if (entry.hadDestination) {
         fs.renameSync(entry.destination, entry.backup);
+        entry.backupCreated = true;
       }
       fs.renameSync(entry.replacement, entry.destination);
       entry.replaced = true;
@@ -684,7 +685,7 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
       if (entry.replaced) {
         removeFileIfPresent(entry.destination);
       }
-      if (entry.hadDestination) {
+      if (entry.backupCreated) {
         fs.renameSync(entry.backup, entry.destination);
       }
     }
@@ -692,7 +693,7 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
   }
 
   entries.forEach((entry) => {
-    if (entry.hadDestination) removeFileIfPresent(entry.backup);
+    if (entry.backupCreated) removeFileIfPresent(entry.backup);
   });
 }
 

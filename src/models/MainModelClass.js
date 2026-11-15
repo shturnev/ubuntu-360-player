@@ -263,7 +263,7 @@ class MainModelClass {
         const type = ext === 'mp4' ? 'video' : 'image';
         this.authorizedMedia.set(origPath, type);
         const sendMediaResult = (result) => {
-          if (result && result.error) {
+          if (result && result.error && importGeneration === this.directoryImportGeneration) {
             this.authorizedMedia.delete(origPath);
           }
           if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {

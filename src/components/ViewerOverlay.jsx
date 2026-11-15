@@ -179,6 +179,7 @@ function ViewerOverlay({
   const metadataDialogRef = useRef(null);
   const metadataButtonRef = useRef(null);
   const panoramaRef = useRef(null);
+  const flatVideoRef = useRef(null);
   const screenshotSaveInProgress = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [canSaveScreenshot, setCanSaveScreenshot] = useState(false);
@@ -193,6 +194,7 @@ function ViewerOverlay({
     onConvertVideo &&
     !conversionProgress?.active &&
     !hasConvertedVideo;
+  const usePanoramaRenderer = !flatView || orientationOpen;
 
   useEffect(() => {
     setOrientationOpen(false);
@@ -227,6 +229,16 @@ function ViewerOverlay({
         if (showingItem?.type !== 'video' || event.repeat || event.target?.closest?.('button, a')) return;
 
         event.preventDefault();
+        if (flatView && !orientationOpen) {
+          const video = flatVideoRef.current;
+          if (!video) return;
+          if (video.paused) {
+            video.play()?.catch(() => onVideoPlaybackFailure?.());
+          } else {
+            video.pause();
+          }
+          return;
+        }
         panoramaRef.current?.togglePlayback?.();
       } else if (items.length >= 2 && event.key === 'ArrowLeft') {
         event.preventDefault();
@@ -239,7 +251,7 @@ function ViewerOverlay({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [flatView, items.length, metadataOpen, onNext, onPrevious, orientationOpen, showingItem?.type]);
+  }, [flatView, items.length, metadataOpen, onNext, onPrevious, onVideoPlaybackFailure, orientationOpen, showingItem?.type]);
 
   useEffect(() => {
     if (!metadataOpen) return undefined;
@@ -321,7 +333,11 @@ function ViewerOverlay({
 
   const openMetadata = () => {
     if (showingItem.type === 'video') {
-      panoramaRef.current?.pause?.();
+      if (flatView && !orientationOpen) {
+        flatVideoRef.current?.pause();
+      } else {
+        panoramaRef.current?.pause?.();
+      }
     }
     onOpenMetadata?.();
   };
@@ -382,25 +398,31 @@ function ViewerOverlay({
         <button type="button" className="close-viewer" onClick={onClose}>
           ✕
         </button>
-        <PanoramaViewer
-          ref={panoramaRef}
-          source={viewerSrc}
-          type={showingItem.type}
-          alt={showingItem.bigName}
-          onOpenExternal={onOpenExternal}
-          showConvertVideo={convertButton}
-          onConvertVideo={onConvertVideo}
-          onVideoPlaybackFailure={onVideoPlaybackFailure}
-          onVideoPlaybackSuccess={onVideoPlaybackSuccess}
-          onToggleFullscreen={toggleFullscreen}
-          isFullscreen={isFullscreen}
-          onCaptureReadyChange={setCanSaveScreenshot}
-          orientation={orientation}
-          flatProjection={flatView}
-          isOrientationEditing={orientationOpen}
-          onOrientationChange={setOrientation}
-          showAlignmentGuides={flatView && orientationOpen}
-        />
+        {usePanoramaRenderer ? (
+          <PanoramaViewer
+            ref={panoramaRef}
+            source={viewerSrc}
+            type={showingItem.type}
+            alt={showingItem.bigName}
+            onOpenExternal={onOpenExternal}
+            showConvertVideo={convertButton}
+            onConvertVideo={onConvertVideo}
+            onVideoPlaybackFailure={onVideoPlaybackFailure}
+            onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+            onToggleFullscreen={toggleFullscreen}
+            isFullscreen={isFullscreen}
+            onCaptureReadyChange={setCanSaveScreenshot}
+            orientation={orientation}
+            flatProjection={flatView}
+            isOrientationEditing={orientationOpen}
+            onOrientationChange={setOrientation}
+            showAlignmentGuides={flatView && orientationOpen}
+          />
+        ) : showingItem.type === 'video' ? (
+          <video ref={flatVideoRef} controls autoPlay src={viewerSrc} onError={onVideoPlaybackFailure} />
+        ) : (
+          <img src={viewerSrc} alt={showingItem.bigName} />
+        )}
         {showingItem.type === 'video' && conversionProgress?.active && (
           <div className="conversion-progress" role="status" aria-live="polite">
             <strong>{conversionProgress.message || 'Converting video…'}</strong>

@@ -252,6 +252,31 @@ describe('MainModelClass', () => {
     });
   });
 
+  test('keeps current media authorization when a superseded import fails', async () => {
+    const firstDirectory = path.join(tempDir, 'first-media');
+    const secondDirectory = path.join(tempDir, 'second-media');
+    fs.mkdirSync(firstDirectory);
+    fs.mkdirSync(secondDirectory);
+    const firstFile = path.join(firstDirectory, 'shared.jpg');
+    const secondFile = path.join(secondDirectory, 'shared.jpg');
+    fs.writeFileSync(firstFile, 'first image');
+    fs.writeFileSync(secondFile, 'second image');
+
+    const callbacks = new Map();
+    jest.spyOn(Media, 'saveImage').mockImplementation((filePath, _win, onResult) => {
+      callbacks.set(filePath, onResult);
+    });
+
+    mainModelClass.readDir(firstDirectory);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    mainModelClass.readDir(secondDirectory);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    callbacks.get(firstFile)({ error: new Error('first import failed') });
+
+    expect(mainModelClass.authorizedMedia.get(secondFile)).toBe('image');
+  });
+
   test('deleteCache removes the cache directory and only reports completion on success', async () => {
     const smallDir = path.join(mainModelClass.static_dir, 'small');
     const bigDir = path.join(mainModelClass.static_dir, 'big');

@@ -121,7 +121,7 @@ describe('App', () => {
     expect(panorama.getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
     expect(panorama.getAttribute('data-type')).toBe('image');
     click(button('Flat view'));
-    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+    expect(container.querySelector('.viewer-panel img')).not.toBeNull();
     click(button('360° view'));
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
   });
@@ -241,24 +241,7 @@ describe('App', () => {
     expect(button('Convert / fix video')).toBeUndefined();
   });
 
-  test('offers conversion after a Flat view playback error', () => {
-    media = {
-      type: 'video',
-      thumpName: 'clip.jpg',
-      bigName: 'clip.mp4',
-      origPath: '/media/clip.mp4',
-    };
-    renderApp();
-    loadMedia();
-
-    click(container.querySelector('.media-card'));
-    click(button('Flat view'));
-    click(button('Simulate playback failure'));
-
-    expect(button('Convert / fix video')).toBeDefined();
-  });
-
-  test('uses the panorama renderer rather than a native video element in Flat view', () => {
+  test('uses a native video element in Flat view', () => {
     media = {
       type: 'video',
       thumpName: 'clip.jpg',
@@ -271,8 +254,8 @@ describe('App', () => {
     click(container.querySelector('.media-card'));
     click(button('Flat view'));
 
-    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
-    expect(container.querySelector('.viewer-panel video')).toBeNull();
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).toBeNull();
+    expect(container.querySelector('.viewer-panel video')).not.toBeNull();
   });
 
   test('offers conversion for another failed video after the first conversion completes', () => {
@@ -492,10 +475,12 @@ describe('App', () => {
     loadMedia();
     click(container.querySelector('.media-card'));
     click(button('Flat view'));
+    const video = container.querySelector('.viewer-panel video');
+    video.pause = jest.fn();
 
     click(button('Info'));
 
-    expect(mockPanoramaPause).toHaveBeenCalledTimes(1);
+    expect(video.pause).toHaveBeenCalledTimes(1);
   });
 
   test('does not reopen the dialog after it is closed while metadata is loading', () => {

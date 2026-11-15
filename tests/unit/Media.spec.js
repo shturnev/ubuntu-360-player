@@ -63,6 +63,7 @@ describe('Media', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     if (originalHome) {
       process.env.SHT_VR_HOME = originalHome;
     } else {
@@ -341,6 +342,42 @@ describe('Media', () => {
 
     await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
       'Unable to replace thumbnail'
+    );
+
+    expect(fs.readFileSync(bigPath)).toEqual(originalBig);
+    expect(fs.readFileSync(thumpPath)).toEqual(originalThumbnail);
+  });
+
+  test('restores the panorama when creating the thumbnail backup fails', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    const originalBig = Buffer.from([0xff, 0xd8, 0xff, 0x01, 0xff, 0xd9]);
+    const originalThumbnail = Buffer.from([0xff, 0xd8, 0xff, 0x02, 0xff, 0xd9]);
+    fs.writeFileSync(bigPath, originalBig);
+    fs.writeFileSync(thumpPath, originalThumbnail);
+    mockOrientationRender(writeJpeg);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+    const renameSync = fs.renameSync;
+    jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      if (source === thumpPath && destination.endsWith('.backup')) {
+        throw new Error('Unable to back up thumbnail');
+      }
+      return renameSync(source, destination);
+    });
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
+      'Unable to back up thumbnail'
     );
 
     expect(fs.readFileSync(bigPath)).toEqual(originalBig);

@@ -164,6 +164,7 @@ describe('PanoramaViewer', () => {
   });
 
   test('toggles flat video playback with Space without interfering with text inputs', async () => {
+    const onVideoPlaybackFailure = jest.fn();
     render(
       <ViewerOverlay
         showingItem={{ type: 'video', bigName: 'clip.mp4' }}
@@ -173,6 +174,7 @@ describe('PanoramaViewer', () => {
         conversionProgress={{ active: false }}
         hasConvertedVideo={false}
         hasPlaybackFailure={false}
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
       />
     );
 
@@ -201,6 +203,8 @@ describe('PanoramaViewer', () => {
     Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
     fireEvent.keyDown(document, { key: ' ' });
     expect(video.pause).toHaveBeenCalledTimes(1);
+    fireEvent.error(video);
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
     input.remove();
   });
 
