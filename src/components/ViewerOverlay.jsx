@@ -180,6 +180,8 @@ function ViewerOverlay({
   const metadataButtonRef = useRef(null);
   const panoramaRef = useRef(null);
   const flatVideoRef = useRef(null);
+  const flatVideoFrameTimer = useRef(null);
+  const flatVideoHasFrame = useRef(false);
   const screenshotSaveInProgress = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [canSaveScreenshot, setCanSaveScreenshot] = useState(false);
@@ -201,6 +203,17 @@ function ViewerOverlay({
     setOrientation(DEFAULT_ORIENTATION);
     setOrientationSaveError('');
   }, [showingItem?.origPath, showingItem?.bigName]);
+
+  useEffect(() => {
+    flatVideoHasFrame.current = false;
+    clearTimeout(flatVideoFrameTimer.current);
+    flatVideoFrameTimer.current = null;
+
+    return () => {
+      clearTimeout(flatVideoFrameTimer.current);
+      flatVideoFrameTimer.current = null;
+    };
+  }, [flatView, orientationOpen, showingItem?.origPath, showingItem?.bigName]);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -331,6 +344,30 @@ function ViewerOverlay({
     }
   };
 
+  const clearFlatVideoFrameTimer = () => {
+    clearTimeout(flatVideoFrameTimer.current);
+    flatVideoFrameTimer.current = null;
+  };
+
+  const reportFlatVideoFailure = () => {
+    clearFlatVideoFrameTimer();
+    onVideoPlaybackFailure?.();
+  };
+
+  const handleFlatVideoLoadedData = () => {
+    flatVideoHasFrame.current = true;
+    clearFlatVideoFrameTimer();
+  };
+
+  const handleFlatVideoPlaying = () => {
+    if (flatVideoHasFrame.current || flatVideoFrameTimer.current) return;
+
+    flatVideoFrameTimer.current = setTimeout(() => {
+      flatVideoFrameTimer.current = null;
+      if (!flatVideoHasFrame.current) reportFlatVideoFailure();
+    }, 4000);
+  };
+
   const openMetadata = () => {
     if (showingItem.type === 'video') {
       if (flatView && !orientationOpen) {
@@ -419,7 +456,17 @@ function ViewerOverlay({
             showAlignmentGuides={flatView && orientationOpen}
           />
         ) : showingItem.type === 'video' ? (
-          <video ref={flatVideoRef} controls autoPlay src={viewerSrc} onError={onVideoPlaybackFailure} />
+          <video
+            ref={flatVideoRef}
+            controls
+            autoPlay
+            src={viewerSrc}
+            onLoadedData={handleFlatVideoLoadedData}
+            onPlaying={handleFlatVideoPlaying}
+            onPause={clearFlatVideoFrameTimer}
+            onEnded={clearFlatVideoFrameTimer}
+            onError={reportFlatVideoFailure}
+          />
         ) : (
           <img src={viewerSrc} alt={showingItem.bigName} />
         )}

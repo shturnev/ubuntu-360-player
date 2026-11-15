@@ -263,6 +263,30 @@ describe('PanoramaViewer', () => {
     expect(onOpenExternal).toHaveBeenCalledWith('https://ffmpeg.org/download.html');
   });
 
+  test('reports a Flat view video that starts without decoding a frame', () => {
+    jest.useFakeTimers();
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'clip.mp4' }}
+        items={[{ type: 'video', bigName: 'clip.mp4' }]}
+        viewerSrc="http://localhost:3000/big/clip.mp4"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    fireEvent.playing(document.querySelector('.viewer-panel video'));
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+  });
+
   test('does not upload a video texture before a video frame is available', () => {
     const gl = makeWebGL();
     render(<PanoramaViewer source="http://localhost:3000/big/audio-only.mp4" type="video" alt="audio-only.mp4" />);
