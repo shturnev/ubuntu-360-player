@@ -423,6 +423,27 @@ function ViewerOverlay({
         ) : (
           <img src={viewerSrc} alt={showingItem.bigName} />
         )}
+        {flatView && !orientationOpen && showingItem.type === 'video' && hasPlaybackFailure && (
+          <div className="error-block viewer-flat-error">
+            <p role="status">Unable to play this video in Flat view.</p>
+            <div className="error-block-actions">
+              {convertButton && (
+                <button type="button" className="primary-button" onClick={onConvertVideo}>
+                  Convert / fix video
+                </button>
+              )}
+              {onOpenExternal && (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
+                >
+                  FFmpeg downloads and documentation
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {showingItem.type === 'video' && conversionProgress?.active && (
           <div className="conversion-progress" role="status" aria-live="polite">
             <strong>{conversionProgress.message || 'Converting video…'}</strong>

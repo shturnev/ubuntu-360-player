@@ -230,11 +230,37 @@ describe('PanoramaViewer', () => {
       fireEvent.keyDown(document, { key: ' ' });
       await Promise.resolve();
     });
+
     expect(video.play).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
     fireEvent.keyDown(document, { key: ' ' });
     expect(video.pause).toHaveBeenCalledTimes(1);
+  });
+
+  test('offers conversion and FFmpeg guidance after Flat view video playback fails', () => {
+    const onConvertVideo = jest.fn();
+    const onOpenExternal = jest.fn();
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'clip.mp4' }}
+        items={[{ type: 'video', bigName: 'clip.mp4' }]}
+        viewerSrc="http://localhost:3000/big/clip.mp4"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure
+        onConvertVideo={onConvertVideo}
+        onOpenExternal={onOpenExternal}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video in Flat view.');
+    fireEvent.click(screen.getByRole('button', { name: 'Convert / fix video' }));
+    fireEvent.click(screen.getByRole('button', { name: 'FFmpeg downloads and documentation' }));
+
+    expect(onConvertVideo).toHaveBeenCalledTimes(1);
+    expect(onOpenExternal).toHaveBeenCalledWith('https://ffmpeg.org/download.html');
   });
 
   test('does not upload a video texture before a video frame is available', () => {
