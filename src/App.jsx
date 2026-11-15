@@ -249,7 +249,10 @@ function App() {
   const openExternalLink = async (url) => {
     try {
       if (api && typeof api.openExternal === 'function') {
-        await api.openExternal(url);
+        const opened = await api.openExternal(url);
+        if (opened === false) {
+          setErrorMessage('Unable to open external link');
+        }
         return;
       }
       window.open(url, '_blank', 'noopener,noreferrer');
