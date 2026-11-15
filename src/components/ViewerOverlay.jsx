@@ -264,7 +264,16 @@ function ViewerOverlay({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [flatView, items.length, metadataOpen, onNext, onPrevious, onVideoPlaybackFailure, orientationOpen, showingItem?.type]);
+  }, [
+    flatView,
+    items.length,
+    metadataOpen,
+    onNext,
+    onPrevious,
+    onVideoPlaybackFailure,
+    orientationOpen,
+    showingItem?.type,
+  ]);
 
   useEffect(() => {
     if (!metadataOpen) return undefined;
