@@ -71,6 +71,31 @@ describe('MainModelClass', () => {
     expect(fs.existsSync(originalFile)).toBe(true);
   });
 
+  test('saves orientation correction only for an authorized image', async () => {
+    const originalFile = path.join(tempDir, 'panorama.jpg');
+    const orientation = { yaw: 15, pitch: -8, roll: 4 };
+    mainModelClass.authorizedMedia.set(originalFile, 'image');
+    const saveOrientationCorrection = jest
+      .spyOn(Media, 'saveOrientationCorrection')
+      .mockResolvedValue({ bigName: 'panorama-corrected.jpg' });
+
+    await expect(mainModelClass.saveOrientationCorrection({ origPath: originalFile, orientation })).resolves.toEqual({
+      success: true,
+      bigName: 'panorama-corrected.jpg',
+    });
+    expect(saveOrientationCorrection).toHaveBeenCalledWith(originalFile, orientation);
+
+    await expect(
+      mainModelClass.saveOrientationCorrection({
+        origPath: originalFile,
+        orientation: { yaw: 181, pitch: 0, roll: 0 },
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: 'This image or orientation correction is invalid.',
+    });
+  });
+
   test('removeFilesHelper keeps files that are still present in the selected list', () => {
     const smallDir = path.join(mainModelClass.static_dir, 'small');
     fs.writeFileSync(path.join(smallDir, 'keep.png'), 'keep');
@@ -104,6 +129,34 @@ describe('MainModelClass', () => {
     expect(send).toHaveBeenCalledWith('start-read-dir', 3);
     expect(saveImage.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual(['first.jpg', 'second.png']);
     expect(saveVideo.mock.calls.map(([file]) => path.basename(file))).toEqual(['third.mp4']);
+  });
+
+  test('readDir routes .insp files through the Insta360 converter and preserves image authorization', async () => {
+    const sourceDir = path.join(tempDir, 'insta360-media');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, 'one-x2.insp'), 'image');
+    fs.writeFileSync(path.join(sourceDir, 'one-x2-uppercase.INSP'), 'image');
+    fs.writeFileSync(path.join(sourceDir, 'regular.jpg'), 'image');
+    const send = jest.fn();
+    mainModelClass.win.webContents.send = send;
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation(() => {});
+    const saveInsta360Image = jest.spyOn(Media, 'saveInsta360Image').mockImplementation(() => Promise.resolve());
+
+    await new Promise((resolve) => {
+      send.mockImplementation((channel) => {
+        if (channel === 'start-read-dir') resolve();
+      });
+      mainModelClass.readDir(sourceDir);
+    });
+
+    expect(send).toHaveBeenCalledWith('start-read-dir', 3);
+    expect(saveImage.mock.calls.map(([file]) => path.basename(file))).toEqual(['regular.jpg']);
+    expect(saveInsta360Image.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual([
+      'one-x2-uppercase.INSP',
+      'one-x2.insp',
+    ]);
+    expect(mainModelClass.authorizedMedia.get(path.join(sourceDir, 'one-x2.insp'))).toBe('image');
+    expect(mainModelClass.authorizedMedia.get(path.join(sourceDir, 'one-x2-uppercase.INSP'))).toBe('image');
   });
 
   test('readDir keeps the empty-directory behavior when no media files are supported', async () => {
@@ -199,6 +252,31 @@ describe('MainModelClass', () => {
     });
   });
 
+  test('keeps current media authorization when a superseded import fails', async () => {
+    const firstDirectory = path.join(tempDir, 'first-media');
+    const secondDirectory = path.join(tempDir, 'second-media');
+    fs.mkdirSync(firstDirectory);
+    fs.mkdirSync(secondDirectory);
+    const firstFile = path.join(firstDirectory, 'shared.jpg');
+    const secondFile = path.join(secondDirectory, 'shared.jpg');
+    fs.writeFileSync(firstFile, 'first image');
+    fs.writeFileSync(secondFile, 'second image');
+
+    const callbacks = new Map();
+    jest.spyOn(Media, 'saveImage').mockImplementation((filePath, _win, onResult) => {
+      callbacks.set(filePath, onResult);
+    });
+
+    mainModelClass.readDir(firstDirectory);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    mainModelClass.readDir(secondDirectory);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    callbacks.get(firstFile)({ error: new Error('first import failed') });
+
+    expect(mainModelClass.authorizedMedia.get(secondFile)).toBe('image');
+  });
+
   test('deleteCache removes the cache directory and only reports completion on success', async () => {
     const smallDir = path.join(mainModelClass.static_dir, 'small');
     const bigDir = path.join(mainModelClass.static_dir, 'big');
@@ -238,6 +316,26 @@ describe('MainModelClass', () => {
       origPath: '/media/photo.jpg',
       requestId: 1,
       entries: [{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }],
+    });
+  });
+
+  test('requests .insp metadata as image metadata', async () => {
+    jest
+      .spyOn(Media, 'getMetadata')
+      .mockResolvedValue([{ key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' }]);
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.authorizedMedia.set('/media/photo.INSP', 'image');
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'get-media-metadata').pop()[1];
+    const event = { reply: jest.fn() };
+
+    await handler(event, { origPath: '/media/photo.INSP', type: 'image', requestId: 2 });
+
+    expect(Media.getMetadata).toHaveBeenCalledWith('/media/photo.INSP', 'image');
+    expect(event.reply).toHaveBeenCalledWith('media-metadata', {
+      origPath: '/media/photo.INSP',
+      requestId: 2,
+      entries: [{ key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' }],
     });
   });
 

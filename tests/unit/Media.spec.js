@@ -35,6 +35,20 @@ function getCacheName(filePath, suffix = '') {
   return `${parsed.name}-${fs.statSync(filePath).size}-${hash}${suffix}${parsed.ext}`;
 }
 
+function getInsta360CacheName(filePath) {
+  const parsed = path.parse(filePath);
+  const hash = crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 12);
+  return `${parsed.name}-${fs.statSync(filePath).size}-${hash}-insta360-v6.jpg`;
+}
+
+function writeJpeg(filePath) {
+  fs.writeFileSync(filePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+}
+
+function writePng(filePath) {
+  fs.writeFileSync(filePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+}
+
 describe('Media', () => {
   let tempDir;
   let originalHome;
@@ -49,6 +63,7 @@ describe('Media', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     if (originalHome) {
       process.env.SHT_VR_HOME = originalHome;
     } else {
@@ -161,6 +176,254 @@ describe('Media', () => {
     expect(firstResult.bigName).not.toBe(secondResult.bigName);
     expect(fs.realpathSync(path.join(bigDir, firstResult.bigName))).toBe(firstFile);
     expect(fs.realpathSync(path.join(bigDir, secondResult.bigName))).toBe(secondFile);
+  });
+
+  test('converts an Insta360 photo into cached JPEG panorama and thumbnail after ffmpeg succeeds', async () => {
+    const filePath = path.join(tempDir, 'one-x2.INSP');
+    fs.writeFileSync(filePath, 'dual-fisheye');
+    const bigName = getInsta360CacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    const child = {
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            writeJpeg(bigPath);
+            callback(0);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((_target, callback) => {
+        writeJpeg(thumpPath);
+        callback(null);
+      }),
+    }));
+
+    const result = await Media.saveInsta360Image(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result).toEqual({
+      error: null,
+      type: 'image',
+      origPath: filePath,
+      thumpName: bigName,
+      bigName,
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining([
+        '-i',
+        filePath,
+        '-vf',
+        'v360=input=dfisheye:output=equirect:ih_fov=199:iv_fov=199:w=6080:h=3040:interp=lanczos:yaw=0:pitch=0:roll=180',
+        '-frames:v',
+        '1',
+        bigPath,
+      ])
+    );
+    expect(fs.existsSync(bigPath)).toBe(true);
+    expect(fs.existsSync(thumpPath)).toBe(true);
+  });
+
+  function mockOrientationRender(writeOutput) {
+    const child = {
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            writeOutput(spawn.mock.calls[0][1].at(-1));
+            callback(0);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+  }
+
+  test('saves an orientation correction with the same rotation mapping as the preview', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    writeJpeg(bigPath);
+    mockOrientationRender(writeJpeg);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: -5.25, pitch: 18, roll: 0 })).resolves.toEqual({
+      bigName,
+    });
+
+    expect(spawn).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining([
+        '-vf',
+        'v360=input=equirect:output=equirect:yaw=-5.25:pitch=-18:roll=0:rorder=ryp:interp=lanczos',
+      ])
+    );
+    expect(fs.existsSync(bigPath)).toBe(true);
+    expect(fs.existsSync(thumpPath)).toBe(true);
+  });
+
+  test('preserves PNG bytes and extension when saving an orientation correction', async () => {
+    const filePath = path.join(tempDir, 'panorama.png');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    writePng(bigPath);
+    mockOrientationRender(writePng);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writePng(target);
+        callback(null);
+      }),
+    }));
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).resolves.toEqual({
+      bigName,
+    });
+
+    const args = spawn.mock.calls[0][1];
+    expect(args).not.toContain('-q:v');
+    expect(args.at(-1)).toMatch(/\.png\.\d+-\d+\.png$/);
+    expect(fs.readFileSync(bigPath).subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    );
+    expect(fs.readFileSync(thumpPath).subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    );
+  });
+
+  test('restores both cache files when replacing the thumbnail fails', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    const originalBig = Buffer.from([0xff, 0xd8, 0xff, 0x01, 0xff, 0xd9]);
+    const originalThumbnail = Buffer.from([0xff, 0xd8, 0xff, 0x02, 0xff, 0xd9]);
+    fs.writeFileSync(bigPath, originalBig);
+    fs.writeFileSync(thumpPath, originalThumbnail);
+    mockOrientationRender(writeJpeg);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+    const renameSync = fs.renameSync;
+    let renameCount = 0;
+    jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      renameCount += 1;
+      if (renameCount === 4) throw new Error('Unable to replace thumbnail');
+      return renameSync(source, destination);
+    });
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
+      'Unable to replace thumbnail'
+    );
+
+    expect(fs.readFileSync(bigPath)).toEqual(originalBig);
+    expect(fs.readFileSync(thumpPath)).toEqual(originalThumbnail);
+  });
+
+  test('restores the panorama when creating the thumbnail backup fails', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    const originalBig = Buffer.from([0xff, 0xd8, 0xff, 0x01, 0xff, 0xd9]);
+    const originalThumbnail = Buffer.from([0xff, 0xd8, 0xff, 0x02, 0xff, 0xd9]);
+    fs.writeFileSync(bigPath, originalBig);
+    fs.writeFileSync(thumpPath, originalThumbnail);
+    mockOrientationRender(writeJpeg);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+    const renameSync = fs.renameSync;
+    jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
+      if (source === thumpPath && destination.endsWith('.backup')) {
+        throw new Error('Unable to back up thumbnail');
+      }
+      return renameSync(source, destination);
+    });
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
+      'Unable to back up thumbnail'
+    );
+
+    expect(fs.readFileSync(bigPath)).toEqual(originalBig);
+    expect(fs.readFileSync(thumpPath)).toEqual(originalThumbnail);
+  });
+
+  test('reuses a complete Insta360 cache without running ffmpeg again', async () => {
+    const filePath = path.join(tempDir, 'one-x2.insp');
+    fs.writeFileSync(filePath, 'dual-fisheye');
+    const bigName = getInsta360CacheName(filePath);
+    const bigDir = path.join(tempDir, '.sht-vr-player', 'static', 'big');
+    const smallDir = path.join(tempDir, '.sht-vr-player', 'static', 'small');
+    writeJpeg(path.join(bigDir, bigName));
+    writeJpeg(path.join(smallDir, bigName));
+
+    const result = await Media.saveInsta360Image(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result.error).toBeNull();
+    expect(result.bigName).toBe(bigName);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  test('reports converter failures and removes partial Insta360 cache files', async () => {
+    const filePath = path.join(tempDir, 'broken.insp');
+    fs.writeFileSync(filePath, 'dual-fisheye');
+    const bigName = getInsta360CacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const child = {
+      stderr: { on: jest.fn((event, callback) => callback(Buffer.from('conversion failed'))) },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            fs.writeFileSync(bigPath, 'partial output');
+            callback(1);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+
+    const result = await Media.saveInsta360Image(filePath, { webContents: { send: jest.fn() } });
+
+    expect(result).toMatchObject({ type: 'image', origPath: filePath });
+    expect(result.error).toBeInstanceOf(Error);
+    expect(fs.existsSync(bigPath)).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName))).toBe(false);
   });
 
   test('normalizes image metadata into human-readable entries', () => {

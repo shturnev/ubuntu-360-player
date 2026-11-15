@@ -48,6 +48,73 @@ class Media {
     }
   }
 
+  static async saveInsta360Image(filePath, win, onResult) {
+    const bigName = getInsta360ImageName(filePath);
+    const thumpName = bigName;
+    const bigPath = path.join(getBigDir(), bigName);
+    const thumpPath = path.join(getStorageRoot(), 'static', 'small', thumpName);
+    const res = {
+      error: null,
+      type: 'image',
+      origPath: filePath,
+      thumpName,
+      bigName,
+    };
+
+    fs.mkdirSync(path.dirname(bigPath), { recursive: true });
+    fs.mkdirSync(path.dirname(thumpPath), { recursive: true });
+
+    try {
+      const hadBigCache = isUsableFile(bigPath);
+      if (!hadBigCache) {
+        removeFileIfPresent(bigPath);
+        await convertInsta360Image(filePath, bigPath);
+      }
+
+      if (!isUsableFile(thumpPath)) {
+        removeFileIfPresent(thumpPath);
+        await createImageThumbnail(bigPath, thumpPath);
+      }
+
+      sendMediaResult(win, res, onResult);
+      return res;
+    } catch (error) {
+      removeFileIfPresent(thumpPath);
+      if (!isUsableFile(bigPath) || !isJpegFile(bigPath)) {
+        removeFileIfPresent(bigPath);
+      }
+      res.error = error instanceof Error ? error : new Error('Unable to convert Insta360 photo.');
+      sendMediaResult(win, res, onResult);
+      return res;
+    }
+  }
+
+  static async saveOrientationCorrection(filePath, orientation) {
+    const bigName =
+      path.extname(filePath).toLowerCase() === '.insp' ? getInsta360ImageName(filePath) : getNewFileName(filePath);
+    const bigPath = path.join(getBigDir(), bigName);
+    const thumpPath = path.join(getStorageRoot(), 'static', 'small', bigName);
+    const suffix = `${process.pid}-${Date.now()}`;
+    const extension = path.extname(bigPath).toLowerCase();
+    const renderedPath = `${bigPath}.${suffix}${extension}`;
+    const thumbnailPath = `${thumpPath}.${suffix}${extension}`;
+
+    if (!isUsableFile(bigPath)) {
+      throw new Error('The rendered panorama is no longer available.');
+    }
+
+    try {
+      await renderEquirectangularOrientation(bigPath, renderedPath, orientation);
+      await createImageThumbnail(renderedPath, thumbnailPath);
+      replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffix);
+      return { bigName };
+    } catch (error) {
+      removeFileIfPresent(renderedPath);
+      removeFileIfPresent(thumbnailPath);
+      throw error instanceof Error ? error : new Error('Unable to save orientation correction.');
+    }
+  }
+
   static saveVideo(filePath, win, onResult) {
     const newFileName = getPreferredVideoName(filePath);
     createLink(filePath, newFileName);
@@ -499,6 +566,317 @@ function createLink(origPath, newFileName) {
   }
 }
 
+async function convertInsta360Image(filePath, outputPath) {
+  const orientation = await getInsta360Orientation(filePath);
+  const filter = [
+    'v360=input=dfisheye:output=equirect:ih_fov=199:iv_fov=199:w=6080:h=3040:interp=lanczos',
+    `yaw=${orientation.yaw}`,
+    `pitch=${orientation.pitch}`,
+    `roll=${orientation.roll}`,
+  ].join(':');
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', [
+      '-y',
+      '-v',
+      'error',
+      '-i',
+      filePath,
+      '-vf',
+      filter,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '1',
+      outputPath,
+    ]);
+    let output = '';
+    let settled = false;
+
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      removeFileIfPresent(outputPath);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    child.stderr.on('data', (chunk) => {
+      output += String(chunk);
+    });
+    child.on('error', () => fail(new Error('ffmpeg is not available for Insta360 photo conversion.')));
+    child.on('close', (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        fail(new Error(output || 'ffmpeg failed to convert the Insta360 photo.'));
+        return;
+      }
+      if (!isUsableFile(outputPath) || !isJpegFile(outputPath)) {
+        fail(new Error('ffmpeg did not create a valid Insta360 panorama.'));
+        return;
+      }
+      settled = true;
+      resolve();
+    });
+  });
+}
+
+function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
+  const filter = [
+    'v360=input=equirect:output=equirect',
+    `yaw=${orientation.yaw}`,
+    `pitch=${-orientation.pitch}`,
+    `roll=${orientation.roll}`,
+    'rorder=ryp',
+    'interp=lanczos',
+  ].join(':');
+
+  const isJpeg = ['.jpg', '.jpeg'].includes(path.extname(outputPath).toLowerCase());
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', [
+      '-y',
+      '-v',
+      'error',
+      '-i',
+      inputPath,
+      '-vf',
+      filter,
+      '-frames:v',
+      '1',
+      ...(isJpeg ? ['-q:v', '1'] : []),
+      outputPath,
+    ]);
+    let output = '';
+
+    child.stderr.on('data', (chunk) => {
+      output += String(chunk);
+    });
+    child.on('error', () => reject(new Error('ffmpeg is not available for orientation correction.')));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(output || 'ffmpeg failed to render orientation correction.'));
+        return;
+      }
+      if (!isUsableFile(outputPath) || !hasExpectedImageFormat(outputPath)) {
+        reject(new Error('ffmpeg did not create a valid corrected panorama.'));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffix) {
+  const entries = [
+    { destination: bigPath, replacement: renderedPath, backup: `${bigPath}.${suffix}.backup` },
+    { destination: thumpPath, replacement: thumbnailPath, backup: `${thumpPath}.${suffix}.backup` },
+  ];
+
+  try {
+    for (const entry of entries) {
+      entry.hadDestination = fs.existsSync(entry.destination);
+      if (entry.hadDestination) {
+        fs.renameSync(entry.destination, entry.backup);
+        entry.backupCreated = true;
+      }
+      fs.renameSync(entry.replacement, entry.destination);
+      entry.replaced = true;
+    }
+  } catch (error) {
+    for (const entry of [...entries].reverse()) {
+      if (entry.replaced) {
+        removeFileIfPresent(entry.destination);
+      }
+      if (entry.backupCreated) {
+        fs.renameSync(entry.backup, entry.destination);
+      }
+    }
+    throw error;
+  }
+
+  entries.forEach((entry) => {
+    if (entry.backupCreated) removeFileIfPresent(entry.backup);
+  });
+}
+
+async function getInsta360Orientation(filePath) {
+  try {
+    const metadata = await exifr.parse(filePath, { makerNote: true, xmp: false, icc: false });
+    const makerNoteSample = parseMakerNoteImuSample(metadata?.MakerNote ?? metadata?.makerNote);
+    const imuSample = makerNoteSample && readInsta360ImuSnapshot(filePath, makerNoteSample);
+    if (imuSample) return imuSnapshotToV360Orientation(imuSample);
+  } catch (error) {
+    // Insta360 photos remain viewable with the camera's native upside-down correction.
+  }
+
+  return { yaw: 0, pitch: 0, roll: 180 };
+}
+
+function parseMakerNoteImuSample(makerNote) {
+  if (!makerNote || typeof makerNote.length !== 'number') return null;
+
+  const text = Buffer.from(makerNote).toString('ascii').split('\0')[0];
+  const values = text.split('_').slice(0, 6).map(Number);
+  if (values.length !== 6 || values.some((value) => !Number.isFinite(value))) return null;
+
+  return values;
+}
+
+function readInsta360ImuSnapshot(filePath, makerNoteSample) {
+  const fileSize = fs.statSync(filePath).size;
+  const trailerLengthOffset = fileSize - 40;
+  const trailerStartOffset = fileSize - 78;
+  const magicOffset = fileSize - 32;
+  let descriptor;
+
+  try {
+    if (fileSize < 78 || trailerLengthOffset < 0 || trailerStartOffset < 0) return null;
+
+    descriptor = fs.openSync(filePath, 'r');
+    const magic = Buffer.alloc(32);
+    fs.readSync(descriptor, magic, 0, magic.length, magicOffset);
+    if (magic.toString('ascii') !== '8db42d694ccc418790edff439fe026bf') return null;
+
+    const trailerLengthBuffer = Buffer.alloc(4);
+    fs.readSync(descriptor, trailerLengthBuffer, 0, trailerLengthBuffer.length, trailerLengthOffset);
+    const trailerLength = trailerLengthBuffer.readUInt32LE(0);
+    if (trailerLength < 78 || trailerLength > fileSize) return null;
+
+    for (let offset = -78; offset > -trailerLength;) {
+      const recordOffset = fileSize + offset;
+      if (recordOffset < 0) return null;
+
+      const header = Buffer.alloc(6);
+      fs.readSync(descriptor, header, 0, header.length, recordOffset);
+      const segmentId = header.readUInt16LE(0);
+      const segmentLength = header.readUInt32LE(2);
+      if (!segmentLength || segmentLength > fileSize + offset) return null;
+
+      if (segmentId === 0x0300 && segmentLength % 56 === 0) {
+        const segment = Buffer.alloc(segmentLength);
+        fs.readSync(descriptor, segment, 0, segment.length, recordOffset - segmentLength);
+        return findClosestImuSample(segment, makerNoteSample);
+      }
+
+      offset -= segmentLength + 6;
+    }
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+
+  return null;
+}
+
+function findClosestImuSample(segment, makerNoteSample) {
+  let closestSample;
+  let closestDistance = Infinity;
+
+  for (let offset = 0; offset < segment.length; offset += 56) {
+    const sample = [
+      segment.readDoubleLE(offset + 8),
+      segment.readDoubleLE(offset + 16),
+      segment.readDoubleLE(offset + 24),
+      segment.readDoubleLE(offset + 32),
+      segment.readDoubleLE(offset + 40),
+      segment.readDoubleLE(offset + 48),
+    ];
+    const distance = sample.reduce((total, value, index) => total + (value - makerNoteSample[index]) ** 2, 0);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestSample = sample;
+    }
+  }
+
+  return closestDistance < 0.001 ? closestSample : null;
+}
+
+function imuSnapshotToV360Orientation([accelerationX, accelerationY, accelerationZ]) {
+  const radiansToDegrees = 180 / Math.PI;
+  const magnitude = Math.hypot(accelerationX, accelerationY, accelerationZ);
+  if (!Number.isFinite(magnitude) || magnitude < 0.9 || magnitude > 1.1) {
+    return { yaw: 0, pitch: 0, roll: 180 };
+  }
+
+  const x = accelerationX / magnitude;
+  const y = -accelerationZ / magnitude;
+  const z = accelerationY / magnitude;
+  const roll = Math.atan2(x, y) * radiansToDegrees;
+  const pitch = -Math.atan2(z, Math.hypot(x, y)) * radiansToDegrees;
+
+  return {
+    yaw: 0,
+    pitch: Number(pitch.toFixed(3)),
+    roll: Number(roll.toFixed(3)),
+  };
+}
+
+function createImageThumbnail(filePath, thumpPath) {
+  return new Promise((resolve, reject) => {
+    gm(filePath)
+      .resize(450)
+      .autoOrient()
+      .write(thumpPath, (error) => {
+        if (error) {
+          removeFileIfPresent(thumpPath);
+          reject(error);
+          return;
+        }
+        if (!isUsableFile(thumpPath)) {
+          reject(new Error('Unable to create the Insta360 photo thumbnail.'));
+          return;
+        }
+        resolve();
+      });
+  });
+}
+
+function isUsableFile(filePath) {
+  try {
+    const stats = fs.statSync(filePath);
+    return stats.isFile() && stats.size > 0;
+  } catch (error) {
+    return false;
+  }
+}
+
+function isJpegFile(filePath) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, 'r');
+    const header = Buffer.alloc(3);
+    const bytesRead = fs.readSync(descriptor, header, 0, header.length, 0);
+    return bytesRead === 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  } catch (error) {
+    return false;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function hasExpectedImageFormat(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (['.jpg', '.jpeg'].includes(extension)) return isJpegFile(filePath);
+  if (extension !== '.png') return false;
+
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, 'r');
+    const header = Buffer.alloc(8);
+    const bytesRead = fs.readSync(descriptor, header, 0, header.length, 0);
+    return bytesRead === 8 && header.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  } catch (error) {
+    return false;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function removeFileIfPresent(filePath) {
+  try {
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
 function getConvertedVideoName(origPath) {
   const stats = fs.statSync(origPath);
   const parsed = path.parse(origPath);
@@ -523,6 +901,12 @@ function getNewFileName(origPath) {
   const parsed = path.parse(origPath);
 
   return `${parsed.name}-${stats.size}-${getPathHash(origPath)}${parsed.ext}`;
+}
+
+function getInsta360ImageName(origPath) {
+  const stats = fs.statSync(origPath);
+  const parsed = path.parse(origPath);
+  return `${parsed.name}-${stats.size}-${getPathHash(origPath)}-insta360-v6.jpg`;
 }
 
 function getPathHash(origPath) {

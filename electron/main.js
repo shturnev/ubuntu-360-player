@@ -279,6 +279,12 @@ async function initializeApplication() {
     }
     return appModel.savePanoramaScreenshot(payload);
   });
+  ipcMain.handle('save-orientation-correction', async (_, payload) => {
+    if (!appModel) {
+      return { success: false, message: 'Saving orientation corrections is unavailable.' };
+    }
+    return appModel.saveOrientationCorrection(payload);
+  });
 
   await createWindow();
   importPendingDirectory();

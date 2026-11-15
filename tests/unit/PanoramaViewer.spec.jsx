@@ -164,6 +164,7 @@ describe('PanoramaViewer', () => {
   });
 
   test('toggles flat video playback with Space without interfering with text inputs', async () => {
+    const onVideoPlaybackFailure = jest.fn();
     render(
       <ViewerOverlay
         showingItem={{ type: 'video', bigName: 'clip.mp4' }}
@@ -173,6 +174,7 @@ describe('PanoramaViewer', () => {
         conversionProgress={{ active: false }}
         hasConvertedVideo={false}
         hasPlaybackFailure={false}
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
       />
     );
 
@@ -201,6 +203,8 @@ describe('PanoramaViewer', () => {
     Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
     fireEvent.keyDown(document, { key: ' ' });
     expect(video.pause).toHaveBeenCalledTimes(1);
+    fireEvent.error(video);
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
     input.remove();
   });
 
@@ -226,11 +230,61 @@ describe('PanoramaViewer', () => {
       fireEvent.keyDown(document, { key: ' ' });
       await Promise.resolve();
     });
+
     expect(video.play).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
     fireEvent.keyDown(document, { key: ' ' });
     expect(video.pause).toHaveBeenCalledTimes(1);
+  });
+
+  test('offers conversion and FFmpeg guidance after Flat view video playback fails', () => {
+    const onConvertVideo = jest.fn();
+    const onOpenExternal = jest.fn();
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'clip.mp4' }}
+        items={[{ type: 'video', bigName: 'clip.mp4' }]}
+        viewerSrc="http://localhost:3000/big/clip.mp4"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure
+        onConvertVideo={onConvertVideo}
+        onOpenExternal={onOpenExternal}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video in Flat view.');
+    fireEvent.click(screen.getByRole('button', { name: 'Convert / fix video' }));
+    fireEvent.click(screen.getByRole('button', { name: 'FFmpeg downloads and documentation' }));
+
+    expect(onConvertVideo).toHaveBeenCalledTimes(1);
+    expect(onOpenExternal).toHaveBeenCalledWith('https://ffmpeg.org/download.html');
+  });
+
+  test('reports a Flat view video that starts without decoding a frame', () => {
+    jest.useFakeTimers();
+    const onVideoPlaybackFailure = jest.fn();
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'video', bigName: 'clip.mp4' }}
+        items={[{ type: 'video', bigName: 'clip.mp4' }]}
+        viewerSrc="http://localhost:3000/big/clip.mp4"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onVideoPlaybackFailure={onVideoPlaybackFailure}
+      />
+    );
+
+    fireEvent.playing(document.querySelector('.viewer-panel video'));
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
   });
 
   test('does not upload a video texture before a video frame is available', () => {
@@ -373,6 +427,239 @@ describe('PanoramaViewer', () => {
 
     fireEvent.click(document.querySelector('.viewer-controls .fullscreen-button'));
     expect(exitFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  test('applies live yaw, pitch, and roll corrections from the viewer menu', () => {
+    const gl = makeWebGL();
+    const queuedRaf = [];
+    window.requestAnimationFrame = jest.fn((callback) => {
+      queuedRaf.push(callback);
+      return queuedRaf.length;
+    });
+
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={jest.fn()}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    fireEvent.load(document.querySelector('.panorama-source'));
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+
+    expect(screen.getByLabelText('Yaw correction')).toHaveValue('0');
+    fireEvent.change(screen.getByLabelText('Roll correction value'), { target: { value: '35' } });
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+
+    expect(screen.getByLabelText('Roll correction value')).toHaveValue(35);
+    expect(gl.uniform1f).toHaveBeenCalledWith(1, (35 * Math.PI) / 180);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByLabelText('Roll correction value')).toHaveValue(0);
+  });
+
+  test('uses drag to update correction controls only while orientation editing is open', () => {
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={jest.fn()}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    const canvas = document.querySelector('.panorama-canvas');
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+    fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100 }));
+    fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 120, clientY: 112 }));
+
+    expect(screen.getByLabelText('Yaw correction value')).toHaveValue(-5);
+    expect(screen.getByLabelText('Pitch correction value')).toHaveValue(-3);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close orientation correction' }));
+    fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 120, clientY: 112 }));
+    fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 140 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+
+    expect(screen.getByLabelText('Yaw correction value')).toHaveValue(-5);
+    expect(screen.getByLabelText('Pitch correction value')).toHaveValue(-3);
+  });
+
+  test('switches to Flat view when opening orientation correction from 360° view', () => {
+    const onToggleFlatView = jest.fn();
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={onToggleFlatView}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+
+    expect(onToggleFlatView).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('region', { name: 'Panorama orientation correction' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Flat view' })).toBeDisabled();
+  });
+
+  test('applies orientation correction in Flat view and preserves it when switching views', () => {
+    const onToggleFlatView = jest.fn();
+    const { rerender } = render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={onToggleFlatView}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+    fireEvent.change(screen.getByLabelText('Roll correction value'), { target: { value: '35' } });
+
+    expect(document.querySelector('.panorama-viewer')).toHaveClass('flat-projection');
+
+    rerender(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={onToggleFlatView}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('Roll correction value')).toHaveValue(35);
+  });
+
+  test('shows alignment guides only while editing orientation in Flat view', () => {
+    const { rerender } = render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/photo-1000.jpg"
+        type="image"
+        alt="photo-1000.jpg"
+        flatProjection
+        showAlignmentGuides
+      />
+    );
+
+    expect(document.querySelector('.panorama-alignment-guides')).not.toBeNull();
+    expect(document.querySelectorAll('.panorama-alignment-guide')).toHaveLength(2);
+
+    rerender(
+      <PanoramaViewer
+        source="http://localhost:3000/big/photo-1000.jpg"
+        type="image"
+        alt="photo-1000.jpg"
+        showAlignmentGuides
+      />
+    );
+    expect(document.querySelector('.panorama-alignment-guides')).toBeNull();
+  });
+
+  test('does not start dragging a Flat view unless orientation editing is open', () => {
+    const gl = makeWebGL();
+    render(
+      <PanoramaViewer
+        source="http://localhost:3000/big/photo-1000.jpg"
+        type="image"
+        alt="photo-1000.jpg"
+        flatProjection
+      />
+    );
+
+    const canvas = document.querySelector('.panorama-canvas');
+    gl.uniform1f.mockClear();
+    fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100 }));
+    fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 100 }));
+
+    expect(gl.uniform1f).not.toHaveBeenCalledWith(2, expect.any(Number));
+  });
+
+  test('resets the 360° camera rotation when switching to Flat view', () => {
+    const gl = makeWebGL();
+    const queuedRaf = [];
+    window.requestAnimationFrame = jest.fn((callback) => {
+      queuedRaf.push(callback);
+      return queuedRaf.length;
+    });
+    const { rerender } = render(
+      <PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />
+    );
+
+    const image = document.querySelector('.panorama-source');
+    const canvas = document.querySelector('.panorama-canvas');
+    fireEvent.load(image);
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+    fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100 }));
+    fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 130 }));
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+
+    gl.uniform1f.mockClear();
+    rerender(
+      <PanoramaViewer
+        source="http://localhost:3000/big/photo-1000.jpg"
+        type="image"
+        alt="photo-1000.jpg"
+        flatProjection
+      />
+    );
+    act(() => {
+      queuedRaf.splice(0).forEach((callback) => callback());
+    });
+
+    expect(gl.uniform1f).toHaveBeenCalledWith(2, 0);
+    expect(gl.uniform1f).toHaveBeenCalledWith(3, 0);
   });
 
   test('reports a missing video frame even when playback starts', async () => {

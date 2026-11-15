@@ -118,6 +118,39 @@ const CameraIcon = (props) => (
   </svg>
 );
 
+const OrientationIcon = (props) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    {...props}
+  >
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M10 5H3m9 14H3M14 3v4m2 10v4m5-9h-9m9 7h-5m5-14h-7m-6 5v4m0-2H3"
+    />
+  </svg>
+);
+
+const DEFAULT_ORIENTATION = { yaw: 0, pitch: 0, roll: 0 };
+const ORIENTATION_CONTROLS = [
+  { key: 'yaw', label: 'Yaw', min: -180, max: 180 },
+  { key: 'pitch', label: 'Pitch', min: -90, max: 90 },
+  { key: 'roll', label: 'Roll', min: -180, max: 180 },
+];
+
+const getMediaFileName = (item) =>
+  String(item?.origPath || item?.bigName || '')
+    .split(/[\\/]/)
+    .pop();
+
 function ViewerOverlay({
   showingItem,
   items,
@@ -140,28 +173,38 @@ function ViewerOverlay({
   onCloseMetadata,
   onSaveScreenshot,
   onScreenshotError,
+  onSaveOrientation,
 }) {
   const panelRef = useRef(null);
   const metadataDialogRef = useRef(null);
   const metadataButtonRef = useRef(null);
-  const flatVideoRef = useRef(null);
   const panoramaRef = useRef(null);
+  const flatVideoRef = useRef(null);
   const flatVideoFrameTimer = useRef(null);
   const flatVideoHasFrame = useRef(false);
   const screenshotSaveInProgress = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [flatVideoError, setFlatVideoError] = useState(false);
   const [canSaveScreenshot, setCanSaveScreenshot] = useState(false);
   const [isSavingScreenshot, setIsSavingScreenshot] = useState(false);
+  const [orientationOpen, setOrientationOpen] = useState(false);
+  const [orientation, setOrientation] = useState(DEFAULT_ORIENTATION);
+  const [isSavingOrientation, setIsSavingOrientation] = useState(false);
+  const [orientationSaveError, setOrientationSaveError] = useState('');
   const convertButton =
     showingItem.type === 'video' &&
     hasPlaybackFailure &&
     onConvertVideo &&
     !conversionProgress?.active &&
     !hasConvertedVideo;
+  const usePanoramaRenderer = !flatView || orientationOpen;
 
   useEffect(() => {
-    setFlatVideoError(false);
+    setOrientationOpen(false);
+    setOrientation(DEFAULT_ORIENTATION);
+    setOrientationSaveError('');
+  }, [showingItem?.origPath, showingItem?.bigName]);
+
+  useEffect(() => {
     flatVideoHasFrame.current = false;
     clearTimeout(flatVideoFrameTimer.current);
     flatVideoFrameTimer.current = null;
@@ -170,7 +213,7 @@ function ViewerOverlay({
       clearTimeout(flatVideoFrameTimer.current);
       flatVideoFrameTimer.current = null;
     };
-  }, [showingItem?.origPath, showingItem?.bigName, flatView]);
+  }, [flatView, orientationOpen, showingItem?.origPath, showingItem?.bigName]);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -183,28 +226,33 @@ function ViewerOverlay({
   }, []);
 
   const metadataOpen = Boolean(metadata && metadata.status !== 'idle');
+  const fileName = getMediaFileName(showingItem);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (metadataOpen) return;
+      if (orientationOpen && event.key === 'Escape') {
+        event.preventDefault();
+        setOrientationOpen(false);
+        return;
+      }
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) || event.target?.isContentEditable) return;
 
       if (event.key === ' ' || event.key === 'Spacebar') {
         if (showingItem?.type !== 'video' || event.repeat || event.target?.closest?.('button, a')) return;
 
-        const video = flatView ? flatVideoRef.current : panoramaRef.current;
-        if (!video) return;
-
         event.preventDefault();
-        if (flatView) {
+        if (flatView && !orientationOpen) {
+          const video = flatVideoRef.current;
+          if (!video) return;
           if (video.paused) {
-            video.play?.()?.catch?.(() => {});
+            video.play()?.catch(() => onVideoPlaybackFailure?.());
           } else {
-            video.pause?.();
+            video.pause();
           }
-        } else {
-          video.togglePlayback?.();
+          return;
         }
+        panoramaRef.current?.togglePlayback?.();
       } else if (items.length >= 2 && event.key === 'ArrowLeft') {
         event.preventDefault();
         onPrevious?.();
@@ -216,7 +264,7 @@ function ViewerOverlay({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [flatView, items.length, metadataOpen, onNext, onPrevious, showingItem?.type]);
+  }, [flatView, items.length, metadataOpen, onNext, onPrevious, onVideoPlaybackFailure, orientationOpen, showingItem?.type]);
 
   useEffect(() => {
     if (!metadataOpen) return undefined;
@@ -303,7 +351,6 @@ function ViewerOverlay({
 
   const reportFlatVideoFailure = () => {
     clearFlatVideoFrameTimer();
-    setFlatVideoError(true);
     onVideoPlaybackFailure?.();
   };
 
@@ -323,8 +370,11 @@ function ViewerOverlay({
 
   const openMetadata = () => {
     if (showingItem.type === 'video') {
-      const video = flatView ? flatVideoRef.current : panoramaRef.current;
-      video?.pause?.();
+      if (flatView && !orientationOpen) {
+        flatVideoRef.current?.pause();
+      } else {
+        panoramaRef.current?.pause?.();
+      }
     }
     onOpenMetadata?.();
   };
@@ -348,50 +398,44 @@ function ViewerOverlay({
     }
   };
 
+  const setOrientationValue = (key, value) => {
+    if (!Number.isFinite(value)) return;
+    setOrientation((current) => ({ ...current, [key]: value }));
+  };
+
+  const toggleOrientationCorrection = () => {
+    if (!flatView) {
+      onToggleFlatView?.();
+      setOrientationOpen(true);
+      return;
+    }
+
+    setOrientationOpen((open) => !open);
+  };
+
+  const saveOrientation = async () => {
+    if (!onSaveOrientation || isSavingOrientation) return;
+
+    setIsSavingOrientation(true);
+    setOrientationSaveError('');
+    try {
+      await onSaveOrientation(orientation);
+      setOrientation(DEFAULT_ORIENTATION);
+      setOrientationOpen(false);
+    } catch (error) {
+      setOrientationSaveError(error?.message || 'Unable to save orientation correction.');
+    } finally {
+      setIsSavingOrientation(false);
+    }
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="close-viewer" onClick={onClose}>
           ✕
         </button>
-        {flatView && showingItem.type === 'video' ? (
-          <>
-            <video
-              ref={flatVideoRef}
-              controls
-              autoPlay
-              src={viewerSrc}
-              onLoadedData={handleFlatVideoLoadedData}
-              onPlaying={handleFlatVideoPlaying}
-              onPause={clearFlatVideoFrameTimer}
-              onEnded={clearFlatVideoFrameTimer}
-              onError={reportFlatVideoFailure}
-            />
-            {flatVideoError && (
-              <div className="error-block viewer-flat-error">
-                <p role="status">Unable to play this video in Flat view.</p>
-                <div className="error-block-actions">
-                  {convertButton && (
-                    <button type="button" className="primary-button" onClick={onConvertVideo}>
-                      Convert / fix video
-                    </button>
-                  )}
-                  {onOpenExternal && (
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
-                    >
-                      FFmpeg downloads and documentation
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        ) : flatView ? (
-          <img src={viewerSrc} alt={showingItem.bigName} />
-        ) : (
+        {usePanoramaRenderer ? (
           <PanoramaViewer
             ref={panoramaRef}
             source={viewerSrc}
@@ -405,7 +449,47 @@ function ViewerOverlay({
             onToggleFullscreen={toggleFullscreen}
             isFullscreen={isFullscreen}
             onCaptureReadyChange={setCanSaveScreenshot}
+            orientation={orientation}
+            flatProjection={flatView}
+            isOrientationEditing={orientationOpen}
+            onOrientationChange={setOrientation}
+            showAlignmentGuides={flatView && orientationOpen}
           />
+        ) : showingItem.type === 'video' ? (
+          <video
+            ref={flatVideoRef}
+            controls
+            autoPlay
+            src={viewerSrc}
+            onLoadedData={handleFlatVideoLoadedData}
+            onPlaying={handleFlatVideoPlaying}
+            onPause={clearFlatVideoFrameTimer}
+            onEnded={clearFlatVideoFrameTimer}
+            onError={reportFlatVideoFailure}
+          />
+        ) : (
+          <img src={viewerSrc} alt={showingItem.bigName} />
+        )}
+        {flatView && !orientationOpen && showingItem.type === 'video' && hasPlaybackFailure && (
+          <div className="error-block viewer-flat-error">
+            <p role="status">Unable to play this video in Flat view.</p>
+            <div className="error-block-actions">
+              {convertButton && (
+                <button type="button" className="primary-button" onClick={onConvertVideo}>
+                  Convert / fix video
+                </button>
+              )}
+              {onOpenExternal && (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onOpenExternal('https://ffmpeg.org/download.html')}
+                >
+                  FFmpeg downloads and documentation
+                </button>
+              )}
+            </div>
+          </div>
         )}
         {showingItem.type === 'video' && conversionProgress?.active && (
           <div className="conversion-progress" role="status" aria-live="polite">
@@ -426,7 +510,7 @@ function ViewerOverlay({
           <button type="button" onClick={onPrevious} disabled={items.length < 2} aria-label="Previous media">
             <ArrowLeftIcon />
           </button>
-          <button type="button" onClick={onToggleFlatView}>
+          <button type="button" onClick={onToggleFlatView} disabled={orientationOpen}>
             {flatView ? '360° view' : 'Flat view'}
           </button>
 
@@ -452,6 +536,16 @@ function ViewerOverlay({
               </button>
             )}
             <button
+              type="button"
+              onClick={toggleOrientationCorrection}
+              aria-expanded={orientationOpen}
+              aria-controls="orientation-correction"
+              aria-label="Adjust panorama orientation"
+              title="Adjust panorama orientation"
+            >
+              <OrientationIcon />
+            </button>
+            <button
               ref={metadataButtonRef}
               type="button"
               onClick={openMetadata}
@@ -468,6 +562,65 @@ function ViewerOverlay({
             <ArrowRightIcon />
           </button>
         </div>
+        {orientationOpen && (
+          <section
+            id="orientation-correction"
+            className="orientation-correction"
+            aria-label="Panorama orientation correction"
+          >
+            <div className="orientation-correction-header">
+              <div>
+                <strong>Orientation correction</strong>
+                <p>Drag the media to adjust yaw and pitch.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button small"
+                onClick={() => setOrientationOpen(false)}
+                aria-label="Close orientation correction"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            {ORIENTATION_CONTROLS.map(({ key, label, min, max }) => (
+              <label className="orientation-control" key={key}>
+                <span>{label}</span>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step="1"
+                  value={orientation[key]}
+                  onChange={(event) => setOrientationValue(key, event.target.valueAsNumber)}
+                  aria-label={`${label} correction`}
+                />
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  step="1"
+                  value={orientation[key]}
+                  onChange={(event) => setOrientationValue(key, event.target.valueAsNumber)}
+                  aria-label={`${label} correction value`}
+                />
+                <span>°</span>
+              </label>
+            ))}
+            <button type="button" className="ghost-button" onClick={() => setOrientation(DEFAULT_ORIENTATION)}>
+              Reset
+            </button>
+            {showingItem.type === 'image' && (
+              <button type="button" className="primary-button" onClick={saveOrientation} disabled={isSavingOrientation}>
+                {isSavingOrientation ? 'Saving…' : 'Save correction'}
+              </button>
+            )}
+            {orientationSaveError && (
+              <p className="orientation-save-error" role="alert">
+                {orientationSaveError}
+              </p>
+            )}
+          </section>
+        )}
         {metadataOpen && (
           <div className="metadata-backdrop" onClick={onCloseMetadata}>
             <section
@@ -491,6 +644,14 @@ function ViewerOverlay({
                 </button>
               </div>
               <div className="metadata-dialog-content" tabIndex={0} aria-label="Media metadata">
+                {fileName && (
+                  <dl className="metadata-list">
+                    <div>
+                      <dt>File name</dt>
+                      <dd>{fileName}</dd>
+                    </div>
+                  </dl>
+                )}
                 {metadata.status === 'loading' && <p role="status">Loading media information…</p>}
                 {metadata.status === 'error' && <p role="alert">{metadata.error}</p>}
                 {metadata.status === 'ready' && metadata.entries.length === 0 && (

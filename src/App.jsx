@@ -40,6 +40,7 @@ function App() {
   const [convertedVideos, setConvertedVideos] = useState(new Set());
   const [playbackFailedVideoId, setPlaybackFailedVideoId] = useState('');
   const [metadata, setMetadata] = useState({ identity: '', status: 'idle', entries: [], error: '' });
+  const [viewerRevision, setViewerRevision] = useState(0);
   const showingItemIdRef = useRef('');
   const metadataRequestIdRef = useRef(0);
 
@@ -358,6 +359,24 @@ function App() {
     throw new Error('Unable to save the 360° screenshot.');
   };
 
+  const saveOrientationCorrection = async (orientation) => {
+    if (!showingItem?.origPath || !api || typeof api.saveOrientationCorrection !== 'function') {
+      throw new Error('Saving orientation corrections is unavailable.');
+    }
+
+    const result = await api.saveOrientationCorrection({ origPath: showingItem.origPath, orientation });
+    if (!result?.success) {
+      throw new Error(result?.message || 'Unable to save orientation correction.');
+    }
+
+    setViewerRevision((current) => current + 1);
+    setItems((current) =>
+      current.map((item) =>
+        item.origPath === showingItem.origPath ? { ...item, thumbnailRevision: Date.now() } : item
+      )
+    );
+  };
+
   const updateCheckSetting = () => {
     const nextValue = !configData.checkUpdates;
     const payload = { ...configData, checkUpdates: nextValue };
@@ -368,7 +387,9 @@ function App() {
     }
   };
 
-  const viewerSrc = showingItem ? `${serverUrl}big/${encodeURIComponent(showingItem.bigName)}` : '';
+  const viewerSrc = showingItem
+    ? `${serverUrl}big/${encodeURIComponent(showingItem.bigName)}${viewerRevision ? `?revision=${viewerRevision}` : ''}`
+    : '';
   const hasConvertedVideo = Boolean(
     showingItem && (convertedVideos.has(showingItem.origPath) || isConvertedVideoName(showingItem.bigName))
   );
@@ -495,6 +516,7 @@ function App() {
           onCloseMetadata={() => setMetadata((current) => ({ ...current, status: 'idle' }))}
           onSaveScreenshot={savePanoramaScreenshot}
           onScreenshotError={setErrorMessage}
+          onSaveOrientation={saveOrientationCorrection}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
             if (items.length < 2) return;

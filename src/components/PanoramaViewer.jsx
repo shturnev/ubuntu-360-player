@@ -17,17 +17,30 @@ const fragmentShaderSource = `
   uniform sampler2D panorama;
   uniform float yaw;
   uniform float pitch;
+  uniform float roll;
+  uniform bool flatProjection;
   uniform float fieldOfView;
   uniform float aspectRatio;
   varying vec2 screenPosition;
 
   void main() {
-    float scale = tan(fieldOfView * 0.5);
-    vec3 direction = normalize(vec3(
-      (screenPosition.x * 2.0 - 1.0) * scale * aspectRatio,
-      (screenPosition.y * 2.0 - 1.0) * scale,
-      -1.0
-    ));
+    vec3 direction;
+    if (flatProjection) {
+      float longitude = (screenPosition.x - 0.5) * 6.28318530718;
+      float latitude = (screenPosition.y - 0.5) * 3.14159265359;
+      direction = vec3(
+        sin(longitude) * cos(latitude),
+        sin(latitude),
+        -cos(longitude) * cos(latitude)
+      );
+    } else {
+      float scale = tan(fieldOfView * 0.5);
+      direction = normalize(vec3(
+        (screenPosition.x * 2.0 - 1.0) * scale * aspectRatio,
+        (screenPosition.y * 2.0 - 1.0) * scale,
+        -1.0
+      ));
+    }
 
     float pitchCos = cos(pitch);
     float pitchSin = sin(pitch);
@@ -36,6 +49,10 @@ const fragmentShaderSource = `
     float yawCos = cos(yaw);
     float yawSin = sin(yaw);
     direction.xz = mat2(yawCos, yawSin, -yawSin, yawCos) * direction.xz;
+
+    float rollCos = cos(roll);
+    float rollSin = sin(roll);
+    direction.xy = mat2(rollCos, -rollSin, rollSin, rollCos) * direction.xy;
 
     vec2 coordinates = vec2(
       0.5 + atan(direction.x, -direction.z) / 6.28318530718,
@@ -83,6 +100,10 @@ function createProgram(gl) {
 
 const VIDEO_CODEC_GUIDANCE =
   'Check the file codecs with: ffprobe -v error -show_entries stream=codec_type,codec_name -of default=noprint_wrappers=1 input.mp4. On Ubuntu, try sudo apt install ubuntu-restricted-extras and restart the app. Electron may use its own codecs; if it still fails, convert to H.264/AVC + AAC: ffmpeg -i input.mp4 -c:v libx264 -pix_fmt yuv420p -c:a aac output.mp4.';
+
+const DEFAULT_ORIENTATION = { yaw: 0, pitch: 0, roll: 0 };
+const degreesToRadians = (degrees) => (degrees * Math.PI) / 180;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 function PlayIcon({ isPlaying }) {
   return isPlaying ? (
@@ -160,6 +181,11 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     onToggleFullscreen,
     isFullscreen,
     onCaptureReadyChange,
+    orientation = DEFAULT_ORIENTATION,
+    flatProjection = false,
+    isOrientationEditing = false,
+    onOrientationChange,
+    showAlignmentGuides = false,
   },
   ref
 ) {
@@ -175,10 +201,23 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
   const fallbackVideoFrameTimer = useRef(null);
   const fallbackVideoHasFrame = useRef(false);
+  const orientationRef = useRef(orientation);
+  const orientationEditingRef = useRef(isOrientationEditing);
+  const onOrientationChangeRef = useRef(onOrientationChange);
   const [fallbackMessage, setFallbackMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
+
+  useEffect(() => {
+    orientationRef.current = orientation;
+    renderRequest.current();
+  }, [orientation.pitch, orientation.roll, orientation.yaw]);
+
+  useEffect(() => {
+    orientationEditingRef.current = isOrientationEditing;
+    onOrientationChangeRef.current = onOrientationChange;
+  }, [isOrientationEditing, onOrientationChange]);
 
   const setCaptureReady = (ready) => {
     if (captureReady.current === ready) return;
@@ -380,6 +419,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
       gl.uniform1i(gl.getUniformLocation(program, 'panorama'), 0);
+      gl.uniform1i(gl.getUniformLocation(program, 'flatProjection'), flatProjection ? 1 : 0);
 
       const uploadMedia = () => {
         if (failed) return;
@@ -426,8 +466,12 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
 
         resize();
         const { yaw, pitch, fieldOfView } = camera.current;
-        gl.uniform1f(gl.getUniformLocation(program, 'yaw'), yaw);
-        gl.uniform1f(gl.getUniformLocation(program, 'pitch'), pitch);
+        const correction = orientationRef.current;
+        const viewYaw = flatProjection ? 0 : yaw;
+        const viewPitch = flatProjection ? 0 : pitch;
+        gl.uniform1f(gl.getUniformLocation(program, 'yaw'), viewYaw + degreesToRadians(correction.yaw));
+        gl.uniform1f(gl.getUniformLocation(program, 'pitch'), viewPitch + degreesToRadians(correction.pitch));
+        gl.uniform1f(gl.getUniformLocation(program, 'roll'), degreesToRadians(correction.roll));
         gl.uniform1f(gl.getUniformLocation(program, 'fieldOfView'), fieldOfView);
         gl.uniform1f(gl.getUniformLocation(program, 'aspectRatio'), canvas.width / canvas.height);
 
@@ -556,9 +600,11 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         if (texture) gl.deleteTexture(texture);
       };
     }
-  }, [source, type]);
+  }, [flatProjection, source, type]);
 
   const handlePointerDown = (event) => {
+    if (flatProjection && !orientationEditingRef.current) return;
+
     camera.current.drag = { x: event.clientX, y: event.clientY };
     renderRequest.current();
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -568,9 +614,24 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     const drag = camera.current.drag;
     if (!drag) return;
 
-    camera.current.yaw -= (event.clientX - drag.x) * 0.005;
-    camera.current.pitch = Math.max(-1.5, Math.min(1.5, camera.current.pitch - (event.clientY - drag.y) * 0.005));
-    camera.current.drag = { x: event.clientX, y: event.clientY };
+    const clientX = Number.isFinite(event.clientX) ? event.clientX : drag.x;
+    const clientY = Number.isFinite(event.clientY) ? event.clientY : drag.y;
+    const horizontalDelta = clientX - drag.x;
+    const verticalDelta = clientY - drag.y;
+    if (orientationEditingRef.current) {
+      const current = orientationRef.current;
+      const next = {
+        ...current,
+        yaw: clamp(current.yaw - horizontalDelta * 0.25, -180, 180),
+        pitch: clamp(current.pitch - verticalDelta * 0.25, -90, 90),
+      };
+      orientationRef.current = next;
+      onOrientationChangeRef.current?.(next);
+    } else {
+      camera.current.yaw -= horizontalDelta * 0.005;
+      camera.current.pitch = Math.max(-1.5, Math.min(1.5, camera.current.pitch - verticalDelta * 0.005));
+    }
+    camera.current.drag = { x: clientX, y: clientY };
     renderRequest.current();
   };
 
@@ -669,7 +730,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   }
 
   return (
-    <div className="panorama-viewer">
+    <div className={`panorama-viewer${flatProjection ? ' flat-projection' : ''}`}>
       {type === 'video' && <video ref={mediaRef} className="panorama-source" playsInline />}
       {type !== 'video' && <img ref={mediaRef} className="panorama-source" alt="" />}
       {type === 'video' && !videoReady && (
@@ -691,6 +752,12 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         }}
         onWheel={handleWheel}
       />
+      {flatProjection && showAlignmentGuides && (
+        <div className="panorama-alignment-guides" aria-hidden="true">
+          <span className="panorama-alignment-guide horizontal" />
+          <span className="panorama-alignment-guide vertical" />
+        </div>
+      )}
       {type === 'video' && (
         <div className="panorama-video-controls">
           <div className="panorama-video-toolbar">

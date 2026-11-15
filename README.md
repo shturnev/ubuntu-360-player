@@ -109,11 +109,12 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 
 ## What can?
 * Open a media directory and browse it in a thumbnail grid.
-* View ordinary photos and videos as well as 360° photos and videos.
+* View ordinary photos and videos as well as 360° photos and videos, including Insta360 `.insp` photos.
 * Explore 360° media in an interactive panorama viewer, with a flat-view fallback.
+* Correct panorama orientation with yaw, pitch, and roll controls; use center guides in Flat view and save the correction to the local cache.
 * Navigate between media items, adjust thumbnail size, and select multiple items.
 * Play MP4 video (H.264/HEVC) and convert incompatible videos to H.264 with progress reporting.
-* View EXIF and other media metadata, including date, time, and location when available.
+* View the original filename, EXIF, and other media metadata, including date, time, and location when available.
 * Save a screenshot of the panorama area.
 * Delete one or multiple media files, including from the full-size viewer.
 * Inspect and clear the local media cache.
@@ -121,9 +122,7 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * Start the application with a media directory passed as a command-line argument.
 
 ## What is planned?
-- Ability to edit photos. Horizon alignment (a vital feature, as for me)
 - Support for other formats:
-    - insta360
     - gopro
 
  

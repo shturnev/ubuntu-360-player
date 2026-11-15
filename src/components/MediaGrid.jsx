@@ -23,7 +23,11 @@ function MediaGrid({ items, serverUrl, maxSizePx, canSelect, onToggleSelection, 
         >
           <div
             className="thumb"
-            style={{ backgroundImage: `url(${serverUrl}small/${encodeURIComponent(item.thumpName)})` }}
+            style={{
+              backgroundImage: `url(${serverUrl}small/${encodeURIComponent(item.thumpName)}${
+                item.thumbnailRevision ? `?revision=${item.thumbnailRevision}` : ''
+              })`,
+            }}
           >
             {item.type === 'video' && <span className="video-badge">▶</span>}
           </div>

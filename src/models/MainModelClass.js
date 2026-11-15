@@ -157,6 +157,33 @@ class MainModelClass {
     }
   }
 
+  async saveOrientationCorrection(payload) {
+    const origPath = payload?.origPath;
+    const orientation = payload?.orientation;
+    const isValidOrientation =
+      orientation &&
+      Number.isFinite(orientation.yaw) &&
+      Number.isFinite(orientation.pitch) &&
+      Number.isFinite(orientation.roll) &&
+      orientation.yaw >= -180 &&
+      orientation.yaw <= 180 &&
+      orientation.pitch >= -90 &&
+      orientation.pitch <= 90 &&
+      orientation.roll >= -180 &&
+      orientation.roll <= 180;
+
+    if (typeof origPath !== 'string' || this.authorizedMedia.get(origPath) !== 'image' || !isValidOrientation) {
+      return { success: false, message: 'This image or orientation correction is invalid.' };
+    }
+
+    try {
+      const result = await Media.saveOrientationCorrection(origPath, orientation);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Unable to save orientation correction.' };
+    }
+  }
+
   startFileServer() {
     const app = express();
     app.use(cors());
@@ -202,7 +229,7 @@ class MainModelClass {
       Helper.checkDir(this.static_dir + '/small/');
       Helper.checkDir(this.static_dir + '/big/');
 
-      const goodExt = ['jpg', 'jpeg', 'png', 'mp4'];
+      const goodExt = ['jpg', 'jpeg', 'png', 'insp', 'mp4'];
       const mediaFiles = files.filter((element) => {
         const ext = element.split('.').pop().toLowerCase();
         return goodExt.indexOf(ext) !== -1;
@@ -236,6 +263,9 @@ class MainModelClass {
         const type = ext === 'mp4' ? 'video' : 'image';
         this.authorizedMedia.set(origPath, type);
         const sendMediaResult = (result) => {
+          if (result && result.error && importGeneration === this.directoryImportGeneration) {
+            this.authorizedMedia.delete(origPath);
+          }
           if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
             this.win.webContents.send('read-media-file', result);
           }
@@ -243,6 +273,8 @@ class MainModelClass {
 
         if (type === 'video') {
           Media.saveVideo(origPath, this.win, sendMediaResult);
+        } else if (ext === 'insp') {
+          Media.saveInsta360Image(origPath, this.win, sendMediaResult);
         } else {
           Media.saveImage(origPath, this.win, sendMediaResult);
         }
