@@ -454,6 +454,31 @@ describe('PanoramaViewer', () => {
     expect(screen.getByLabelText('Pitch correction value')).toHaveValue(-3);
   });
 
+  test('switches to Flat view when opening orientation correction from 360° view', () => {
+    const onToggleFlatView = jest.fn();
+    render(
+      <ViewerOverlay
+        showingItem={{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }}
+        items={[{ type: 'image', bigName: 'photo-1000.jpg', index: 0 }]}
+        viewerSrc="http://localhost:3000/big/photo-1000.jpg"
+        flatView={false}
+        conversionProgress={{ active: false }}
+        hasConvertedVideo={false}
+        hasPlaybackFailure={false}
+        onClose={jest.fn()}
+        onToggleFlatView={onToggleFlatView}
+        onDelete={jest.fn()}
+        onPrevious={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust panorama orientation' }));
+
+    expect(onToggleFlatView).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('region', { name: 'Panorama orientation correction' })).toBeInTheDocument();
+  });
+
   test('applies orientation correction in Flat view and preserves it when switching views', () => {
     const onToggleFlatView = jest.fn();
     const { rerender } = render(

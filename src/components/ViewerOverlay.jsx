@@ -350,6 +350,16 @@ function ViewerOverlay({
     setOrientation((current) => ({ ...current, [key]: value }));
   };
 
+  const toggleOrientationCorrection = () => {
+    if (!flatView) {
+      onToggleFlatView?.();
+      setOrientationOpen(true);
+      return;
+    }
+
+    setOrientationOpen((open) => !open);
+  };
+
   const saveOrientation = async () => {
     if (!onSaveOrientation || isSavingOrientation) return;
 
@@ -437,7 +447,7 @@ function ViewerOverlay({
             )}
             <button
               type="button"
-              onClick={() => setOrientationOpen((open) => !open)}
+              onClick={toggleOrientationCorrection}
               aria-expanded={orientationOpen}
               aria-controls="orientation-correction"
               aria-label="Adjust panorama orientation"
