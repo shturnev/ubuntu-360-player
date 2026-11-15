@@ -157,6 +157,33 @@ class MainModelClass {
     }
   }
 
+  async saveOrientationCorrection(payload) {
+    const origPath = payload?.origPath;
+    const orientation = payload?.orientation;
+    const isValidOrientation =
+      orientation &&
+      Number.isFinite(orientation.yaw) &&
+      Number.isFinite(orientation.pitch) &&
+      Number.isFinite(orientation.roll) &&
+      orientation.yaw >= -180 &&
+      orientation.yaw <= 180 &&
+      orientation.pitch >= -90 &&
+      orientation.pitch <= 90 &&
+      orientation.roll >= -180 &&
+      orientation.roll <= 180;
+
+    if (typeof origPath !== 'string' || this.authorizedMedia.get(origPath) !== 'image' || !isValidOrientation) {
+      return { success: false, message: 'This image or orientation correction is invalid.' };
+    }
+
+    try {
+      const result = await Media.saveOrientationCorrection(origPath, orientation);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Unable to save orientation correction.' };
+    }
+  }
+
   startFileServer() {
     const app = express();
     app.use(cors());

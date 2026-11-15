@@ -79,6 +79,36 @@
   cursor: grabbing;
 }
 
+.panorama-alignment-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.panorama-alignment-guide {
+  position: absolute;
+  display: block;
+  background: #ef4444;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.65);
+}
+
+.panorama-alignment-guide.horizontal {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.panorama-alignment-guide.vertical {
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
 .panorama-source {
   display: none !important;
 }
@@ -377,6 +407,16 @@
 
 .orientation-correction .ghost-button {
   margin-top: 0.4rem;
+}
+
+.orientation-correction .primary-button {
+  margin: 0.4rem 0 0 0.5rem;
+}
+
+.orientation-save-error {
+  margin: 0.7rem 0 0;
+  color: $warning;
+  font-size: 0.8rem;
 }
 
 .viewer-controls svg {

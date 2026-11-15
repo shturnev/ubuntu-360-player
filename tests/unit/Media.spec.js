@@ -226,6 +226,51 @@ describe('Media', () => {
     expect(fs.existsSync(thumpPath)).toBe(true);
   });
 
+  test('saves an orientation correction with the same rotation mapping as the preview', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    writeJpeg(bigPath);
+    const child = {
+      stderr: { on: jest.fn() },
+      on: jest.fn((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => {
+            const outputPath = spawn.mock.calls[0][1].at(-1);
+            writeJpeg(outputPath);
+            callback(0);
+          }, 0);
+        }
+      }),
+    };
+    spawn.mockReturnValueOnce(child);
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: -5.25, pitch: 18, roll: 0 })).resolves.toEqual({
+      bigName,
+    });
+
+    expect(spawn).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining([
+        '-vf',
+        'v360=input=equirect:output=equirect:yaw=-5.25:pitch=-18:roll=0:rorder=ryp:interp=lanczos',
+      ])
+    );
+    expect(fs.existsSync(bigPath)).toBe(true);
+    expect(fs.existsSync(thumpPath)).toBe(true);
+  });
+
   test('reuses a complete Insta360 cache without running ffmpeg again', async () => {
     const filePath = path.join(tempDir, 'one-x2.insp');
     fs.writeFileSync(filePath, 'dual-fisheye');

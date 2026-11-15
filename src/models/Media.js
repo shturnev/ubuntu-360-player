@@ -89,6 +89,32 @@ class Media {
     }
   }
 
+  static async saveOrientationCorrection(filePath, orientation) {
+    const bigName =
+      path.extname(filePath).toLowerCase() === '.insp' ? getInsta360ImageName(filePath) : getNewFileName(filePath);
+    const bigPath = path.join(getBigDir(), bigName);
+    const thumpPath = path.join(getStorageRoot(), 'static', 'small', bigName);
+    const suffix = `${process.pid}-${Date.now()}`;
+    const renderedPath = `${bigPath}.${suffix}.jpg`;
+    const thumbnailPath = `${thumpPath}.${suffix}.jpg`;
+
+    if (!isUsableFile(bigPath)) {
+      throw new Error('The rendered panorama is no longer available.');
+    }
+
+    try {
+      await renderEquirectangularOrientation(bigPath, renderedPath, orientation);
+      await createImageThumbnail(renderedPath, thumbnailPath);
+      fs.renameSync(renderedPath, bigPath);
+      fs.renameSync(thumbnailPath, thumpPath);
+      return { bigName };
+    } catch (error) {
+      removeFileIfPresent(renderedPath);
+      removeFileIfPresent(thumbnailPath);
+      throw error instanceof Error ? error : new Error('Unable to save orientation correction.');
+    }
+  }
+
   static saveVideo(filePath, win, onResult) {
     const newFileName = getPreferredVideoName(filePath);
     createLink(filePath, newFileName);
@@ -593,6 +619,51 @@ async function convertInsta360Image(filePath, outputPath) {
   });
 }
 
+function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
+  const filter = [
+    'v360=input=equirect:output=equirect',
+    `yaw=${orientation.yaw}`,
+    `pitch=${-orientation.pitch}`,
+    `roll=${orientation.roll}`,
+    'rorder=ryp',
+    'interp=lanczos',
+  ].join(':');
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', [
+      '-y',
+      '-v',
+      'error',
+      '-i',
+      inputPath,
+      '-vf',
+      filter,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '1',
+      outputPath,
+    ]);
+    let output = '';
+
+    child.stderr.on('data', (chunk) => {
+      output += String(chunk);
+    });
+    child.on('error', () => reject(new Error('ffmpeg is not available for orientation correction.')));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(output || 'ffmpeg failed to render orientation correction.'));
+        return;
+      }
+      if (!isUsableFile(outputPath) || !isJpegFile(outputPath)) {
+        reject(new Error('ffmpeg did not create a valid corrected panorama.'));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 async function getInsta360Orientation(filePath) {
   try {
     const metadata = await exifr.parse(filePath, { makerNote: true, xmp: false, icc: false });
@@ -636,7 +707,7 @@ function readInsta360ImuSnapshot(filePath, makerNoteSample) {
     const trailerLength = trailerLengthBuffer.readUInt32LE(0);
     if (trailerLength < 78 || trailerLength > fileSize) return null;
 
-    for (let offset = -78; offset > -trailerLength; ) {
+    for (let offset = -78; offset > -trailerLength;) {
       const recordOffset = fileSize + offset;
       if (recordOffset < 0) return null;
 

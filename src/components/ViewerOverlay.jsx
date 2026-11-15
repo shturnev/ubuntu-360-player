@@ -118,12 +118,24 @@ const CameraIcon = (props) => (
   </svg>
 );
 
-const OrientationIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    <circle cx="9" cy="7" r="2" fill="currentColor" />
-    <circle cx="15" cy="12" r="2" fill="currentColor" />
-    <circle cx="7" cy="17" r="2" fill="currentColor" />
+const OrientationIcon = (props) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    {...props}
+  >
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M10 5H3m9 14H3M14 3v4m2 10v4m5-9h-9m9 7h-5m5-14h-7m-6 5v4m0-2H3"
+    />
   </svg>
 );
 
@@ -133,6 +145,11 @@ const ORIENTATION_CONTROLS = [
   { key: 'pitch', label: 'Pitch', min: -90, max: 90 },
   { key: 'roll', label: 'Roll', min: -180, max: 180 },
 ];
+
+const getMediaFileName = (item) =>
+  String(item?.origPath || item?.bigName || '')
+    .split(/[\\/]/)
+    .pop();
 
 function ViewerOverlay({
   showingItem,
@@ -156,6 +173,7 @@ function ViewerOverlay({
   onCloseMetadata,
   onSaveScreenshot,
   onScreenshotError,
+  onSaveOrientation,
 }) {
   const panelRef = useRef(null);
   const metadataDialogRef = useRef(null);
@@ -167,6 +185,8 @@ function ViewerOverlay({
   const [isSavingScreenshot, setIsSavingScreenshot] = useState(false);
   const [orientationOpen, setOrientationOpen] = useState(false);
   const [orientation, setOrientation] = useState(DEFAULT_ORIENTATION);
+  const [isSavingOrientation, setIsSavingOrientation] = useState(false);
+  const [orientationSaveError, setOrientationSaveError] = useState('');
   const convertButton =
     showingItem.type === 'video' &&
     hasPlaybackFailure &&
@@ -177,6 +197,7 @@ function ViewerOverlay({
   useEffect(() => {
     setOrientationOpen(false);
     setOrientation(DEFAULT_ORIENTATION);
+    setOrientationSaveError('');
   }, [showingItem?.origPath, showingItem?.bigName]);
 
   useEffect(() => {
@@ -190,6 +211,7 @@ function ViewerOverlay({
   }, []);
 
   const metadataOpen = Boolean(metadata && metadata.status !== 'idle');
+  const fileName = getMediaFileName(showingItem);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -328,6 +350,22 @@ function ViewerOverlay({
     setOrientation((current) => ({ ...current, [key]: value }));
   };
 
+  const saveOrientation = async () => {
+    if (!onSaveOrientation || isSavingOrientation) return;
+
+    setIsSavingOrientation(true);
+    setOrientationSaveError('');
+    try {
+      await onSaveOrientation(orientation);
+      setOrientation(DEFAULT_ORIENTATION);
+      setOrientationOpen(false);
+    } catch (error) {
+      setOrientationSaveError(error?.message || 'Unable to save orientation correction.');
+    } finally {
+      setIsSavingOrientation(false);
+    }
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -349,6 +387,9 @@ function ViewerOverlay({
           onCaptureReadyChange={setCanSaveScreenshot}
           orientation={orientation}
           flatProjection={flatView}
+          isOrientationEditing={orientationOpen}
+          onOrientationChange={setOrientation}
+          showAlignmentGuides={flatView && orientationOpen}
         />
         {showingItem.type === 'video' && conversionProgress?.active && (
           <div className="conversion-progress" role="status" aria-live="polite">
@@ -430,7 +471,7 @@ function ViewerOverlay({
             <div className="orientation-correction-header">
               <div>
                 <strong>Orientation correction</strong>
-                <p>Changes apply only while this media is open.</p>
+                <p>Drag the media to adjust yaw and pitch.</p>
               </div>
               <button
                 type="button"
@@ -468,6 +509,16 @@ function ViewerOverlay({
             <button type="button" className="ghost-button" onClick={() => setOrientation(DEFAULT_ORIENTATION)}>
               Reset
             </button>
+            {showingItem.type === 'image' && (
+              <button type="button" className="primary-button" onClick={saveOrientation} disabled={isSavingOrientation}>
+                {isSavingOrientation ? 'Saving…' : 'Save correction'}
+              </button>
+            )}
+            {orientationSaveError && (
+              <p className="orientation-save-error" role="alert">
+                {orientationSaveError}
+              </p>
+            )}
           </section>
         )}
         {metadataOpen && (
@@ -493,6 +544,14 @@ function ViewerOverlay({
                 </button>
               </div>
               <div className="metadata-dialog-content" tabIndex={0} aria-label="Media metadata">
+                {fileName && (
+                  <dl className="metadata-list">
+                    <div>
+                      <dt>File name</dt>
+                      <dd>{fileName}</dd>
+                    </div>
+                  </dl>
+                )}
                 {metadata.status === 'loading' && <p role="status">Loading media information…</p>}
                 {metadata.status === 'error' && <p role="alert">{metadata.error}</p>}
                 {metadata.status === 'ready' && metadata.entries.length === 0 && (

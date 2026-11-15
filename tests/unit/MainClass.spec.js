@@ -71,6 +71,31 @@ describe('MainModelClass', () => {
     expect(fs.existsSync(originalFile)).toBe(true);
   });
 
+  test('saves orientation correction only for an authorized image', async () => {
+    const originalFile = path.join(tempDir, 'panorama.jpg');
+    const orientation = { yaw: 15, pitch: -8, roll: 4 };
+    mainModelClass.authorizedMedia.set(originalFile, 'image');
+    const saveOrientationCorrection = jest
+      .spyOn(Media, 'saveOrientationCorrection')
+      .mockResolvedValue({ bigName: 'panorama-corrected.jpg' });
+
+    await expect(mainModelClass.saveOrientationCorrection({ origPath: originalFile, orientation })).resolves.toEqual({
+      success: true,
+      bigName: 'panorama-corrected.jpg',
+    });
+    expect(saveOrientationCorrection).toHaveBeenCalledWith(originalFile, orientation);
+
+    await expect(
+      mainModelClass.saveOrientationCorrection({
+        origPath: originalFile,
+        orientation: { yaw: 181, pitch: 0, roll: 0 },
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: 'This image or orientation correction is invalid.',
+    });
+  });
+
   test('removeFilesHelper keeps files that are still present in the selected list', () => {
     const smallDir = path.join(mainModelClass.static_dir, 'small');
     fs.writeFileSync(path.join(smallDir, 'keep.png'), 'keep');
@@ -270,7 +295,9 @@ describe('MainModelClass', () => {
   });
 
   test('requests .insp metadata as image metadata', async () => {
-    jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' }]);
+    jest
+      .spyOn(Media, 'getMetadata')
+      .mockResolvedValue([{ key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' }]);
     jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
     mainModelClass.authorizedMedia.set('/media/photo.INSP', 'image');
     mainModelClass.init();

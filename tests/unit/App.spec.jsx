@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { StrictMode } from 'react';
 import App from '../../src/App.jsx';
 
+let mockPanoramaPause;
+
 jest.mock('../../src/PanoramaViewer.jsx', () => {
   const React = require('react');
   return React.forwardRef(function PanoramaViewer(
@@ -17,8 +19,13 @@ jest.mock('../../src/PanoramaViewer.jsx', () => {
     },
     ref
   ) {
+    const pauseRef = React.useRef();
+    if (!pauseRef.current) {
+      pauseRef.current = jest.fn();
+    }
+    mockPanoramaPause = pauseRef.current;
     React.useImperativeHandle(ref, () => ({
-      pause: jest.fn(),
+      pause: pauseRef.current,
       captureScreenshot: jest.fn(async () => ({
         arrayBuffer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer,
       })),
@@ -67,6 +74,7 @@ describe('App', () => {
       removeListener: jest.fn(),
       openExternal: jest.fn().mockResolvedValue(undefined),
       savePanoramaScreenshot: jest.fn().mockResolvedValue({ success: true }),
+      saveOrientationCorrection: jest.fn().mockResolvedValue({ success: true }),
     };
     window.shtVR = api;
     media = { type: 'image', thumpName: 'photo.jpg', bigName: 'photo-1000.jpg', origPath: '/media/photo.jpg' };
@@ -113,11 +121,29 @@ describe('App', () => {
     expect(panorama.getAttribute('data-source')).toBe('http://localhost:3000/big/photo-1000.jpg');
     expect(panorama.getAttribute('data-type')).toBe('image');
     click(button('Flat view'));
-    expect(container.querySelector('img[alt="photo-1000.jpg"]').getAttribute('src')).toBe(
-      'http://localhost:3000/big/photo-1000.jpg'
-    );
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
     click(button('360° view'));
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+  });
+
+  test('reloads a saved image thumbnail with a cache-busting revision', async () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    click(button('Adjust panorama orientation'));
+
+    await act(async () => {
+      click(button('Save correction'));
+      await Promise.resolve();
+    });
+
+    expect(api.saveOrientationCorrection).toHaveBeenCalledWith({
+      origPath: media.origPath,
+      orientation: { yaw: 0, pitch: 0, roll: 0 },
+    });
+    expect(container.querySelector('.thumb').style.backgroundImage).toMatch(
+      /http:\/\/localhost:3000\/small\/photo\.jpg\?revision=\d+/
+    );
   });
 
   test('wraps viewer navigation between the first and last media items', () => {
@@ -227,14 +253,12 @@ describe('App', () => {
 
     click(container.querySelector('.media-card'));
     click(button('Flat view'));
-    act(() => container.querySelector('.viewer-panel video').dispatchEvent(new Event('error')));
+    click(button('Simulate playback failure'));
 
-    expect(container.textContent).toContain('Unable to play this video in Flat view.');
     expect(button('Convert / fix video')).toBeDefined();
   });
 
-  test('offers conversion when Flat view starts without a video frame', () => {
-    jest.useFakeTimers();
+  test('uses the panorama renderer rather than a native video element in Flat view', () => {
     media = {
       type: 'video',
       thumpName: 'clip.jpg',
@@ -246,14 +270,9 @@ describe('App', () => {
 
     click(container.querySelector('.media-card'));
     click(button('Flat view'));
-    act(() => {
-      container.querySelector('.viewer-panel video').dispatchEvent(new Event('playing'));
-      jest.advanceTimersByTime(4000);
-    });
 
-    expect(container.textContent).toContain('Unable to play this video in Flat view.');
-    expect(button('Convert / fix video')).toBeDefined();
-    jest.useRealTimers();
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+    expect(container.querySelector('.viewer-panel video')).toBeNull();
   });
 
   test('offers conversion for another failed video after the first conversion completes', () => {
@@ -458,6 +477,8 @@ describe('App', () => {
     );
 
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain('File name');
+    expect(container.textContent).toContain('photo.jpg');
     expect(container.textContent).toContain('Dimensions');
     expect(container.textContent).toContain('1920 × 1080');
 
@@ -471,13 +492,10 @@ describe('App', () => {
     loadMedia();
     click(container.querySelector('.media-card'));
     click(button('Flat view'));
-    const video = container.querySelector('.viewer-panel video');
-    Object.defineProperty(video, 'paused', { configurable: true, value: false });
-    video.pause = jest.fn();
 
     click(button('Info'));
 
-    expect(video.pause).toHaveBeenCalledTimes(1);
+    expect(mockPanoramaPause).toHaveBeenCalledTimes(1);
   });
 
   test('does not reopen the dialog after it is closed while metadata is loading', () => {
