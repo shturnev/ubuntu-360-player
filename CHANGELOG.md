@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.4.1] - 2026-11-15
+### Changed
+- Manual patch release.
+
 ## [3.4.0] - 2026-11-15
 ### Changed
 - feat: add panorama orientation correction ([#72](https://github.com/shturnev/ubuntu-360-player/pull/72))
