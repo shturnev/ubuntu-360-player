@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import App from '../../src/App.jsx';
 
 let mockPanoramaPause;
+let mockCaptureReady;
 
 jest.mock('../../src/PanoramaViewer.jsx', () => {
   const React = require('react');
@@ -30,7 +31,7 @@ jest.mock('../../src/PanoramaViewer.jsx', () => {
         arrayBuffer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer,
       })),
     }));
-    React.useEffect(() => onCaptureReadyChange?.(true), [onCaptureReadyChange]);
+    React.useEffect(() => onCaptureReadyChange?.(mockCaptureReady), [onCaptureReadyChange]);
     return (
       <div data-testid="panorama-viewer" data-source={source} data-type={type}>
         {type === 'video' && (
@@ -62,6 +63,7 @@ describe('App', () => {
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    mockCaptureReady = true;
     listeners = {};
     api = {
       send: jest.fn(),
@@ -74,6 +76,7 @@ describe('App', () => {
       removeListener: jest.fn(),
       openExternal: jest.fn().mockResolvedValue(undefined),
       savePanoramaScreenshot: jest.fn().mockResolvedValue({ success: true }),
+      saveCurrentMedia: jest.fn().mockResolvedValue({ success: true }),
       saveOrientationCorrection: jest.fn().mockResolvedValue({ success: true }),
     };
     window.shtVR = api;
@@ -110,6 +113,248 @@ describe('App', () => {
       listeners['read-media-file']({}, media);
     });
   };
+
+  const keydown = (key, options = {}, target = document) => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options });
+    act(() => target.dispatchEvent(event));
+    return event;
+  };
+
+  test('shows shortcut hints only in the empty library and keeps them in Settings', () => {
+    renderApp();
+    const emptyState = container.querySelector('.empty-state');
+    const hints = container.querySelector('.home-shortcuts');
+    expect(hints.parentElement).toBe(emptyState);
+    expect(hints.previousElementSibling).toBe(button('Choose a media directory'));
+    expect(hints.querySelectorAll('dl > div')).toHaveLength(8);
+
+    loadMedia();
+    expect(container.querySelector('.empty-state')).toBeNull();
+    expect(container.querySelector('.home-shortcuts')).toBeNull();
+    click(button('Open settings'));
+    expect(container.querySelector('.shortcuts-box').textContent).toContain('Toggle orientation correction');
+    click(button('Close settings'));
+    act(() => listeners['delete-cache-finish']());
+    expect(container.querySelector('.empty-state .home-shortcuts')).not.toBeNull();
+  });
+
+  test('hides empty-library shortcut hints while importing', () => {
+    renderApp();
+    act(() => listeners['start-read-dir']({}, 2));
+    expect(container.querySelector('.home-shortcuts')).toBeNull();
+  });
+
+  test('handles folder and Settings shortcuts once and respects import and modal state', () => {
+    renderApp();
+    keydown('O', { ctrlKey: true });
+    keydown('o', { ctrlKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(1);
+    act(() => listeners['open-dir']({}, false));
+    keydown('o', { ctrlKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(2);
+    keydown('F1');
+    expect(container.querySelector('[aria-label="Settings"]')).not.toBeNull();
+    keydown('F1');
+    expect(container.querySelectorAll('[aria-label="Settings"]')).toHaveLength(1);
+    keydown('o', { ctrlKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(2);
+    expect(container.textContent).toContain('Keyboard shortcuts');
+  });
+
+  test('saves current media and ready panorama and follows navigation and modal state', async () => {
+    renderApp();
+    loadMedia();
+    const second = { type: 'image', thumpName: 'second.jpg', bigName: 'second.jpg', origPath: '/media/second.jpg' };
+    act(() => listeners['read-media-file']({}, second));
+    click(container.querySelector('.media-card'));
+    await act(async () => {
+      keydown('p', { ctrlKey: true });
+      await Promise.resolve();
+    });
+    expect(api.savePanoramaScreenshot).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      keydown('s', { ctrlKey: true });
+      await Promise.resolve();
+    });
+    expect(api.saveCurrentMedia).toHaveBeenLastCalledWith({ origPath: media.origPath });
+    click(button('Next media'));
+    await act(async () => {
+      keydown('s', { ctrlKey: true });
+      await Promise.resolve();
+    });
+    expect(api.saveCurrentMedia).toHaveBeenLastCalledWith({ origPath: second.origPath });
+    click(button('Flat view'));
+    keydown('p', { ctrlKey: true });
+    expect(api.savePanoramaScreenshot).toHaveBeenCalledTimes(1);
+    click(button('Info'));
+    keydown('s', { ctrlKey: true });
+    keydown('F1');
+    expect(api.saveCurrentMedia).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[aria-label="Settings"]')).toBeNull();
+    click(button('Close media information'));
+    click(button('Adjust panorama orientation'));
+    keydown('s', { ctrlKey: true });
+    keydown('F1');
+    expect(api.saveCurrentMedia).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[aria-label="Settings"]')).toBeNull();
+  });
+
+  test('ignores shortcuts in editable contexts, repeats, composition and extra modifiers', () => {
+    renderApp();
+    const input = document.createElement('input');
+    container.appendChild(input);
+    keydown('o', { ctrlKey: true }, input);
+    keydown('o', { ctrlKey: true, repeat: true });
+    keydown('o', { ctrlKey: true, isComposing: true });
+    keydown('o', { ctrlKey: true, altKey: true });
+    keydown('o', { ctrlKey: true, shiftKey: true });
+    keydown('o', { ctrlKey: true, metaKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(0);
+    input.remove();
+  });
+
+  test('shows media export errors and prevents parallel requests', async () => {
+    let resolve;
+    api.saveCurrentMedia.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        })
+    );
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    keydown('s', { ctrlKey: true });
+    keydown('s', { ctrlKey: true });
+    expect(api.saveCurrentMedia).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ success: false, message: 'Disk full' }));
+    expect(container.textContent).toContain('Disk full');
+  });
+
+  test('does not save without media or when the panorama is not ready', async () => {
+    mockCaptureReady = false;
+    renderApp();
+    keydown('p', { ctrlKey: true });
+    keydown('s', { ctrlKey: true });
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    await act(async () => {
+      keydown('p', { ctrlKey: true });
+      await Promise.resolve();
+    });
+    expect(api.saveCurrentMedia).not.toHaveBeenCalled();
+    expect(api.savePanoramaScreenshot).not.toHaveBeenCalled();
+  });
+
+  test('removes shortcut listeners on unmount', () => {
+    renderApp();
+    act(() => root.unmount());
+    keydown('o', { ctrlKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(0);
+  });
+
+  test('I opens the current media information and pauses video like the Info button', () => {
+    media = { type: 'video', thumpName: 'video.jpg', bigName: 'video.mp4', origPath: '/media/video.mp4' };
+    renderApp();
+    keydown('i');
+    expect(api.send).not.toHaveBeenCalledWith('get-media-metadata', expect.anything());
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    keydown('I');
+    expect(mockPanoramaPause).toHaveBeenCalledTimes(1);
+    expect(api.send).toHaveBeenCalledWith('get-media-metadata', {
+      origPath: media.origPath,
+      type: 'video',
+      requestId: 1,
+    });
+    expect(container.querySelector('.metadata-dialog')).not.toBeNull();
+    keydown('i');
+    expect(mockPanoramaPause).toHaveBeenCalledTimes(1);
+    keydown('Escape');
+    expect(container.querySelector('.metadata-dialog')).toBeNull();
+  });
+
+  test('I ignores editable targets, composition, modifiers, repeats and modal states', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    for (const tag of ['input', 'textarea', 'select']) {
+      const element = document.createElement(tag);
+      container.appendChild(element);
+      expect(keydown('i', {}, element).defaultPrevented).toBe(false);
+      element.remove();
+    }
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    container.appendChild(editable);
+    expect(keydown('i', {}, editable).defaultPrevented).toBe(false);
+    editable.remove();
+    for (const option of [
+      { repeat: true },
+      { isComposing: true },
+      { ctrlKey: true },
+      { altKey: true },
+      { shiftKey: true },
+      { metaKey: true },
+    ]) {
+      keydown('i', option);
+    }
+    click(button('Adjust panorama orientation'));
+    keydown('i');
+    expect(container.querySelector('.metadata-dialog')).toBeNull();
+    click(button('Close orientation correction'));
+    click(button('Open settings'));
+    keydown('i');
+    expect(container.querySelector('.metadata-dialog')).toBeNull();
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'get-media-metadata')).toHaveLength(0);
+    expect(container.querySelector('.shortcuts-box').textContent).toContain('Show media information');
+  });
+
+  test('uses physical shortcut keys regardless of keyboard layout', async () => {
+    renderApp();
+    keydown('щ', { code: 'KeyO', ctrlKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(1);
+    act(() => listeners['open-dir']({}, false));
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    await act(async () => {
+      keydown('з', { code: 'KeyP', ctrlKey: true });
+      keydown('і', { code: 'KeyS', ctrlKey: true });
+      await Promise.resolve();
+    });
+    expect(api.savePanoramaScreenshot).toHaveBeenCalledTimes(1);
+    expect(api.saveCurrentMedia).toHaveBeenCalledWith({ origPath: media.origPath });
+    keydown('ш', { code: 'KeyI' });
+    expect(container.querySelector('.metadata-dialog')).not.toBeNull();
+    click(button('Close media information'));
+    keydown('щ', { code: 'KeyO' });
+    expect(container.querySelector('.orientation-correction')).not.toBeNull();
+    keydown('щ', { code: 'KeyO' });
+    expect(container.querySelector('.orientation-correction')).toBeNull();
+    expect(container.querySelector('.home-shortcuts')).toBeNull();
+  });
+
+  test('O ignores editable and modal contexts, repeats and modifiers', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    const input = document.createElement('input');
+    container.appendChild(input);
+    keydown('щ', { code: 'KeyO' }, input);
+    input.remove();
+    keydown('щ', { code: 'KeyO', repeat: true });
+    keydown('щ', { code: 'KeyO', isComposing: true });
+    keydown('щ', { code: 'KeyO', altKey: true });
+    keydown('i', { code: 'KeyA' });
+    expect(container.querySelector('.orientation-correction')).toBeNull();
+    click(button('Info'));
+    keydown('щ', { code: 'KeyO' });
+    expect(container.querySelector('.orientation-correction')).toBeNull();
+    click(button('Close media information'));
+    click(button('Open settings'));
+    keydown('щ', { code: 'KeyO' });
+    expect(container.querySelector('.orientation-correction')).toBeNull();
+  });
 
   test.each([undefined, true])('opens the project website through the bridge resolving to %s', async (result) => {
     api.openExternal.mockResolvedValue(result);
@@ -640,7 +885,7 @@ describe('App', () => {
     click(container.querySelector('.media-card'));
 
     click(button('Save screenshot'));
-    click(button('Save screenshot'));
+    keydown('p', { ctrlKey: true });
 
     await act(async () => {
       await Promise.resolve();

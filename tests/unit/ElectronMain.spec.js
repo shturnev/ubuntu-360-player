@@ -28,11 +28,17 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
     this.focus = jest.fn();
     this.on = jest.fn();
     this.loadFile = jest.fn(() => Promise.resolve());
-    this.webContents = { send: jest.fn(), openDevTools: jest.fn() };
+    this.webContents = { send: jest.fn(), openDevTools: jest.fn(), on: jest.fn(), setIgnoreMenuShortcuts: jest.fn() };
     windows.push(this);
   });
   BrowserWindow.getAllWindows = jest.fn(() => windows);
-  const appModel = { init: jest.fn(), readDir: jest.fn(), savePanoramaScreenshot: jest.fn() };
+  const appModel = {
+    init: jest.fn(),
+    setWindow: jest.fn(),
+    readDir: jest.fn(),
+    savePanoramaScreenshot: jest.fn(),
+    saveCurrentMedia: jest.fn(),
+  };
   const MainModelClass = jest.fn(() => appModel);
 
   jest.doMock('electron', () => ({
@@ -163,6 +169,42 @@ describe('Electron main process directory launch flow', () => {
     expect(appModel.init).toHaveBeenCalledTimes(1);
     expect(appModel.readDir).toHaveBeenCalledWith(directory);
     expect(appModel.init.mock.invocationCallOrder[0]).toBeLessThan(appModel.readDir.mock.invocationCallOrder[0]);
+  });
+
+  test('reserves the four shortcuts from the menu without affecting other accelerators', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { getReadyCallback, windows } = loadMain();
+    await getReadyCallback()();
+    const contents = windows[0].webContents;
+    const handler = contents.on.mock.calls.find(([name]) => name === 'before-input-event')[1];
+    for (const key of ['o', 'P', 's']) {
+      handler({}, { key, control: true, alt: false, shift: false, meta: false });
+      expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    }
+    handler({}, { key: 'F1', control: false, alt: false, shift: false, meta: false });
+    expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    handler({}, { key: 'r', control: true, alt: false, shift: false, meta: false });
+    expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+    handler({}, { key: 'щ', code: 'KeyO', control: true, alt: false, shift: false, meta: false });
+    expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    handler({}, { key: 'o', code: 'KeyA', control: true, alt: false, shift: false, meta: false });
+    expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+  });
+
+  test('reuses the model and registers export IPC only once when a window is recreated', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { appModel, getReadyCallback, main, windows } = loadMain();
+    const { ipcMain } = require('electron');
+    await getReadyCallback()();
+    const closed = windows[0].on.mock.calls.find(([name]) => name === 'closed')[1];
+    closed();
+    await main.createWindow();
+    expect(appModel.init).toHaveBeenCalledTimes(1);
+    expect(appModel.setWindow).toHaveBeenCalledWith(windows[1]);
+    expect(ipcMain.handle.mock.calls.filter(([name]) => name === 'save-current-media')).toHaveLength(1);
+    const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'save-current-media')[1];
+    appModel.saveCurrentMedia.mockResolvedValue({ cancelled: true });
+    await expect(handler({}, { origPath: '/media/a.jpg' })).resolves.toEqual({ cancelled: true });
   });
 
   test('declares only the directory MIME type for Linux packaging', () => {

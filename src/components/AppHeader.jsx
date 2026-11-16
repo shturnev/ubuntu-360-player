@@ -72,7 +72,7 @@ function AppHeader({
             onClick={onOpenDir}
             disabled={!canOpenDir}
             aria-label="Open folder"
-            title="Open folder"
+            title="Open folder (Ctrl+O)"
           >
             <FolderIcon />
           </button>
@@ -103,7 +103,7 @@ function AppHeader({
             className={`icon-button settings-button ${showSettings ? 'active' : ''}`}
             onClick={onToggleSettings}
             aria-label="Open settings"
-            title="Open settings"
+            title="Open settings (F1)"
           >
             <SettingsIcon />
           </button>

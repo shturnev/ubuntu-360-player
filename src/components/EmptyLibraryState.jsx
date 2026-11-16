@@ -13,7 +13,7 @@ const FolderPlusIcon = () => (
   </svg>
 );
 
-function EmptyLibraryState({ onOpenDir }) {
+function EmptyLibraryState({ onOpenDir, children }) {
   return (
     <div className="empty-state">
       <button type="button" className="primary-button large" onClick={onOpenDir}>
@@ -22,6 +22,7 @@ function EmptyLibraryState({ onOpenDir }) {
         </span>
         <span>Choose a media directory</span>
       </button>
+      {children}
     </div>
   );
 }

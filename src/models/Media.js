@@ -5,6 +5,9 @@ const { execFile, spawn } = require('child_process');
 const gm = require('gm');
 const exifr = require('exifr');
 const { getStorageRoot } = require('../config/env');
+const exiftoolPath = require('exiftool-vendored.pl').replace(/\.asar([/\\])/, '.asar.unpacked$1');
+const exifQueue = [];
+let activeExifJobs = 0;
 
 const getBigDir = () => path.join(getStorageRoot(), 'static', 'big');
 const sendMediaResult = (win, result, onResult) => {
@@ -105,6 +108,7 @@ class Media {
 
     try {
       await renderEquirectangularOrientation(bigPath, renderedPath, orientation);
+      await queueExifTask(() => copyExif(filePath, renderedPath));
       await createImageThumbnail(renderedPath, thumbnailPath);
       replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffix);
       return { bigName };
@@ -113,6 +117,38 @@ class Media {
       removeFileIfPresent(thumbnailPath);
       throw error instanceof Error ? error : new Error('Unable to save orientation correction.');
     }
+  }
+
+  static async syncCachedExif(filePath, bigPath, isCurrent) {
+    return queueExifTask(async () => {
+      if (!isCurrent()) return;
+      const originalStat = await fs.promises.lstat(bigPath);
+      if (originalStat.isSymbolicLink()) return;
+      if (!originalStat.isFile()) throw new Error('The cached media file is invalid.');
+
+      const tempPath = `${bigPath}.${crypto.randomUUID()}${path.extname(bigPath)}`;
+      let created = false;
+      try {
+        await fs.promises.copyFile(bigPath, tempPath, fs.constants.COPYFILE_EXCL);
+        created = true;
+        await copyExif(filePath, tempPath);
+        const currentStat = await fs.promises.lstat(bigPath);
+        if (
+          !isCurrent() ||
+          !currentStat.isFile() ||
+          currentStat.dev !== originalStat.dev ||
+          currentStat.ino !== originalStat.ino ||
+          currentStat.size !== originalStat.size ||
+          currentStat.mtimeMs !== originalStat.mtimeMs
+        ) {
+          throw new Error('The cached media file changed during import.');
+        }
+        await fs.promises.rename(tempPath, bigPath);
+        created = false;
+      } finally {
+        if (created) await fs.promises.unlink(tempPath);
+      }
+    });
   }
 
   static saveVideo(filePath, win, onResult) {
@@ -390,6 +426,66 @@ class Media {
         });
     });
   }
+}
+
+function queueExifTask(task) {
+  return new Promise((resolve, reject) => {
+    exifQueue.push({ task, resolve, reject });
+    runExifQueue();
+  });
+}
+
+function runExifQueue() {
+  while (activeExifJobs < 4 && exifQueue.length) {
+    const { task, resolve, reject } = exifQueue.shift();
+    activeExifJobs += 1;
+    Promise.resolve()
+      .then(task)
+      .then(resolve, reject)
+      .finally(() => {
+        activeExifJobs -= 1;
+        runExifQueue();
+      });
+  }
+}
+
+function copyExif(sourcePath, destinationPath) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'perl',
+      [exiftoolPath, '-overwrite_original', '-EXIF:all=', '-TagsFromFile', sourcePath, '-EXIF', destinationPath],
+      (error, _stdout, stderr) => {
+        const warnings = String(stderr || '')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const benignWarnings = [
+          'Unrecognized MakerNotes',
+          'Use ExtractEmbedded option to extract timed metadata from Insta360 trailer',
+        ];
+        const unexpected = warnings.filter((line) => {
+          if (line.startsWith('Warning: No writable tags set from ')) return false;
+          const benign = benignWarnings.find(
+            (message) => line === `Warning: [minor] ${message}` || line.startsWith(`Warning: [minor] ${message} - `)
+          );
+          if (benign) {
+            console.warn(`ExifTool: ${benign}`);
+            return false;
+          }
+          return true;
+        });
+        if (error || unexpected.length) {
+          console.error(
+            'ExifTool could not preserve EXIF metadata:',
+            error?.code || error?.message || unexpected.join('\n')
+          );
+          reject(new Error('Unable to preserve EXIF metadata.'));
+          return;
+        }
+        resolve();
+      }
+    );
+  });
 }
 
 function parseFfmpegProgress(text, durationSeconds, startedAtMs) {

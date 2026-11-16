@@ -275,6 +275,11 @@ describe('Media', () => {
         'v360=input=equirect:output=equirect:yaw=-5.25:pitch=-18:roll=0:rorder=ryp:interp=lanczos',
       ])
     );
+    expect(execFile).toHaveBeenCalledWith(
+      'perl',
+      expect.arrayContaining(['-TagsFromFile', filePath, '-EXIF']),
+      expect.any(Function)
+    );
     expect(fs.existsSync(bigPath)).toBe(true);
     expect(fs.existsSync(thumpPath)).toBe(true);
   });
@@ -309,6 +314,78 @@ describe('Media', () => {
     );
     expect(fs.readFileSync(thumpPath).subarray(0, 8)).toEqual(
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    );
+  });
+
+  test('keeps the existing cache if copying EXIF during orientation correction fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    writeJpeg(bigPath);
+    const original = fs.readFileSync(bigPath);
+    mockOrientationRender(writeJpeg);
+    execFile.mockImplementationOnce((_command, _args, callback) => callback(new Error('ExifTool failed'), '', ''));
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
+      'Unable to preserve EXIF metadata.'
+    );
+    expect(fs.readFileSync(bigPath)).toEqual(original);
+  });
+
+  test('accepts the Insta360 trailer warning while saving an orientation correction', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    writeJpeg(bigPath);
+    mockOrientationRender(writeJpeg);
+    execFile.mockImplementationOnce((_command, _args, callback) =>
+      callback(
+        null,
+        '1 image files updated',
+        'Warning: [minor] Use ExtractEmbedded option to extract timed metadata from Insta360 trailer - source.insp\n'
+      )
+    );
+    const gm = require('gm');
+    gm.mockImplementationOnce(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).resolves.toEqual({
+      bigName,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      'ExifTool: Use ExtractEmbedded option to extract timed metadata from Insta360 trailer'
+    );
+  });
+
+  test('rejects unexpected EXIF warnings rather than silently accepting them', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', getCacheName(filePath));
+    writeJpeg(bigPath);
+    const original = fs.readFileSync(bigPath);
+    mockOrientationRender(writeJpeg);
+    execFile.mockImplementationOnce((_command, _args, callback) =>
+      callback(null, '', 'Warning: [minor] Invalid EXIF data - source.jpg\n')
+    );
+    const logError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(Media.saveOrientationCorrection(filePath, { yaw: 0, pitch: 0, roll: 0 })).rejects.toThrow(
+      'Unable to preserve EXIF metadata.'
+    );
+    expect(fs.readFileSync(bigPath)).toEqual(original);
+    expect(logError).toHaveBeenCalledWith(
+      'ExifTool could not preserve EXIF metadata:',
+      'Warning: [minor] Invalid EXIF data - source.jpg'
     );
   });
 

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import PanoramaViewer from '../PanoramaViewer.jsx';
+import { shortcutKey } from '../shortcutKey.js';
 import './PanoramaViewer.scss';
 
 const OpenFullScreenIcon = () => (
@@ -151,30 +152,34 @@ const getMediaFileName = (item) =>
     .split(/[\\/]/)
     .pop();
 
-function ViewerOverlay({
-  showingItem,
-  items,
-  viewerSrc,
-  flatView,
-  conversionProgress,
-  hasConvertedVideo,
-  hasPlaybackFailure,
-  onConvertVideo,
-  onVideoPlaybackFailure,
-  onVideoPlaybackSuccess,
-  onClose,
-  onToggleFlatView,
-  onDelete,
-  onPrevious,
-  onNext,
-  onOpenExternal,
-  metadata,
-  onOpenMetadata,
-  onCloseMetadata,
-  onSaveScreenshot,
-  onScreenshotError,
-  onSaveOrientation,
-}) {
+const ViewerOverlay = forwardRef(function ViewerOverlay(
+  {
+    showingItem,
+    items,
+    viewerSrc,
+    flatView,
+    conversionProgress,
+    hasConvertedVideo,
+    hasPlaybackFailure,
+    onConvertVideo,
+    onVideoPlaybackFailure,
+    onVideoPlaybackSuccess,
+    onClose,
+    onToggleFlatView,
+    onDelete,
+    onPrevious,
+    onNext,
+    onOpenExternal,
+    metadata,
+    onOpenMetadata,
+    onCloseMetadata,
+    onSaveScreenshot,
+    onScreenshotError,
+    onSaveOrientation,
+    shortcutsBlocked,
+  },
+  ref
+) {
   const panelRef = useRef(null);
   const metadataDialogRef = useRef(null);
   const metadataButtonRef = useRef(null);
@@ -230,7 +235,7 @@ function ViewerOverlay({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (metadataOpen) return;
+      if (metadataOpen || shortcutsBlocked) return;
       if (orientationOpen && event.key === 'Escape') {
         event.preventDefault();
         setOrientationOpen(false);
@@ -273,6 +278,7 @@ function ViewerOverlay({
     onVideoPlaybackFailure,
     orientationOpen,
     showingItem?.type,
+    shortcutsBlocked,
   ]);
 
   useEffect(() => {
@@ -388,8 +394,59 @@ function ViewerOverlay({
     onOpenMetadata?.();
   };
 
+  const toggleOrientationCorrection = () => {
+    if (!flatView) {
+      onToggleFlatView?.();
+      setOrientationOpen(true);
+      return;
+    }
+
+    setOrientationOpen((open) => !open);
+  };
+
+  useEffect(() => {
+    const handleViewerShortcut = (event) => {
+      const key = shortcutKey(event);
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        event.metaKey ||
+        !['i', 'o'].includes(key) ||
+        metadataOpen ||
+        (key === 'i' && orientationOpen) ||
+        shortcutsBlocked ||
+        document.querySelector('[aria-modal="true"]') ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) ||
+        event.target?.isContentEditable ||
+        event.target?.closest?.('[contenteditable]:not([contenteditable="false"])')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (key === 'i') openMetadata();
+      else toggleOrientationCorrection();
+    };
+
+    document.addEventListener('keydown', handleViewerShortcut);
+    return () => document.removeEventListener('keydown', handleViewerShortcut);
+  });
+
   const saveScreenshot = async () => {
-    if (screenshotSaveInProgress.current || !panoramaRef.current || !onSaveScreenshot) return;
+    if (
+      flatView ||
+      orientationOpen ||
+      metadataOpen ||
+      shortcutsBlocked ||
+      !canSaveScreenshot ||
+      screenshotSaveInProgress.current ||
+      !panoramaRef.current ||
+      !onSaveScreenshot
+    )
+      return;
 
     screenshotSaveInProgress.current = true;
     setIsSavingScreenshot(true);
@@ -407,19 +464,11 @@ function ViewerOverlay({
     }
   };
 
+  useImperativeHandle(ref, () => ({ saveScreenshot }));
+
   const setOrientationValue = (key, value) => {
     if (!Number.isFinite(value)) return;
     setOrientation((current) => ({ ...current, [key]: value }));
-  };
-
-  const toggleOrientationCorrection = () => {
-    if (!flatView) {
-      onToggleFlatView?.();
-      setOrientationOpen(true);
-      return;
-    }
-
-    setOrientationOpen((open) => !open);
   };
 
   const saveOrientation = async () => {
@@ -538,7 +587,7 @@ function ViewerOverlay({
                 onClick={saveScreenshot}
                 disabled={isSavingScreenshot}
                 aria-label="Save screenshot"
-                title="Save screenshot"
+                title="Save screenshot (Ctrl+P)"
                 aria-busy={isSavingScreenshot}
               >
                 {isSavingScreenshot ? 'Saving screenshot…' : <CameraIcon />}
@@ -550,7 +599,7 @@ function ViewerOverlay({
               aria-expanded={orientationOpen}
               aria-controls="orientation-correction"
               aria-label="Adjust panorama orientation"
-              title="Adjust panorama orientation"
+              title="Adjust panorama orientation (O)"
             >
               <OrientationIcon />
             </button>
@@ -558,7 +607,7 @@ function ViewerOverlay({
               ref={metadataButtonRef}
               type="button"
               onClick={openMetadata}
-              title="Show media information"
+              title="Show media information (I)"
               aria-label="Info"
             >
               <InfoIcon />
@@ -683,6 +732,6 @@ function ViewerOverlay({
       </div>
     </div>
   );
-}
+});
 
 export default ViewerOverlay;

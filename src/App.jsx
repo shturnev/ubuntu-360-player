@@ -9,6 +9,8 @@ import SelectionBar from './components/SelectionBar.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import ViewerOverlay from './components/ViewerOverlay.jsx';
 import { isConvertedVideoName } from './mediaUtils.js';
+import { shortcutKey } from './shortcutKey.js';
+import ShortcutList from './components/ShortcutList.jsx';
 
 const EMPTY_PROGRESS = { show: false, total: 0, complete: 0 };
 
@@ -43,6 +45,9 @@ function App() {
   const [viewerRevision, setViewerRevision] = useState(0);
   const showingItemIdRef = useRef('');
   const metadataRequestIdRef = useRef(0);
+  const viewerRef = useRef(null);
+  const directoryRequestInProgress = useRef(false);
+  const mediaSaveInProgress = useRef(false);
 
   const closeViewer = () => {
     setShowingItem(null);
@@ -65,6 +70,7 @@ function App() {
       'config-data': (_, data) => setConfigData((prev) => ({ ...prev, ...(data || {}) })),
       'open-dir': (_, value) => {
         if (!value) {
+          directoryRequestInProgress.current = false;
           setCanOpenDir(true);
           return;
         }
@@ -93,6 +99,7 @@ function App() {
             setTimeout(() => {
               setLoadingProgress(EMPTY_PROGRESS);
               setCanOpenDir(true);
+              directoryRequestInProgress.current = false;
               request('get-cache-size', null);
             }, 600);
           }
@@ -124,6 +131,7 @@ function App() {
         setShowingItem(null);
         setFlatView(false);
         setCanOpenDir(true);
+        directoryRequestInProgress.current = false;
       },
       'delete-error': (_, err) => {
         setErrorMessage(err && err.message ? err.message : 'Delete failed');
@@ -267,6 +275,52 @@ function App() {
     }
   };
 
+  const openDirectory = () => {
+    if (!canOpenDir || directoryRequestInProgress.current || !api || typeof api.send !== 'function') return;
+    directoryRequestInProgress.current = true;
+    request('open-dir', true);
+  };
+
+  const saveCurrentMedia = async () => {
+    if (!showingItem?.origPath || mediaSaveInProgress.current) return;
+    mediaSaveInProgress.current = true;
+    try {
+      if (!api || typeof api.saveCurrentMedia !== 'function') {
+        throw new Error('Saving media is unavailable.');
+      }
+      const result = await api.saveCurrentMedia({ origPath: showingItem.origPath });
+      if (!result?.success && !result?.cancelled) throw new Error(result?.message || 'Unable to save media.');
+    } catch (error) {
+      setErrorMessage(error?.message || 'Unable to save media.');
+    } finally {
+      mediaSaveInProgress.current = false;
+    }
+  };
+
+  useEffect(() => {
+    const handleShortcut = (event) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey || event.metaKey) return;
+      const key = shortcutKey(event);
+      const action = event.ctrlKey && ['o', 'p', 's'].includes(key) ? key : !event.ctrlKey && key === 'f1' ? key : '';
+      if (!action) return;
+      event.preventDefault();
+      if (
+        event.repeat ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) ||
+        event.target?.isContentEditable ||
+        event.target?.closest?.('[contenteditable]:not([contenteditable="false"])')
+      )
+        return;
+      if (showSettings || document.querySelector('[aria-modal="true"], .orientation-correction')) return;
+      if (action === 'o') openDirectory();
+      if (action === 'p') viewerRef.current?.saveScreenshot();
+      if (action === 's') saveCurrentMedia();
+      if (action === 'f1') setShowSettings(true);
+    };
+    document.addEventListener('keydown', handleShortcut);
+    return () => document.removeEventListener('keydown', handleShortcut);
+  });
+
   const toggleSelection = (index) => {
     setItems((current) =>
       current.map((item, itemIndex) => (itemIndex === index ? { ...item, selected: !item.selected } : item))
@@ -404,6 +458,13 @@ function App() {
     request('download-update', null);
     setUpdateState((current) => ({ ...current, status: 'downloading', progress: 0 }));
   };
+  const isEmptyLibrary = items.length === 0 && !loadingProgress.show;
+  const shortcutHints = (
+    <section className="home-shortcuts" aria-labelledby="home-shortcuts-title">
+      <h2 id="home-shortcuts-title">Keyboard shortcuts</h2>
+      <ShortcutList />
+    </section>
+  );
 
   return (
     <div className="app-shell">
@@ -416,7 +477,7 @@ function App() {
         canSelectMedia={items.length > 0}
         showCloseViewer={Boolean(showingItem)}
         showSettings={showSettings}
-        onOpenDir={() => request('open-dir', true)}
+        onOpenDir={openDirectory}
         onToggleSelection={() => setCanSelect((value) => !value)}
         onCloseViewer={closeViewer}
         onToggleSettings={() => setShowSettings((value) => !value)}
@@ -482,7 +543,7 @@ function App() {
         />
       )}
 
-      {items.length === 0 && !loadingProgress.show && <EmptyLibraryState onOpenDir={() => request('open-dir', true)} />}
+      {isEmptyLibrary && <EmptyLibraryState onOpenDir={openDirectory}>{shortcutHints}</EmptyLibraryState>}
 
       {loadingProgress.show && <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />}
 
@@ -501,6 +562,8 @@ function App() {
 
       {showingItem && (
         <ViewerOverlay
+          ref={viewerRef}
+          shortcutsBlocked={showSettings}
           showingItem={showingItem}
           items={items}
           viewerSrc={viewerSrc}

@@ -50,4 +50,10 @@ describe('preload IPC listener lifecycle', () => {
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-panorama-screenshot', { data });
   });
+
+  test('uses the dedicated media export channel', async () => {
+    ipcRenderer.invoke.mockResolvedValue({ success: true });
+    await expect(api.saveCurrentMedia({ origPath: '/media/photo.jpg' })).resolves.toEqual({ success: true });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-current-media', { origPath: '/media/photo.jpg' });
+  });
 });
