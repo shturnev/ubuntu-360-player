@@ -303,6 +303,7 @@ function App() {
       const key = shortcutKey(event);
       const action = event.ctrlKey && ['o', 'p', 's'].includes(key) ? key : !event.ctrlKey && key === 'f1' ? key : '';
       if (!action) return;
+      // Suppress Chromium defaults even when the app action is blocked by a dialog or editable field.
       event.preventDefault();
       if (
         event.repeat ||

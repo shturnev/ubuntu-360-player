@@ -479,7 +479,13 @@ function copyExif(sourcePath, destinationPath) {
             'ExifTool could not preserve EXIF metadata:',
             error?.code || error?.message || unexpected.join('\n')
           );
-          reject(new Error('Unable to preserve EXIF metadata.'));
+          reject(
+            new Error(
+              error?.code === 'ENOENT'
+                ? 'Unable to preserve EXIF metadata: Perl is not installed or not available in PATH.'
+                : 'Unable to preserve EXIF metadata.'
+            )
+          );
           return;
         }
         resolve();

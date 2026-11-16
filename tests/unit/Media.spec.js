@@ -334,6 +334,24 @@ describe('Media', () => {
     expect(fs.readFileSync(bigPath)).toEqual(original);
   });
 
+  test('reports a missing Perl runtime without replacing cached images', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', 'derived.jpg');
+    fs.writeFileSync(filePath, 'image');
+    writeJpeg(bigPath);
+    const original = fs.readFileSync(bigPath);
+    execFile.mockImplementationOnce((_command, _args, callback) =>
+      callback(Object.assign(new Error('spawn perl ENOENT'), { code: 'ENOENT' }), '', '')
+    );
+
+    await expect(Media.syncCachedExif(filePath, bigPath, () => true)).rejects.toThrow(
+      'Perl is not installed or not available in PATH.'
+    );
+    expect(fs.readFileSync(bigPath)).toEqual(original);
+    expect(fs.readdirSync(path.dirname(bigPath))).toEqual(['derived.jpg']);
+  });
+
   test('accepts the Insta360 trailer warning while saving an orientation correction', async () => {
     const filePath = path.join(tempDir, 'panorama.jpg');
     fs.writeFileSync(filePath, 'image');

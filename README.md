@@ -59,7 +59,11 @@ chmod +x dist_electron/<package>.AppImage
 ```
 
 The AppImage is portable, but not universally dependency-free: some Linux
-distributions require a compatible FUSE runtime to launch it.
+distributions require a compatible FUSE runtime to launch it. Install `perl`
+and make it available in `PATH` for EXIF preservation; the bundled ExifTool
+uses the system Perl runtime. Without it, imports requiring a derived image
+and orientation correction fail with an error instead of saving without EXIF.
+Media processing also requires `ffmpeg` and GraphicsMagick.
 
 Maintainers planning Snap Store or repository-wide APT distribution should
 follow [the distribution guide](docs/distribution.md). A local `.deb` is not
@@ -126,7 +130,9 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 
 Shortcuts work when the application window is focused. Letter shortcuts use
 physical key positions, so they also work with other keyboard layouts. They
-are ignored while typing or when a conflicting dialog is open.
+do not trigger application actions while typing or when a conflicting dialog
+is open. The browser defaults for `Ctrl+O`, `Ctrl+P`, `Ctrl+S`, and `F1` are
+still suppressed in those contexts to prevent unwanted system dialogs.
 
 | Shortcut | Action |
 | --- | --- |

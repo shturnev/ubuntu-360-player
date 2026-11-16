@@ -213,6 +213,27 @@ describe('App', () => {
     input.remove();
   });
 
+  test('suppresses browser defaults for reserved shortcuts in editable and modal contexts', () => {
+    renderApp();
+    const input = document.createElement('input');
+    container.appendChild(input);
+    for (const [key, options] of [
+      ['o', { ctrlKey: true }],
+      ['p', { ctrlKey: true }],
+      ['s', { ctrlKey: true }],
+      ['F1', {}],
+    ]) {
+      expect(keydown(key, options, input).defaultPrevented).toBe(true);
+    }
+    input.remove();
+    click(button('Open settings'));
+    expect(keydown('p', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(keydown('s', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(0);
+    expect(api.saveCurrentMedia).not.toHaveBeenCalled();
+    expect(api.savePanoramaScreenshot).not.toHaveBeenCalled();
+  });
+
   test('shows media export errors and prevents parallel requests', async () => {
     let resolve;
     api.saveCurrentMedia.mockImplementation(
