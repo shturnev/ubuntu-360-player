@@ -45,7 +45,7 @@ This builds the production renderer and packages both Linux artifacts in
 - `*.AppImage`
 
 Install a local Debian package with APT, which will resolve its declared
-dependencies (including `ffmpeg` and `graphicsmagick`):
+dependencies (including `ffmpeg`, `graphicsmagick`, and `perl`):
 
 ```bash
 sudo apt install ./dist_electron/<package>.deb
@@ -115,11 +115,31 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * Navigate between media items, adjust thumbnail size, and select multiple items.
 * Play MP4 video (H.264/HEVC) and convert incompatible videos to H.264 with progress reporting.
 * View the original filename, EXIF, and other media metadata, including date, time, and location when available.
-* Save a screenshot of the panorama area.
+* Save a screenshot of a ready 360° panorama or export a copy of the current cached media.
+* Preserve image EXIF metadata when creating derived cached images.
 * Delete one or multiple media files, including from the full-size viewer.
 * Inspect and clear the local media cache.
 * Check, download, and install application updates for supported installations.
 * Start the application with a media directory passed as a command-line argument.
+
+## Keyboard shortcuts
+
+Shortcuts work when the application window is focused. Letter shortcuts use
+physical key positions, so they also work with other keyboard layouts. They
+are ignored while typing or when a conflicting dialog is open.
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+O` | Open a folder for import. |
+| `Ctrl+P` | Save a screenshot of the ready 360° panorama. Not available in Flat view or fallback. |
+| `Ctrl+S` | Save a byte-for-byte copy of the current cached media file, which may differ from the original after conversion or orientation correction. |
+| `F1` | Open Settings. |
+| `I` | Show information about the current media; pauses video. |
+| `O` | Toggle orientation correction for the current media. |
+| `Space` | Play or pause video. |
+| `Left` / `Right` | Show the previous / next media. |
+
+The shortcuts are also listed in Settings and on the empty-library screen.
 
 ## What is planned?
 - Support for other formats:
