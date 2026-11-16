@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.5.0] - 2026-11-16
+### Changed
+- Add individual media file imports ([#83](https://github.com/shturnev/ubuntu-360-player/pull/83))
+
 ## [3.4.1] - 2026-11-15
 ### Changed
 - Manual patch release.
