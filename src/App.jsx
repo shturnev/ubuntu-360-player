@@ -47,6 +47,7 @@ function App() {
   const metadataRequestIdRef = useRef(0);
   const viewerRef = useRef(null);
   const directoryRequestInProgress = useRef(false);
+  const appendImport = useRef(false);
   const mediaSaveInProgress = useRef(false);
 
   const closeViewer = () => {
@@ -77,7 +78,17 @@ function App() {
         setSelectedPath(value);
         setCanOpenDir(false);
       },
+      'add-files': (_, value) => {
+        if (!value) {
+          directoryRequestInProgress.current = false;
+          setCanOpenDir(true);
+        }
+      },
       'start-read-dir': (_, total) => {
+        appendImport.current = false;
+        directoryRequestInProgress.current = true;
+        setCanOpenDir(false);
+        closeViewer();
         setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
         const totalFiles = Number(total) || 0;
         if (totalFiles <= 0) {
@@ -91,19 +102,23 @@ function App() {
         setItems([]);
         setCanSelect(false);
       },
+      'start-read-files': (_, total) => {
+        appendImport.current = true;
+        directoryRequestInProgress.current = true;
+        setCanOpenDir(false);
+        const totalFiles = Number(total) || 0;
+        setLoadingProgress(totalFiles > 0 ? { show: true, total: totalFiles, complete: 0 } : EMPTY_PROGRESS);
+      },
+      'import-finished': () => {
+        setLoadingProgress(EMPTY_PROGRESS);
+        setCanOpenDir(true);
+        directoryRequestInProgress.current = false;
+        request('get-cache-size', null);
+      },
       'read-media-file': (_, data) => {
         setLoadingProgress((prev) => {
           const complete = prev.complete + 1;
-          const next = { ...prev, complete };
-          if (prev.total > 0 && complete >= prev.total) {
-            setTimeout(() => {
-              setLoadingProgress(EMPTY_PROGRESS);
-              setCanOpenDir(true);
-              directoryRequestInProgress.current = false;
-              request('get-cache-size', null);
-            }, 600);
-          }
-          return next;
+          return { ...prev, complete };
         });
 
         if (!data || data.error) {
@@ -113,6 +128,7 @@ function App() {
           return;
         }
 
+        if (appendImport.current) setSelectedPath('Media files');
         setItems((current) =>
           [...current, data].sort((a, b) => String(a.thumpName).localeCompare(String(b.thumpName)))
         );
@@ -126,6 +142,7 @@ function App() {
       'cache-size': (_, value) => setCacheSize(Number(value) || 0),
       'delete-cache-finish': () => {
         setCacheSize(0);
+        setLoadingProgress(EMPTY_PROGRESS);
         setItems([]);
         setCanSelect(false);
         setShowingItem(null);
@@ -238,6 +255,7 @@ function App() {
     api.send('get-config', null);
     api.send('check-for-update', null);
     api.send('get-cache-size', null);
+    api.send('renderer-ready');
 
     return () => {
       subscriptions.forEach(({ channel, listener, unsubscribe }) => {
@@ -278,7 +296,15 @@ function App() {
   const openDirectory = () => {
     if (!canOpenDir || directoryRequestInProgress.current || !api || typeof api.send !== 'function') return;
     directoryRequestInProgress.current = true;
+    setCanOpenDir(false);
     request('open-dir', true);
+  };
+
+  const addFiles = () => {
+    if (!canOpenDir || directoryRequestInProgress.current || !api || typeof api.send !== 'function') return;
+    directoryRequestInProgress.current = true;
+    setCanOpenDir(false);
+    request('add-files');
   };
 
   const saveCurrentMedia = async () => {
@@ -299,9 +325,16 @@ function App() {
 
   useEffect(() => {
     const handleShortcut = (event) => {
-      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey || event.metaKey) return;
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.metaKey) return;
       const key = shortcutKey(event);
-      const action = event.ctrlKey && ['o', 'p', 's'].includes(key) ? key : !event.ctrlKey && key === 'f1' ? key : '';
+      const action =
+        event.ctrlKey && event.shiftKey && key === 'o'
+          ? 'add-files'
+          : !event.shiftKey && event.ctrlKey && ['o', 'p', 's'].includes(key)
+            ? key
+            : !event.shiftKey && !event.ctrlKey && key === 'f1'
+              ? key
+              : '';
       if (!action) return;
       // Suppress Chromium defaults even when the app action is blocked by a dialog or editable field.
       event.preventDefault();
@@ -314,6 +347,7 @@ function App() {
         return;
       if (showSettings || document.querySelector('[aria-modal="true"], .orientation-correction')) return;
       if (action === 'o') openDirectory();
+      if (action === 'add-files') addFiles();
       if (action === 'p') viewerRef.current?.saveScreenshot();
       if (action === 's') saveCurrentMedia();
       if (action === 'f1') setShowSettings(true);
@@ -333,6 +367,10 @@ function App() {
   };
 
   const clearSelected = () => {
+    request(
+      'remove-from-library',
+      items.filter((item) => item.selected)
+    );
     setItems((current) => current.filter((item) => !item.selected));
     setCanSelect(false);
   };
@@ -479,6 +517,7 @@ function App() {
         showCloseViewer={Boolean(showingItem)}
         showSettings={showSettings}
         onOpenDir={openDirectory}
+        onAddFiles={addFiles}
         onToggleSelection={() => setCanSelect((value) => !value)}
         onCloseViewer={closeViewer}
         onToggleSettings={() => setShowSettings((value) => !value)}
@@ -544,7 +583,11 @@ function App() {
         />
       )}
 
-      {isEmptyLibrary && <EmptyLibraryState onOpenDir={openDirectory}>{shortcutHints}</EmptyLibraryState>}
+      {isEmptyLibrary && (
+        <EmptyLibraryState onOpenDir={openDirectory} onAddFiles={addFiles} disabled={!canOpenDir}>
+          {shortcutHints}
+        </EmptyLibraryState>
+      )}
 
       {loadingProgress.show && <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />}
 
@@ -587,14 +630,20 @@ function App() {
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
             if (items.length < 2) return;
-            const previousIndex = (showingItem.index - 1 + items.length) % items.length;
+            const currentIndex = items.findIndex(
+              (item) => item.origPath === showingItem.origPath && item.bigName === showingItem.bigName
+            );
+            const previousIndex = (currentIndex - 1 + items.length) % items.length;
             setPlaybackFailedVideoId('');
             setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
             setShowingItem({ ...items[previousIndex], index: previousIndex });
           }}
           onNext={() => {
             if (items.length < 2) return;
-            const nextIndex = (showingItem.index + 1) % items.length;
+            const currentIndex = items.findIndex(
+              (item) => item.origPath === showingItem.origPath && item.bigName === showingItem.bigName
+            );
+            const nextIndex = (currentIndex + 1) % items.length;
             setPlaybackFailedVideoId('');
             setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
             setShowingItem({ ...items[nextIndex], index: nextIndex });

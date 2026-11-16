@@ -67,6 +67,18 @@ uses the system Perl runtime. Without it, imports requiring a derived image
 and orientation correction fail with an error instead of saving without EXIF.
 Media processing also requires `ffmpeg` and GraphicsMagick.
 
+Use **Open folder** to replace the current library, or **Add files** to append
+individual JPG, JPEG, PNG, INSP, and MP4 files. On Linux, installed desktop
+integration also offers 360 Media Viewer in **Open With** for these formats.
+Opening files in an already running instance appends them. A directory passed
+alongside files replaces the library first, then the files are added.
+
+The Debian package registers a private `image/x-360-media-viewer-insp` MIME
+type for `.insp` files, because the system MIME database does not generally
+define that extension. The AppImage includes the same MIME definition; making
+it available to a desktop environment requires an AppImage integration tool.
+Neither package makes the application the default file handler.
+
 Maintainers planning Snap Store or repository-wide APT distribution should
 follow [the distribution guide](docs/distribution.md). A local `.deb` is not
 sufficient to make `apt install <package>` work on arbitrary machines.
@@ -114,7 +126,7 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 [https://viewer360.app/](https://viewer360.app/) or check the [release page](https://github.com/shturnev/ubuntu-360-player/releases)
 
 ## What can?
-* Open a media directory and browse it in a thumbnail grid.
+* Open a media directory or add individual media files and browse them in a thumbnail grid.
 * View ordinary photos and videos as well as 360° photos and videos, including Insta360 `.insp` photos.
 * Explore 360° media in an interactive panorama viewer, with a flat-view fallback.
 * Correct panorama orientation with yaw, pitch, and roll controls; use center guides in Flat view and save the correction to the local cache.
@@ -126,19 +138,20 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * Delete one or multiple media files, including from the full-size viewer.
 * Inspect and clear the local media cache.
 * Check, download, and install application updates for supported installations.
-* Start the application with a media directory passed as a command-line argument.
+* Start the application with a media directory or multiple media files as command-line arguments, or use Linux Open With.
 
 ## Keyboard shortcuts
 
 Shortcuts work when the application window is focused. Letter shortcuts use
 physical key positions, so they also work with other keyboard layouts. They
 do not trigger application actions while typing or when a conflicting dialog
-is open. The browser defaults for `Ctrl+O`, `Ctrl+P`, `Ctrl+S`, and `F1` are
-still suppressed in those contexts to prevent unwanted system dialogs.
+is open. The browser defaults for `Ctrl+O`, `Ctrl+Shift+O`, `Ctrl+P`,
+`Ctrl+S`, and `F1` are still suppressed in those contexts.
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+O` | Open a folder for import. |
+| `Ctrl+Shift+O` | Add media files to the current library. |
 | `Ctrl+P` | Save a screenshot of the ready 360° panorama. Not available in Flat view or fallback. |
 | `Ctrl+S` | Save a byte-for-byte copy of the current cached media file, which may differ from the original after conversion or orientation correction. |
 | `F1` | Open Settings. |
@@ -165,3 +178,7 @@ The shortcuts are also listed in Settings and on the empty-library screen.
 
 ## Are you in touch?
 Of course, you can always contact me at this email: **sergii@shturnev.com**
+
+<p align="center">
+  <img src="docs/works-on-my-machine.png" alt="Works on my machine" width="320">
+</p>

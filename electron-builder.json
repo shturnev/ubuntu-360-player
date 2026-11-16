@@ -15,20 +15,30 @@
     "package.json"
   ],
   "asarUnpack": ["node_modules/exiftool-vendored.pl/**"],
+  "fileAssociations": [
+    {
+      "ext": "insp",
+      "name": "Insta360 photo",
+      "description": "Insta360 photo",
+      "mimeType": "image/x-360-media-viewer-insp"
+    }
+  ],
   "linux": {
     "target": ["deb", "AppImage"],
     "category": "Graphics",
     "icon": "build_resources/icon/png",
-    "mimeTypes": ["inode/directory"],
+    "mimeTypes": ["inode/directory", "image/jpeg", "image/png", "video/mp4"],
     "syncDesktopName": true,
     "synopsis": "360-degree media viewer for Linux.",
     "description": "Browse and view 360-degree photos and videos on Linux."
   },
   "deb": {
-    "depends": ["ffmpeg", "graphicsmagick", "perl"]
+    "depends": ["ffmpeg", "graphicsmagick", "perl"],
+    "mimeTypes": []
   },
   "appImage": {
-    "artifactName": "${name}-${version}.${ext}"
+    "artifactName": "${name}-${version}.${ext}",
+    "mimeTypes": []
   },
   "publish": [
     {

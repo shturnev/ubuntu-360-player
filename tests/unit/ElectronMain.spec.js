@@ -7,6 +7,7 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
 
   let readyCallback;
   const windows = [];
+  const ipcMain = { on: jest.fn(), handle: jest.fn() };
   const app = {
     isPackaged,
     on: jest.fn(),
@@ -27,7 +28,11 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
     this.show = jest.fn();
     this.focus = jest.fn();
     this.on = jest.fn();
-    this.loadFile = jest.fn(() => Promise.resolve());
+    this.loadFile = jest.fn(() => {
+      const handler = ipcMain.on.mock.calls.find(([channel]) => channel === 'renderer-ready')?.[1];
+      if (handler) handler({ sender: this.webContents });
+      return Promise.resolve();
+    });
     this.webContents = { send: jest.fn(), openDevTools: jest.fn(), on: jest.fn(), setIgnoreMenuShortcuts: jest.fn() };
     windows.push(this);
   });
@@ -36,6 +41,9 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
     init: jest.fn(),
     setWindow: jest.fn(),
     readDir: jest.fn(),
+    enqueueExternalImport: jest.fn(),
+    drainExternalImports: jest.fn(),
+    setExternalImportReady: jest.fn(),
     savePanoramaScreenshot: jest.fn(),
     saveCurrentMedia: jest.fn(),
   };
@@ -48,7 +56,7 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
       buildFromTemplate: jest.fn(() => ({ getMenuItemById: jest.fn(() => ({ checked: false })) })),
       setApplicationMenu: jest.fn(),
     },
-    ipcMain: { handle: jest.fn() },
+    ipcMain,
     shell: { openExternal: jest.fn() },
   }));
   jest.doMock('../../src/models/MainModelClass', () => ({ MainModelClass }));
@@ -135,9 +143,7 @@ describe('Electron main process directory launch flow', () => {
     const secondInstanceHandler = app.on.mock.calls.find(([event]) => event === 'second-instance')[1];
     secondInstanceHandler({}, ['/app/360-media-viewer', directory]);
 
-    expect(appModel.readDir).toHaveBeenCalledTimes(1);
-    expect(appModel.readDir).toHaveBeenCalledWith(directory);
-    expect(windows[0].webContents.send).toHaveBeenCalledWith('open-dir', directory);
+    expect(appModel.enqueueExternalImport).toHaveBeenCalledWith({ directory, files: [] });
     expect(windows[0].restore).toHaveBeenCalledTimes(1);
     expect(windows[0].show).toHaveBeenCalledTimes(1);
     expect(windows[0].focus).toHaveBeenCalledTimes(1);
@@ -167,11 +173,13 @@ describe('Electron main process directory launch flow', () => {
 
     expect(BrowserWindow).toHaveBeenCalledTimes(1);
     expect(appModel.init).toHaveBeenCalledTimes(1);
-    expect(appModel.readDir).toHaveBeenCalledWith(directory);
-    expect(appModel.init.mock.invocationCallOrder[0]).toBeLessThan(appModel.readDir.mock.invocationCallOrder[0]);
+    expect(appModel.enqueueExternalImport).toHaveBeenCalledWith({ directory, files: [] });
+    expect(appModel.init.mock.invocationCallOrder[0]).toBeLessThan(
+      appModel.enqueueExternalImport.mock.invocationCallOrder[0]
+    );
   });
 
-  test('reserves the four shortcuts from the menu without affecting other accelerators', async () => {
+  test('reserves app shortcuts from the menu without affecting other accelerators', async () => {
     process.argv = ['/app/360-media-viewer'];
     const { getReadyCallback, windows } = loadMain();
     await getReadyCallback()();
@@ -187,6 +195,10 @@ describe('Electron main process directory launch flow', () => {
     expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
     handler({}, { key: 'щ', code: 'KeyO', control: true, alt: false, shift: false, meta: false });
     expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    handler({}, { key: 'Щ', code: 'KeyO', control: true, alt: false, shift: true, meta: false });
+    expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    handler({}, { key: 'p', control: true, alt: false, shift: true, meta: false });
+    expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
     handler({}, { key: 'o', code: 'KeyA', control: true, alt: false, shift: false, meta: false });
     expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
   });
@@ -207,10 +219,46 @@ describe('Electron main process directory launch flow', () => {
     await expect(handler({}, { origPath: '/media/a.jpg' })).resolves.toEqual({ cancelled: true });
   });
 
-  test('declares only the directory MIME type for Linux packaging', () => {
+  test('declares supported media and directory MIME types for Linux packaging', () => {
     const config = require('../../electron-builder.json');
 
-    expect(config.linux.mimeTypes).toEqual(['inode/directory']);
-    expect(config.fileAssociations).toBeUndefined();
+    expect(config.linux.mimeTypes).toEqual(['inode/directory', 'image/jpeg', 'image/png', 'video/mp4']);
+    expect(config.fileAssociations).toEqual([
+      expect.objectContaining({ ext: 'insp', mimeType: 'image/x-360-media-viewer-insp' }),
+    ]);
+  });
+
+  test('parses multiple file URIs and relative paths using the second process working directory', () => {
+    const directory = path.join(tempDir, 'photos');
+    const image = path.join(tempDir, 'світлина space.JPG');
+    const video = path.join(tempDir, 'movie.mp4');
+    fs.mkdirSync(directory);
+    fs.writeFileSync(image, 'image');
+    fs.writeFileSync(video, 'video');
+    const { main } = loadMain();
+    const { pathToFileURL } = require('url');
+    expect(
+      main.getMediaFromArgv(
+        ['/app/viewer', 'https://example.com/a.jpg', 'file://%zz', pathToFileURL(image).href, 'movie.mp4', 'photos'],
+        { workingDirectory: tempDir }
+      )
+    ).toEqual({ directory, files: [image, video] });
+  });
+
+  test('queues multiple second instance requests before the renderer is ready', async () => {
+    const image = path.join(tempDir, 'a.jpg');
+    const other = path.join(tempDir, 'b.png');
+    fs.writeFileSync(image, 'image');
+    fs.writeFileSync(other, 'image');
+    process.argv = ['/app/360-media-viewer', image];
+    const { app, appModel, getReadyCallback } = loadMain();
+    const handler = app.on.mock.calls.find(([event]) => event === 'second-instance')[1];
+    handler({}, ['/app/360-media-viewer', 'b.png'], tempDir);
+    expect(appModel.enqueueExternalImport).not.toHaveBeenCalled();
+    await getReadyCallback()();
+    expect(appModel.enqueueExternalImport.mock.calls).toEqual([
+      [{ directory: null, files: [image] }],
+      [{ directory: null, files: [other] }],
+    ]);
   });
 });

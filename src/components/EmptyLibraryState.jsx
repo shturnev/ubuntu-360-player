@@ -13,15 +13,27 @@ const FolderPlusIcon = () => (
   </svg>
 );
 
-function EmptyLibraryState({ onOpenDir, children }) {
+function EmptyLibraryState({ onOpenDir, onAddFiles, disabled, children }) {
   return (
     <div className="empty-state">
-      <button type="button" className="primary-button large" onClick={onOpenDir}>
-        <span className="button-icon">
-          <FolderPlusIcon />
-        </span>
-        <span>Choose a media directory</span>
-      </button>
+      <div className="empty-state-actions">
+        <button type="button" className="primary-button large" onClick={onOpenDir} disabled={disabled}>
+          <span className="button-icon">
+            <FolderPlusIcon />
+          </span>
+          <span>Choose a media directory</span>
+        </button>
+        <span className="empty-state-separator">OR</span>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onAddFiles}
+          disabled={disabled}
+          title="Add files (Ctrl+Shift+O)"
+        >
+          Add media files
+        </button>
+      </div>
       {children}
     </div>
   );

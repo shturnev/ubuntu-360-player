@@ -7,6 +7,7 @@ loadProjectDotenv();
 
 const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { MainModelClass } = require('../src/models/MainModelClass');
+const { isSupportedMediaPath } = require('../src/models/mediaFormats');
 
 const isDevelopment = !app.isPackaged;
 if (process.platform === 'linux') {
@@ -16,11 +17,13 @@ let mainWindow;
 let reactDevtoolsWindow;
 let reactDevtoolsMenuItem;
 let appModel;
-let pendingDirectory;
+let rendererReady = false;
+const pendingImports = [];
 
-function getDirectoryFromArgv(argv, { isDevelopment = false } = {}) {
+function getMediaFromArgv(argv, { isDevelopment = false, workingDirectory = process.cwd() } = {}) {
+  const result = { directory: null, files: [] };
   if (!Array.isArray(argv)) {
-    return null;
+    return result;
   }
 
   const userArguments = argv.slice(isDevelopment ? 2 : 1);
@@ -36,18 +39,22 @@ function getDirectoryFromArgv(argv, { isDevelopment = false } = {}) {
       } else if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(argument)) {
         continue;
       } else {
-        directoryPath = path.resolve(argument);
+        directoryPath = path.resolve(workingDirectory, argument);
       }
 
-      if (fs.statSync(directoryPath).isDirectory()) {
-        return directoryPath;
-      }
+      const stat = fs.statSync(directoryPath);
+      if (stat.isDirectory() && !result.directory) result.directory = directoryPath;
+      else if (stat.isFile() && isSupportedMediaPath(directoryPath)) result.files.push(directoryPath);
     } catch (error) {
       // Desktop launch arguments can be malformed or point to removed paths.
     }
   }
 
-  return null;
+  return result;
+}
+
+function getDirectoryFromArgv(argv, options) {
+  return getMediaFromArgv(argv, options).directory;
 }
 
 function focusMainWindow() {
@@ -63,29 +70,24 @@ function focusMainWindow() {
 }
 
 function importPendingDirectory() {
-  if (!pendingDirectory || !appModel) {
-    return false;
+  if (!appModel || !mainWindow || !rendererReady) return false;
+  let imported = false;
+  while (pendingImports.length) {
+    appModel.enqueueExternalImport(pendingImports.shift());
+    imported = true;
   }
-
-  const directory = pendingDirectory;
-  pendingDirectory = null;
-  if (mainWindow && mainWindow.webContents) {
-    mainWindow.webContents.send('open-dir', directory);
-  }
-  appModel.readDir(directory);
-  return true;
+  return imported;
 }
 
-function handleSecondInstance(_event, argv) {
-  const directory = getDirectoryFromArgv(argv, { isDevelopment });
-  if (!directory) {
+function handleSecondInstance(_event, argv, workingDirectory) {
+  const request = getMediaFromArgv(argv, { isDevelopment, workingDirectory });
+  if (!request.directory && !request.files.length) {
     return;
   }
 
-  pendingDirectory = directory;
-  if (importPendingDirectory()) {
-    focusMainWindow();
-  }
+  pendingImports.push(request);
+  importPendingDirectory();
+  focusMainWindow();
 }
 
 async function loadDevelopmentUrl() {
@@ -219,6 +221,8 @@ function configureApplicationMenu() {
 }
 
 async function createWindow() {
+  rendererReady = false;
+  appModel?.setExternalImportReady(false);
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -247,9 +251,10 @@ async function createWindow() {
       : input.key.toLowerCase();
     const reserved =
       !input.alt &&
-      !input.shift &&
       !input.meta &&
-      ((input.control && ['o', 'p', 's'].includes(key)) || (!input.control && key === 'f1'));
+      ((input.control && input.shift && key === 'o') ||
+        (!input.shift && input.control && ['o', 'p', 's'].includes(key)) ||
+        (!input.shift && !input.control && key === 'f1'));
     webContents.setIgnoreMenuShortcuts(reserved);
   });
 
@@ -266,8 +271,10 @@ async function createWindow() {
     appModel = new MainModelClass(mainWindow);
     appModel.init();
   }
+  appModel.setExternalImportReady(rendererReady);
 
   mainWindow.on('closed', () => {
+    rendererReady = false;
     appModel.setWindow(null);
     mainWindow = null;
     if (reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()) {
@@ -287,6 +294,12 @@ async function initializeApplication() {
 
   configureApplicationMenu();
 
+  ipcMain.on('renderer-ready', (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return;
+    rendererReady = true;
+    importPendingDirectory();
+    appModel?.setExternalImportReady(true);
+  });
   ipcMain.handle('open-external-url', async (_, url) => {
     try {
       await shell.openExternal(url);
@@ -338,7 +351,8 @@ function startApplication() {
     return false;
   }
 
-  pendingDirectory = getDirectoryFromArgv(process.argv, { isDevelopment });
+  const initialImport = getMediaFromArgv(process.argv, { isDevelopment });
+  if (initialImport.directory || initialImport.files.length) pendingImports.push(initialImport);
   app.on('second-instance', handleSecondInstance);
   app
     .whenReady()
@@ -358,6 +372,7 @@ module.exports = {
   configureApplicationMenu,
   createWindow,
   getDirectoryFromArgv,
+  getMediaFromArgv,
   handleSecondInstance,
   isDevelopment,
   startApplication,

@@ -42,6 +42,20 @@ describe('preload IPC listener lifecycle', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  test('allows only the dedicated file import request and lifecycle events', () => {
+    const listener = jest.fn();
+    ipcRenderer.send = jest.fn();
+    api.send('add-files');
+    api.send('read-arbitrary-file', '/secret');
+    api.on('start-read-files', listener);
+    api.on('import-finished', listener);
+    ipcRenderer.emit('start-read-files', {}, 2);
+    ipcRenderer.emit('import-finished', {});
+    expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
+    expect(ipcRenderer.send).toHaveBeenCalledWith('add-files', undefined);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
   test('uses only the dedicated invoke channel to save panorama screenshots', async () => {
     const data = new ArrayBuffer(4);
     ipcRenderer.invoke.mockResolvedValue({ success: true });
