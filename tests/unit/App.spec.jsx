@@ -125,8 +125,13 @@ describe('App', () => {
     const emptyState = container.querySelector('.empty-state');
     const hints = container.querySelector('.home-shortcuts');
     expect(hints.parentElement).toBe(emptyState);
-    expect(hints.previousElementSibling).toBe(button('Choose a media directory'));
-    expect(hints.querySelectorAll('dl > div')).toHaveLength(8);
+    const actions = hints.previousElementSibling;
+    expect(actions.querySelectorAll('button')).toHaveLength(2);
+    expect(actions.textContent).toContain('OR');
+    expect(actions.contains(button('Choose a media directory'))).toBe(true);
+    expect(actions.contains(button('Add media files'))).toBe(true);
+    expect(hints.querySelectorAll('dl > div')).toHaveLength(9);
+    expect(hints.textContent).toContain('Ctrl+Shift+O');
 
     loadMedia();
     expect(container.querySelector('.empty-state')).toBeNull();
@@ -144,6 +149,47 @@ describe('App', () => {
     expect(container.querySelector('.home-shortcuts')).toBeNull();
   });
 
+  test('opens the file picker from the empty state and re-enables both choices after cancellation', () => {
+    renderApp();
+    click(button('Add media files'));
+    expect(api.send).toHaveBeenCalledWith('add-files', undefined);
+    expect(button('Choose a media directory').disabled).toBe(true);
+    expect(button('Add media files').disabled).toBe(true);
+    act(() => listeners['add-files']({}, false));
+    expect(button('Choose a media directory').disabled).toBe(false);
+    expect(button('Add media files').disabled).toBe(false);
+  });
+
+  test('adds files without losing the existing viewer and selection, and unlocks after cancel or completion', () => {
+    renderApp();
+    loadMedia();
+    click(button('Toggle selection'));
+    click(container.querySelector('.media-card'));
+    expect(container.querySelector('.media-card.selected')).not.toBeNull();
+    click(button('Toggle selection'));
+    click(container.querySelector('.media-card'));
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+    click(button('Add files'));
+    expect(api.send).toHaveBeenCalledWith('add-files', undefined);
+    expect(button('Open folder').disabled).toBe(true);
+    act(() => listeners['add-files']({}, false));
+    expect(button('Add files').disabled).toBe(false);
+    click(button('Add files'));
+    act(() => {
+      listeners['start-read-files']({}, 1);
+      listeners['read-media-file'](
+        {},
+        { ...media, origPath: '/other/new.png', bigName: 'new.png', thumpName: 'new.png' }
+      );
+      listeners['import-finished']();
+    });
+    expect(container.querySelectorAll('.media-card')).toHaveLength(2);
+    expect(container.querySelectorAll('.media-card.selected')).toHaveLength(1);
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+    expect(container.textContent).toContain('Media files');
+    expect(button('Add files').disabled).toBe(false);
+  });
+
   test('handles folder and Settings shortcuts once and respects import and modal state', () => {
     renderApp();
     keydown('O', { ctrlKey: true });
@@ -159,6 +205,34 @@ describe('App', () => {
     keydown('o', { ctrlKey: true });
     expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(2);
     expect(container.textContent).toContain('Keyboard shortcuts');
+  });
+
+  test('Ctrl+Shift+O adds files once and respects busy, editable and modal states', () => {
+    renderApp();
+    expect(button('Add files').title).toBe('Add files (Ctrl+Shift+O)');
+    const input = document.createElement('input');
+    container.appendChild(input);
+    expect(keydown('O', { ctrlKey: true, shiftKey: true }, input).defaultPrevented).toBe(true);
+    keydown('O', { ctrlKey: true, shiftKey: true, repeat: true });
+    keydown('O', { ctrlKey: true, shiftKey: true, isComposing: true });
+    keydown('O', { ctrlKey: true, shiftKey: true, altKey: true });
+    keydown('O', { ctrlKey: true, shiftKey: true, metaKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'add-files')).toHaveLength(0);
+    input.remove();
+
+    expect(keydown('Щ', { code: 'KeyO', ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    keydown('O', { ctrlKey: true, shiftKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'add-files')).toHaveLength(1);
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'open-dir')).toHaveLength(0);
+    act(() => listeners['add-files']({}, false));
+
+    click(button('Open settings'));
+    expect(keydown('O', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'add-files')).toHaveLength(1);
+    expect(container.querySelector('.shortcuts-box').textContent).toContain('Ctrl+Shift+O');
+    click(button('Close settings'));
+    keydown('O', { ctrlKey: true, shiftKey: true });
+    expect(api.send.mock.calls.filter(([channel]) => channel === 'add-files')).toHaveLength(2);
   });
 
   test('saves current media and ready panorama and follows navigation and modal state', async () => {
@@ -670,20 +744,16 @@ describe('App', () => {
   });
 
   test('refreshes the cache size after the media import completes', () => {
-    jest.useFakeTimers();
     renderApp();
+    api.send.mockClear();
 
     act(() => {
       listeners['start-read-dir']({}, 1);
       listeners['read-media-file']({}, media);
-    });
-
-    act(() => {
-      jest.advanceTimersByTime(600);
+      listeners['import-finished']();
     });
 
     expect(api.send).toHaveBeenCalledWith('get-cache-size', null);
-    jest.useRealTimers();
   });
 
   test('keeps the selected folder path while a subsequent import is loading', () => {

@@ -9,6 +9,7 @@ const { dialog, ipcMain } = require('electron');
 const { getStorageRoot } = require('../config/env');
 const { Helper } = require('./Helper');
 const { Media } = require('./Media');
+const { extensions, isSupportedMediaPath } = require('./mediaFormats');
 const ConfigModel = require('./ConfigModel');
 const Updater = require('./Updater');
 
@@ -39,6 +40,10 @@ class MainModelClass {
     this.exportMedia = new Map();
     this.directoryImportGeneration = 0;
     this.mediaSaveInProgress = false;
+    this.importBusy = false;
+    this.externalImports = [];
+    this.externalImportReady = true;
+    this.pendingMedia = new Map();
   }
 
   init() {
@@ -49,8 +54,10 @@ class MainModelClass {
     });
 
     ipcMain.on('open-dir', (event) => this.openDir(event));
+    ipcMain.on('add-files', (event) => this.openFiles(event));
     ipcMain.on('get-server-url', (event) => event.reply('start-file-server', this.serverUrl));
     ipcMain.on('delete-selected', (event, arg) => this.deleteSelected(arg));
+    ipcMain.on('remove-from-library', (event, items) => this.removeFromLibrary(items));
     ipcMain.on('get-media-metadata', async (event, payload) => {
       const origPath = payload?.origPath;
       const requestId = payload?.requestId;
@@ -147,6 +154,7 @@ class MainModelClass {
 
   setWindow(win) {
     this.win = win;
+    if (!win) this.externalImportReady = false;
     this.directoryImportGeneration += 1;
     this.authorizedMedia.clear();
     this.exportMedia.clear();
@@ -385,114 +393,262 @@ class MainModelClass {
   }
 
   openDir(event) {
+    if (this.importBusy) {
+      event.reply('open-dir', false);
+      return false;
+    }
+    this.importBusy = true;
     const options = { properties: ['openDirectory'] };
-    const resOpen = dialog.showOpenDialogSync(options);
+    let resOpen;
+    try {
+      resOpen = dialog.showOpenDialogSync(options);
+    } catch (error) {
+      event.reply('show-error', { message: error.message });
+      event.reply('open-dir', false);
+      this.finishImport();
+      return false;
+    }
 
     if (!resOpen) {
       event.reply('open-dir', false);
+      this.finishImport();
       return false;
     }
 
     event.reply('open-dir', resOpen[0]);
-    this.readDir(resOpen[0]);
+    Promise.resolve(this.readDir(resOpen[0])).finally(() => this.finishImport());
     return resOpen;
+  }
+
+  openFiles(event) {
+    if (this.importBusy) {
+      event.reply('add-files', false);
+      return false;
+    }
+    this.importBusy = true;
+    let files;
+    try {
+      files = dialog.showOpenDialogSync({
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Media', extensions }],
+      });
+    } catch (error) {
+      event.reply('show-error', { message: error.message });
+    }
+    if (!files || !files.length) {
+      event.reply('add-files', false);
+      this.finishImport();
+      return false;
+    }
+    Promise.resolve(this.readFiles(files))
+      .catch((error) => {
+        event.reply('show-error', { message: error.message || 'Unable to import media.' });
+        event.reply('import-finished');
+      })
+      .finally(() => this.finishImport());
+    return files;
+  }
+
+  enqueueExternalImport(request) {
+    this.externalImports.push(request);
+    this.drainExternalImports();
+  }
+
+  setExternalImportReady(ready) {
+    this.externalImportReady = ready;
+    if (ready) this.drainExternalImports();
+  }
+
+  finishImport() {
+    this.importBusy = false;
+    this.drainExternalImports();
+  }
+
+  async drainExternalImports() {
+    if (!this.externalImportReady || this.importBusy || !this.win?.webContents || !this.externalImports.length) return;
+    this.importBusy = true;
+    const { directory, files } = this.externalImports.shift();
+    try {
+      if (directory) {
+        this.win?.webContents?.send('open-dir', directory);
+        await this.readDir(directory);
+      }
+      if (files?.length) await this.readFiles(files);
+    } catch (error) {
+      this.win?.webContents?.send('show-error', { message: error.message || 'Unable to import media.' });
+      this.win?.webContents?.send('import-finished');
+    } finally {
+      this.finishImport();
+    }
   }
 
   readDir(pathDir) {
     const importGeneration = ++this.directoryImportGeneration;
     this.authorizedMedia = new Map();
     this.exportMedia = new Map();
-    fs.readdir(pathDir, (err, files) => {
-      if (importGeneration !== this.directoryImportGeneration) {
-        return;
-      }
-
-      if (err) {
-        if (this.win && this.win.webContents) {
-          this.win.webContents.send('show-error', err);
-          this.win.webContents.send('open-dir', false);
-        }
-        return;
-      }
-
-      Helper.checkDir(this.static_dir + '/small/');
-      Helper.checkDir(this.static_dir + '/big/');
-
-      const goodExt = ['jpg', 'jpeg', 'png', 'insp', 'mp4'];
-      const mediaFiles = files.filter((element) => {
-        const ext = element.split('.').pop().toLowerCase();
-        return goodExt.indexOf(ext) !== -1;
-      });
-
-      if (!mediaFiles.length) {
-        if (this.win && this.win.webContents) {
-          this.win.webContents.send('start-read-dir', 0);
-          this.win.webContents.send('open-dir', false);
-        }
-        return;
-      }
-
-      if (this.win && this.win.webContents) this.win.webContents.send('start-read-dir', mediaFiles.length);
-
-      const exifSyncs = new Map();
-      mediaFiles.forEach((file) => {
-        const ext = file.split('.').pop().toLowerCase();
-        const filePath = path.join(pathDir, file);
-        let origPath;
-        try {
-          origPath = fs.realpathSync(filePath);
-        } catch (error) {
-          if (this.win && this.win.webContents) {
-            this.win.webContents.send('read-media-file', {
-              error: { message: 'Unable to access this media file.' },
-              origPath: filePath,
-            });
-          }
+    this.pendingMedia.clear();
+    return new Promise((resolve) =>
+      fs.readdir(pathDir, async (err, files) => {
+        if (importGeneration !== this.directoryImportGeneration) {
+          resolve();
           return;
         }
-        const type = ext === 'mp4' ? 'video' : 'image';
-        this.authorizedMedia.set(origPath, type);
-        const sendMediaResult = async (result) => {
-          const isCurrent = () =>
-            importGeneration === this.directoryImportGeneration && this.authorizedMedia.get(origPath) === type;
-          if (!isCurrent()) return;
-          if (result && result.error) {
-            this.authorizedMedia.delete(origPath);
-            this.exportMedia.delete(origPath);
-          } else if (result && result.bigName) {
-            try {
-              const record = this.recordExportMedia(origPath, result.bigName);
-              if (type === 'image' && !fs.lstatSync(record.cachePath).isSymbolicLink()) {
-                let sync = exifSyncs.get(record.cachePath);
-                if (!sync) {
-                  sync = Media.syncCachedExif(origPath, record.cachePath, isCurrent);
-                  exifSyncs.set(record.cachePath, sync);
-                }
-                await sync;
-                if (!isCurrent()) return;
-                this.recordExportMedia(origPath, result.bigName);
-              }
-            } catch (error) {
-              if (!isCurrent()) return;
-              result = { ...result, error: { message: error?.message || 'Unable to validate the cached media file.' } };
-              this.authorizedMedia.delete(origPath);
-              this.exportMedia.delete(origPath);
-            }
-          }
-          if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
-            this.win.webContents.send('read-media-file', result);
-          }
-        };
 
-        if (type === 'video') {
-          Media.saveVideo(origPath, this.win, sendMediaResult);
-        } else if (ext === 'insp') {
-          Media.saveInsta360Image(origPath, this.win, sendMediaResult);
-        } else {
-          Media.saveImage(origPath, this.win, sendMediaResult);
+        if (err) {
+          if (this.win && this.win.webContents) {
+            this.win.webContents.send('show-error', err);
+            this.win.webContents.send('open-dir', false);
+          }
+          resolve();
+          return;
         }
-      });
-    });
+
+        try {
+          await this.prepareMedia(
+            files.filter(isSupportedMediaPath).map((file) => path.join(pathDir, file)),
+            false,
+            importGeneration
+          );
+        } catch (error) {
+          this.win?.webContents?.send('show-error', { message: error.message || 'Unable to import media.' });
+          this.win?.webContents?.send('open-dir', false);
+        }
+        resolve();
+      })
+    );
+  }
+
+  readFiles(files) {
+    if (!Array.isArray(files)) {
+      this.win?.webContents?.send('show-error', { message: 'Invalid media file list.' });
+      this.win?.webContents?.send('import-finished');
+      return Promise.resolve();
+    }
+    return this.prepareMedia(files, true, this.directoryImportGeneration);
+  }
+
+  async prepareMedia(files, append, importGeneration) {
+    Helper.checkDir(this.static_dir + '/small/');
+    Helper.checkDir(this.static_dir + '/big/');
+    const seen = new Set();
+    const work = [];
+    for (const filePath of files) {
+      try {
+        if (!isSupportedMediaPath(filePath)) throw new Error('Unsupported media file.');
+        const origPath = fs.realpathSync(filePath);
+        if (!fs.statSync(origPath).isFile()) throw new Error('The selected path is not a regular file.');
+        if (seen.has(origPath) || (append && this.authorizedMedia.has(origPath))) continue;
+        seen.add(origPath);
+        work.push({ filePath, origPath });
+      } catch (error) {
+        work.push({ filePath, error: error.code ? 'Unable to access this media file.' : error.message });
+      }
+    }
+    this.win?.webContents?.send(append ? 'start-read-files' : 'start-read-dir', work.length);
+    if (!work.length && !append) this.win?.webContents?.send('open-dir', false);
+    const exifSyncs = new Map();
+    await Promise.all(
+      work.map(
+        ({ filePath, origPath, error }) =>
+          new Promise((resolve) => {
+            if (error) {
+              this.win?.webContents?.send('read-media-file', { error: { message: error }, origPath: filePath });
+              resolve();
+              return;
+            }
+            const ext = path.extname(filePath).slice(1).toLowerCase();
+            const type = ext === 'mp4' ? 'video' : 'image';
+            const token = {};
+            this.pendingMedia.set(origPath, token);
+            this.authorizedMedia.set(origPath, type);
+            let completed = false;
+            const sendMediaResult = async (result) => {
+              if (completed) return;
+              completed = true;
+              const isCurrent = () =>
+                importGeneration === this.directoryImportGeneration &&
+                this.pendingMedia.get(origPath) === token &&
+                this.authorizedMedia.get(origPath) === type;
+              if (!isCurrent()) {
+                if (importGeneration === this.directoryImportGeneration) {
+                  this.win?.webContents?.send('read-media-file', {
+                    error: { message: 'Media is no longer available.' },
+                    origPath,
+                  });
+                }
+                resolve();
+                return;
+              }
+              if (result && result.error) {
+                this.authorizedMedia.delete(origPath);
+                this.exportMedia.delete(origPath);
+              } else if (result && result.bigName) {
+                try {
+                  const record = this.recordExportMedia(origPath, result.bigName);
+                  if (type === 'image' && !fs.lstatSync(record.cachePath).isSymbolicLink()) {
+                    let sync = exifSyncs.get(record.cachePath);
+                    if (!sync) {
+                      sync = Media.syncCachedExif(origPath, record.cachePath, isCurrent);
+                      exifSyncs.set(record.cachePath, sync);
+                    }
+                    await sync;
+                    if (!isCurrent()) {
+                      if (importGeneration === this.directoryImportGeneration) {
+                        this.win?.webContents?.send('read-media-file', {
+                          error: { message: 'Media is no longer available.' },
+                          origPath,
+                        });
+                      }
+                      resolve();
+                      return;
+                    }
+                    this.recordExportMedia(origPath, result.bigName);
+                  }
+                } catch (error) {
+                  if (!isCurrent()) {
+                    if (importGeneration === this.directoryImportGeneration) {
+                      this.win?.webContents?.send('read-media-file', {
+                        error: { message: 'Media is no longer available.' },
+                        origPath,
+                      });
+                    }
+                    resolve();
+                    return;
+                  }
+                  result = {
+                    ...result,
+                    error: { message: error?.message || 'Unable to validate the cached media file.' },
+                  };
+                  this.authorizedMedia.delete(origPath);
+                  this.exportMedia.delete(origPath);
+                }
+              }
+              if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
+                this.win.webContents.send('read-media-file', result);
+              }
+              if (this.pendingMedia.get(origPath) === token) this.pendingMedia.delete(origPath);
+              resolve();
+            };
+
+            try {
+              let operation;
+              if (type === 'video') {
+                operation = Media.saveVideo(origPath, this.win, sendMediaResult);
+              } else if (ext === 'insp') {
+                operation = Media.saveInsta360Image(origPath, this.win, sendMediaResult);
+              } else {
+                operation = Media.saveImage(origPath, this.win, sendMediaResult);
+              }
+              if (operation && typeof operation.catch === 'function') {
+                operation.catch((err) => sendMediaResult({ origPath, error: { message: err.message } }));
+              }
+            } catch (err) {
+              sendMediaResult({ origPath, error: { message: err.message } });
+            }
+          })
+      )
+    );
+    if (importGeneration === this.directoryImportGeneration) this.win?.webContents?.send('import-finished');
   }
 
   deleteSelected(dataArray = []) {
@@ -523,6 +679,15 @@ class MainModelClass {
     });
 
     return true;
+  }
+
+  removeFromLibrary(items) {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (typeof item?.origPath !== 'string') continue;
+      this.authorizedMedia.delete(item.origPath);
+      this.exportMedia.delete(item.origPath);
+    }
   }
 
   deleteCache(event, items = []) {

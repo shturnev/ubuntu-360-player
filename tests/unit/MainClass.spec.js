@@ -303,6 +303,169 @@ describe('MainModelClass', () => {
     expect(readDir).not.toHaveBeenCalled();
   });
 
+  test('file picker is multi-select and cancellation keeps the current authorization', () => {
+    mainModelClass.authorizedMedia.set('/existing.jpg', 'image');
+    dialog.showOpenDialogSync.mockReturnValueOnce(undefined);
+    const event = { reply: jest.fn() };
+    expect(mainModelClass.openFiles(event)).toBe(false);
+    expect(dialog.showOpenDialogSync).toHaveBeenLastCalledWith({
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Media', extensions: ['jpg', 'jpeg', 'png', 'insp', 'mp4'] }],
+    });
+    expect(event.reply).toHaveBeenCalledWith('add-files', false);
+    expect(mainModelClass.authorizedMedia.get('/existing.jpg')).toBe('image');
+    expect(mainModelClass.importBusy).toBe(false);
+  });
+
+  test('rejects concurrent manual dialogs while an external import is active', () => {
+    mainModelClass.importBusy = true;
+    const event = { reply: jest.fn() };
+    dialog.showOpenDialogSync.mockClear();
+    expect(mainModelClass.openDir(event)).toBe(false);
+    expect(mainModelClass.openFiles(event)).toBe(false);
+    expect(dialog.showOpenDialogSync).not.toHaveBeenCalled();
+  });
+
+  test('routes every supported uppercase format and reports a partial preparation failure', async () => {
+    const paths = ['a.JPG', 'b.JPEG', 'c.PNG', 'd.INSP', 'e.MP4'].map((name) => path.join(tempDir, name));
+    paths.forEach((file) => fs.writeFileSync(file, 'data'));
+    const saveImage = jest
+      .spyOn(Media, 'saveImage')
+      .mockImplementation((file, _win, cb) =>
+        cb(file === paths[1] ? { origPath: file, error: { message: 'Thumbnail failed' } } : { origPath: file })
+      );
+    const saveInsta = jest
+      .spyOn(Media, 'saveInsta360Image')
+      .mockImplementation((file, _win, cb) => cb({ origPath: file }));
+    const saveVideo = jest.spyOn(Media, 'saveVideo').mockImplementation((file, _win, cb) => cb({ origPath: file }));
+    await mainModelClass.readFiles(paths);
+    expect(saveImage).toHaveBeenCalledTimes(3);
+    expect(saveInsta).toHaveBeenCalledTimes(1);
+    expect(saveVideo).toHaveBeenCalledTimes(1);
+    expect(mainModelClass.authorizedMedia.has(paths[1])).toBe(false);
+    expect(mainModelClass.authorizedMedia.has(paths[0])).toBe(true);
+    expect(
+      mainModelClass.win.webContents.send.mock.calls.filter(([channel]) => channel === 'read-media-file')
+    ).toHaveLength(5);
+  });
+  test('appends canonical files once, reports invalid paths and waits for every callback', async () => {
+    const first = path.join(tempDir, 'same.JPG');
+    const otherDir = path.join(tempDir, 'other');
+    fs.mkdirSync(otherDir);
+    const second = path.join(otherDir, 'same.JPG');
+    const alias = path.join(tempDir, 'alias.jpg');
+    fs.writeFileSync(first, 'first');
+    fs.writeFileSync(second, 'second');
+    fs.symlinkSync(first, alias);
+    const callbacks = new Map();
+    jest.spyOn(Media, 'saveImage').mockImplementation((file, _win, cb) => callbacks.set(file, cb));
+    const send = mainModelClass.win.webContents.send;
+    mainModelClass.authorizedMedia.set('/old.jpg', 'image');
+    const oldExport = {};
+    mainModelClass.exportMedia.set('/old.jpg', oldExport);
+    let finished = false;
+    const promise = mainModelClass
+      .readFiles([first, alias, second, path.join(tempDir, 'missing.png'), tempDir])
+      .then(() => {
+        finished = true;
+      });
+    expect(send).toHaveBeenCalledWith('start-read-files', 4);
+    expect(callbacks.size).toBe(2);
+    callbacks.get(first)({ origPath: first });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    callbacks.get(second)({ origPath: second });
+    await promise;
+    expect(mainModelClass.authorizedMedia.get('/old.jpg')).toBe('image');
+    expect(mainModelClass.exportMedia.get('/old.jpg')).toBe(oldExport);
+    expect(send.mock.calls.filter(([channel]) => channel === 'read-media-file')).toHaveLength(4);
+    expect(send).toHaveBeenLastCalledWith('import-finished');
+    send.mockClear();
+    await mainModelClass.readFiles([alias, first]);
+    expect(send).toHaveBeenCalledWith('start-read-files', 0);
+    expect(send.mock.calls.filter(([channel]) => channel === 'read-media-file')).toHaveLength(0);
+  });
+
+  test('queues external files until the active batch callback completes', async () => {
+    const first = path.join(tempDir, 'a.jpg');
+    const second = path.join(tempDir, 'b.insp');
+    fs.writeFileSync(first, 'image');
+    fs.writeFileSync(second, 'image');
+    let firstCallback;
+    let secondCallback;
+    jest.spyOn(Media, 'saveImage').mockImplementation((_file, _win, cb) => {
+      firstCallback = cb;
+    });
+    jest.spyOn(Media, 'saveInsta360Image').mockImplementation((_file, _win, cb) => {
+      secondCallback = cb;
+    });
+    mainModelClass.enqueueExternalImport({ files: [first] });
+    mainModelClass.enqueueExternalImport({ files: [second] });
+    expect(firstCallback).toEqual(expect.any(Function));
+    expect(secondCallback).toBeUndefined();
+    firstCallback({ origPath: first });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(secondCallback).toEqual(expect.any(Function));
+    secondCallback({ origPath: second });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mainModelClass.importBusy).toBe(false);
+  });
+
+  test('holds queued external imports until the replacement renderer is ready', async () => {
+    const file = path.join(tempDir, 'pending.jpg');
+    fs.writeFileSync(file, 'image');
+    const save = jest.spyOn(Media, 'saveImage').mockImplementation((origPath, _win, cb) => cb({ origPath }));
+    mainModelClass.setExternalImportReady(false);
+    mainModelClass.enqueueExternalImport({ files: [file] });
+    expect(save).not.toHaveBeenCalled();
+    mainModelClass.setExternalImportReady(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  test('waits for derived image EXIF synchronization before importing the next batch', async () => {
+    const first = path.join(tempDir, 'a.insp');
+    const second = path.join(tempDir, 'b.jpg');
+    fs.writeFileSync(first, 'image');
+    fs.writeFileSync(second, 'image');
+    fs.writeFileSync(path.join(mainModelClass.static_dir, 'big', 'derived.jpg'), 'derived');
+    let finishExif;
+    jest.spyOn(Media, 'syncCachedExif').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishExif = resolve;
+        })
+    );
+    jest
+      .spyOn(Media, 'saveInsta360Image')
+      .mockImplementation((_file, _win, cb) => cb({ origPath: first, bigName: 'derived.jpg' }));
+    const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation((_file, _win, cb) => cb({ origPath: second }));
+    mainModelClass.enqueueExternalImport({ files: [first] });
+    mainModelClass.enqueueExternalImport({ files: [second] });
+    expect(saveImage).not.toHaveBeenCalled();
+    finishExif();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(saveImage).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not resurrect a removed file when its preparation completes', async () => {
+    const file = path.join(tempDir, 'removed.jpg');
+    fs.writeFileSync(file, 'image');
+    let callback;
+    jest.spyOn(Media, 'saveImage').mockImplementation((_file, _win, cb) => {
+      callback = cb;
+    });
+    const promise = mainModelClass.readFiles([file]);
+    mainModelClass.removeFromLibrary([{ origPath: file }]);
+    callback({ origPath: file, bigName: 'removed.jpg' });
+    await promise;
+    expect(mainModelClass.authorizedMedia.has(file)).toBe(false);
+    expect(mainModelClass.win.webContents.send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ origPath: file, error: expect.any(Object) })
+    );
+  });
+
   test('returns metadata using the original path as its correlation key', async () => {
     jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }]);
     jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});

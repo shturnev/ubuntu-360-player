@@ -6,6 +6,10 @@ function ShortcutList() {
         <dd>Open folder</dd>
       </div>
       <div>
+        <dt>Ctrl+Shift+O</dt>
+        <dd>Add files</dd>
+      </div>
+      <div>
         <dt>Ctrl+P</dt>
         <dd>Save screenshot of a ready 360° panorama</dd>
       </div>

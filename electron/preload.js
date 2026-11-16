@@ -2,7 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const allowedChannels = [
   'open-dir',
+  'add-files',
+  'renderer-ready',
   'delete-selected',
+  'remove-from-library',
   'delete-cache',
   'get-cache-size',
   'get-config',
@@ -14,6 +17,8 @@ const allowedChannels = [
   'start-file-server',
   'config-data',
   'start-read-dir',
+  'start-read-files',
+  'import-finished',
   'read-media-file',
   'file-deleted',
   'delete-error',

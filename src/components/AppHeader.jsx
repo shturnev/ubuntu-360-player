@@ -14,6 +14,17 @@ const FolderIcon = () => (
   </svg>
 );
 
+const FilePlusIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path
+      d="M5 3h9l5 5v4M5 3v18h8M14 3v5h5M17 15v6m-3-3h6"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 const SelectionIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
     <path
@@ -52,6 +63,7 @@ function AppHeader({
   showCloseViewer,
   showSettings,
   onOpenDir,
+  onAddFiles,
   onToggleSelection,
   onCloseViewer,
   onToggleSettings,
@@ -75,6 +87,16 @@ function AppHeader({
             title="Open folder (Ctrl+O)"
           >
             <FolderIcon />
+          </button>
+          <button
+            type="button"
+            className="icon-button primary-icon-button"
+            onClick={onAddFiles}
+            disabled={!canOpenDir}
+            aria-label="Add files"
+            title="Add files (Ctrl+Shift+O)"
+          >
+            <FilePlusIcon />
           </button>
           {canSelectMedia && (
             <button
