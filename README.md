@@ -1,3 +1,5 @@
+![360 Media Viewer — Immersive photo & video viewing for Linux](docs/360-media-viewer-banner.png)
+
 ## Hello, this is 360 Media Viewer for Linux!
 > At the moment, it is a strong word. Because at now it’s only for Debian-like distributions. But this is cool too, right? And over time, we will do porting for other popular Linux distributions.
 
