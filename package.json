@@ -6,7 +6,7 @@
   "private": true,
   "repository": "https://github.com/shturnev/ubuntu-360-player",
   "description": "360 media viewer for desktop Linux with Electron and React",
-  "homepage": "tbd",
+  "homepage": "https://viewer360.app/",
   "keywords": [
     "vr",
     "360",
