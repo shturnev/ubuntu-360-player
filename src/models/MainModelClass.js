@@ -2,6 +2,7 @@ const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const { pipeline } = require('stream/promises');
 const { dialog, ipcMain } = require('electron');
 
@@ -16,6 +17,15 @@ const clr = require('cli-color');
 const trash = require('trash');
 const getFolderSize = require('get-folder-size');
 const rimraf = require('rimraf');
+
+async function getExportDestinationStat(filePath) {
+  try {
+    return await fs.promises.lstat(filePath);
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
 
 class MainModelClass {
   constructor(win, updater = new Updater()) {
@@ -203,6 +213,7 @@ class MainModelClass {
     this.mediaSaveInProgress = true;
     let source;
     let destination;
+    let tempPath;
     try {
       const record = typeof origPath === 'string' && this.exportMedia.get(origPath);
       const initialStat = this.validateExportMedia(origPath, record);
@@ -231,23 +242,55 @@ class MainModelClass {
         throw new Error('The cached media file has changed.');
       }
       this.validateExportMedia(origPath, record);
-      destination = await fs.promises.open(
-        result.filePath,
-        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW,
-        0o666
-      );
-      const destStat = await destination.stat();
-      if (!destStat.isFile() || (destStat.dev === sourceStat.dev && destStat.ino === sourceStat.ino)) {
+      const destStat = await getExportDestinationStat(result.filePath);
+      if (destStat && !destStat.isFile()) throw new Error('The destination must be a regular file.');
+      if (destStat && destStat.dev === sourceStat.dev && destStat.ino === sourceStat.ino) {
         throw new Error('Cannot save media over its source.');
       }
-      this.validateExportMedia(origPath, record);
-      await destination.truncate(0);
+      const candidate = path.join(path.dirname(result.filePath), `.sht-vr-export-${crypto.randomUUID()}.tmp`);
+      destination = await fs.promises.open(
+        candidate,
+        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
+        0o666
+      );
+      tempPath = candidate;
+      if (destStat) await destination.chmod(destStat.mode & 0o777);
       await pipeline(source.createReadStream(), destination.createWriteStream());
+      const currentSource = this.validateExportMedia(origPath, record);
+      if (
+        currentSource.size !== initialStat.size ||
+        currentSource.mtimeMs !== initialStat.mtimeMs ||
+        currentSource.ctimeMs !== initialStat.ctimeMs
+      ) {
+        throw new Error('The cached media file has changed.');
+      }
+      const currentDest = await getExportDestinationStat(result.filePath);
+      if (
+        Boolean(destStat) !== Boolean(currentDest) ||
+        (destStat &&
+          (destStat.dev !== currentDest.dev ||
+            destStat.ino !== currentDest.ino ||
+            destStat.size !== currentDest.size ||
+            destStat.mtimeMs !== currentDest.mtimeMs ||
+            destStat.ctimeMs !== currentDest.ctimeMs))
+      ) {
+        throw new Error('The destination file has changed.');
+      }
+      this.validateExportMedia(origPath, record);
+      await fs.promises.rename(tempPath, result.filePath);
+      tempPath = undefined;
       return { success: true };
     } catch (error) {
       return { success: false, message: error?.message || 'Unable to save media.' };
     } finally {
       const closed = await Promise.allSettled([source?.close(), destination?.close()]);
+      if (tempPath) {
+        try {
+          await fs.promises.unlink(tempPath);
+        } catch (error) {
+          console.error('Unable to remove temporary media export:', error);
+        }
+      }
       this.mediaSaveInProgress = false;
       closed.filter((result) => result.status === 'rejected').forEach((result) => console.error(result.reason));
     }

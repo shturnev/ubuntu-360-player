@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { Writable } = require('stream');
 
 jest.mock('electron', () => ({
   dialog: { showOpenDialogSync: jest.fn(), showSaveDialog: jest.fn() },
@@ -480,6 +481,97 @@ describe('MainModelClass', () => {
     expect((await first).success).toBe(false);
     expect(fs.existsSync(path.join(tempDir, 'copy.jpg'))).toBe(false);
     expect((await mainModelClass.saveCurrentMedia({ origPath: '/unknown' })).success).toBe(false);
+  });
+
+  test('atomically replaces an existing export and retains its permissions', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    const destination = path.join(tempDir, 'export.jpg');
+    fs.writeFileSync(original, 'new image');
+    fs.writeFileSync(destination, 'old image');
+    fs.chmodSync(destination, 0o640);
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: destination });
+
+    await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({ success: true });
+    expect(fs.readFileSync(destination, 'utf8')).toBe('new image');
+    expect(fs.statSync(destination).mode & 0o777).toBe(0o640);
+    expect(fs.readdirSync(tempDir).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
+  });
+
+  test('keeps an existing destination intact and removes the temporary file when writing fails', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    const destination = path.join(tempDir, 'export.jpg');
+    fs.writeFileSync(original, 'new image');
+    fs.writeFileSync(destination, 'old image');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: destination });
+    const open = fs.promises.open.bind(fs.promises);
+    jest.spyOn(fs.promises, 'open').mockImplementation(async (filePath, ...args) => {
+      const handle = await open(filePath, ...args);
+      if (path.basename(filePath).startsWith('.sht-vr-export-')) {
+        jest.spyOn(handle, 'createWriteStream').mockImplementation(
+          () =>
+            new Writable({
+              write(chunk, _encoding, callback) {
+                handle.write(chunk.subarray(0, 3)).then(() => callback(new Error('Disk full')), callback);
+              },
+            })
+        );
+      }
+      return handle;
+    });
+
+    await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({
+      success: false,
+      message: 'Disk full',
+    });
+    expect(fs.readFileSync(destination, 'utf8')).toBe('old image');
+    expect(fs.readdirSync(tempDir).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
+  });
+
+  test('rejects symlink and hard-link destinations that refer to the source', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    fs.writeFileSync(original, 'original');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    const symlink = path.join(tempDir, 'symlink.jpg');
+    const hardlink = path.join(tempDir, 'hardlink.jpg');
+    fs.symlinkSync(original, symlink);
+    fs.linkSync(original, hardlink);
+    for (const filePath of [symlink, hardlink]) {
+      dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath });
+      expect((await mainModelClass.saveCurrentMedia({ origPath: original })).success).toBe(false);
+    }
+    expect(fs.readFileSync(original, 'utf8')).toBe('original');
+  });
+
+  test('does not replace a destination changed during export', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    const destination = path.join(tempDir, 'export.jpg');
+    fs.writeFileSync(original, 'new image');
+    fs.writeFileSync(destination, 'old image');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: destination });
+    const lstat = fs.promises.lstat.bind(fs.promises);
+    let destinationChecks = 0;
+    jest.spyOn(fs.promises, 'lstat').mockImplementation(async (filePath, ...args) => {
+      if (filePath === destination && ++destinationChecks === 2) fs.writeFileSync(destination, 'changed elsewhere');
+      return lstat(filePath, ...args);
+    });
+
+    await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({
+      success: false,
+      message: 'The destination file has changed.',
+    });
+    expect(fs.readFileSync(destination, 'utf8')).toBe('changed elsewhere');
+    expect(fs.readdirSync(tempDir).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
   });
 
   test('rejects a replaced cache link and invalidates exports on cache clearing', async () => {
