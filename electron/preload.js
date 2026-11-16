@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('shtVR', {
   async savePanoramaScreenshot(payload) {
     return ipcRenderer.invoke('save-panorama-screenshot', payload);
   },
+  async saveCurrentMedia(payload) {
+    return ipcRenderer.invoke('save-current-media', payload);
+  },
   async saveOrientationCorrection(payload) {
     return ipcRenderer.invoke('save-orientation-correction', payload);
   },

@@ -14,6 +14,7 @@
     "project.config.js",
     "package.json"
   ],
+  "asarUnpack": ["node_modules/exiftool-vendored.pl/**"],
   "linux": {
     "target": ["deb", "AppImage"],
     "category": "Graphics",
@@ -24,7 +25,7 @@
     "description": "Browse and view 360-degree photos and videos on Linux."
   },
   "deb": {
-    "depends": ["ffmpeg", "graphicsmagick"]
+    "depends": ["ffmpeg", "graphicsmagick", "perl"]
   },
   "appImage": {
     "artifactName": "${name}-${version}.${ext}"

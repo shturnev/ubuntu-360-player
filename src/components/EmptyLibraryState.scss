@@ -2,6 +2,12 @@
 
 .empty-state {
   min-height: 52vh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: calc(26vh - 1.5rem);
+}
+
+.empty-state .home-shortcuts {
+  margin-top: 3.5rem;
 }

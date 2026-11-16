@@ -13,6 +13,7 @@
   align-items: flex-start;
   justify-content: center;
   padding: 4rem 1rem;
+  overflow-y: auto;
   background: rgba(2, 6, 23, 0.56);
   z-index: 30;
 }
@@ -31,4 +32,53 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.home-shortcuts {
+  width: min(42rem, 100%);
+  margin: 1.5rem auto;
+  color: $text-muted;
+  font-size: 0.85rem;
+}
+
+.home-shortcuts h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.home-shortcuts dl {
+  position: relative;
+  display: grid;
+  gap: 0.8rem;
+  margin: 0;
+}
+
+.home-shortcuts dl::before {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  background: $border-strong;
+  content: '';
+}
+
+.home-shortcuts dl > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3rem;
+}
+
+.home-shortcuts dt {
+  font-weight: 600;
+  text-align: right;
+}
+
+.home-shortcuts dd {
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .home-shortcuts dl > div {
+    gap: 1.5rem;
+  }
 }

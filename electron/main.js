@@ -236,6 +236,23 @@ async function createWindow() {
     },
   });
 
+  const webContents = mainWindow.webContents;
+  webContents.on('before-input-event', (_event, input) => {
+    const key = input.code
+      ? /^Key[A-Z]$/.test(input.code)
+        ? input.code.slice(3).toLowerCase()
+        : input.code === 'F1'
+          ? 'f1'
+          : ''
+      : input.key.toLowerCase();
+    const reserved =
+      !input.alt &&
+      !input.shift &&
+      !input.meta &&
+      ((input.control && ['o', 'p', 's'].includes(key)) || (!input.control && key === 'f1'));
+    webContents.setIgnoreMenuShortcuts(reserved);
+  });
+
   if (isDevelopment) {
     await loadDevelopmentUrl();
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -243,10 +260,15 @@ async function createWindow() {
     await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  appModel = new MainModelClass(mainWindow);
-  appModel.init();
+  if (appModel) {
+    appModel.setWindow(mainWindow);
+  } else {
+    appModel = new MainModelClass(mainWindow);
+    appModel.init();
+  }
 
   mainWindow.on('closed', () => {
+    appModel.setWindow(null);
     mainWindow = null;
     if (reactDevtoolsWindow && !reactDevtoolsWindow.isDestroyed()) {
       reactDevtoolsWindow.close();
@@ -278,6 +300,12 @@ async function initializeApplication() {
       return { success: false, message: 'Saving screenshots is unavailable.' };
     }
     return appModel.savePanoramaScreenshot(payload);
+  });
+  ipcMain.handle('save-current-media', async (_, payload) => {
+    if (!appModel) {
+      return { success: false, message: 'Saving media is unavailable.' };
+    }
+    return appModel.saveCurrentMedia(payload);
   });
   ipcMain.handle('save-orientation-correction', async (_, payload) => {
     if (!appModel) {

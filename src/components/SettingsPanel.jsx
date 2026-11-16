@@ -1,4 +1,5 @@
 import './SettingsPanel.scss';
+import ShortcutList from './ShortcutList.jsx';
 
 const donateUrl = 'https://www.privat24.ua/send/krdrh';
 const changeLogUrl = 'https://github.com/shturnev/ubuntu-360-player/releases';
@@ -65,6 +66,11 @@ function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting
         <span>Check for updates</span>
         <input type="checkbox" checked={Boolean(checkUpdates)} onChange={onUpdateSetting} />
       </label>
+
+      <section className="shortcuts-box" aria-labelledby="shortcuts-title">
+        <strong id="shortcuts-title">Keyboard shortcuts</strong>
+        <ShortcutList />
+      </section>
 
       <div className="website-box">
         <div>
