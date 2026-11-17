@@ -76,5 +76,29 @@
     "sass": "^1.108.1",
     "vite": "^8.3.7",
     "wait-on": "^8.0.0"
+  },
+  "overrides": {
+    "app-builder-lib": {
+      "minimatch": "^11.0.1",
+      "@electron/asar": {
+        "minimatch": "^3.0.4"
+      },
+      "ejs": {
+        "jake": {
+          "filelist": {
+            "minimatch": "^5.0.1"
+          }
+        }
+      }
+    },
+    "@electron/universal": {
+      "minimatch": "^11.0.1",
+      "@electron/asar": {
+        "minimatch": "^3.0.4"
+      },
+      "dir-compare": {
+        "minimatch": "^3.0.5"
+      }
+    }
   }
 }
