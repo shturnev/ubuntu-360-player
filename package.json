@@ -79,7 +79,17 @@
   },
   "overrides": {
     "app-builder-lib": {
-      "minimatch": "^11.0.1"
+      "minimatch": "^11.0.1",
+      "@electron/asar": {
+        "minimatch": "^3.0.4"
+      },
+      "ejs": {
+        "jake": {
+          "filelist": {
+            "minimatch": "^5.0.1"
+          }
+        }
+      }
     },
     "@electron/universal": {
       "minimatch": "^11.0.1",
