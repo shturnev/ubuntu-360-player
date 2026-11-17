@@ -20,6 +20,7 @@ const allowedChannels = [
   'start-read-files',
   'import-finished',
   'read-media-file',
+  'insv-progress',
   'file-deleted',
   'delete-error',
   'delete-cache-finish',

@@ -6,7 +6,7 @@ const { assertCurrentPair } = require('./insvPair');
 const { projectInsvThumbnail } = require('./insvThumbnailProjection');
 const geometry = require('../insvGeometry.json');
 
-const THUMBNAIL_VERSION = `insv-projection-450x225-v3-${JSON.stringify(geometry)}`;
+const THUMBNAIL_VERSION = `insv-projection-450x225-v4-${JSON.stringify(geometry)}`;
 const SOURCE_SIZE = 720;
 const WIDTH = 450;
 const HEIGHT = 225;
@@ -61,11 +61,11 @@ async function isValidThumbnail(file) {
   }
 }
 
-async function createInsvThumbnail(pair, smallDir) {
+async function createInsvThumbnail(pair, smallDir, rotation = [0, 0, 0, 1]) {
   await assertCurrentPair(pair);
   const hash = crypto
     .createHash('sha256')
-    .update(JSON.stringify([THUMBNAIL_VERSION, pair.paths, pair.snapshots, pair.sampleTime]))
+    .update(JSON.stringify([THUMBNAIL_VERSION, pair.paths, pair.snapshots, pair.sampleTime, rotation]))
     .digest('hex');
   const name = `insv-${hash}.jpg`;
   const target = path.join(smallDir, name);
@@ -113,7 +113,7 @@ async function createInsvThumbnail(pair, smallDir) {
         )
       );
     }
-    const pixels = projectInsvThumbnail(frames, SOURCE_SIZE, WIDTH, HEIGHT);
+    const pixels = projectInsvThumbnail(frames, SOURCE_SIZE, WIDTH, HEIGHT, rotation);
     image = await runFfmpeg(
       [
         '-v',

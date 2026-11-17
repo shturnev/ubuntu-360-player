@@ -274,6 +274,66 @@ class Media {
     throw new Error('Unsupported media type.');
   }
 
+  static async getInsvMetadata(pair) {
+    const file = pair.paths[0];
+    try {
+      const [video, exif] = await Promise.all([
+        Media.probeVideoMetadata(file),
+        new Promise((resolve, reject) => {
+          execFile(
+            'perl',
+            [
+              exiftoolPath,
+              '-m',
+              '-ee',
+              '-json',
+              '-s',
+              '-Make',
+              '-Model',
+              '-SerialNumber',
+              '-Firmware',
+              '-Software',
+              '-CreateDate',
+              '-DateTimeOriginal',
+              '-GPSPosition',
+              '-LensModel',
+              '-FNumber',
+              '-ISO',
+              '-FocalLength',
+              file,
+            ],
+            { timeout: 30000, maxBuffer: 1024 * 1024 },
+            (error, stdout) => {
+              if (error) return reject(error);
+              try {
+                const result = JSON.parse(stdout);
+                if (!Array.isArray(result) || !result[0] || typeof result[0] !== 'object') {
+                  throw new Error('Invalid INSV metadata.');
+                }
+                resolve(result[0]);
+              } catch (parseError) {
+                reject(parseError);
+              }
+            }
+          );
+        }),
+      ]);
+      const videoEntries = formatVideoMetadata(video).map((item) =>
+        item.key === 'dimensions' ? { ...item, label: 'Lens dimensions' } : item
+      );
+      return compactEntries([
+        entry('second-lens', 'Second lens file', path.basename(pair.paths[1])),
+        ...videoEntries,
+        ...formatImageMetadata(exif).filter((item) => item.key !== 'dimensions'),
+        entry('serial-number', 'Camera serial number', exif.SerialNumber),
+        entry('firmware', 'Firmware', exif.Firmware),
+        entry('gps-position', 'GPS position', exif.GPSPosition),
+      ]);
+    } catch (error) {
+      throw new Error('Unable to read INSV metadata. Make sure ffprobe and ExifTool are available.');
+    }
+  }
+
   static probeVideoMetadata(filePath) {
     return new Promise((resolve, reject) => {
       execFile(

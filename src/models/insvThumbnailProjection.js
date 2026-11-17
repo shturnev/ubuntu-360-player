@@ -17,7 +17,7 @@ function sample(image, size, u, v) {
   });
 }
 
-function projectInsvThumbnail(images, sourceSize, width, height) {
+function projectInsvThumbnail(images, sourceSize, width, height, rotation = [0, 0, 0, 1]) {
   if (
     !Array.isArray(images) ||
     images.length !== 2 ||
@@ -27,20 +27,31 @@ function projectInsvThumbnail(images, sourceSize, width, height) {
     !Number.isSafeInteger(width) ||
     width <= 0 ||
     !Number.isSafeInteger(height) ||
-    height <= 0
+    height <= 0 ||
+    !Array.isArray(rotation) ||
+    rotation.length !== 4 ||
+    rotation.some((value) => !Number.isFinite(value)) ||
+    Math.abs(Math.hypot(...rotation) - 1) > 0.001
   ) {
     throw new Error('Invalid INSV thumbnail frames.');
   }
   const output = Buffer.alloc(width * height * 4);
   const halfFov = (geometry.fieldOfViewDegrees * Math.PI) / 360;
+  const [qx, qy, qz, qw] = rotation;
   for (let y = 0; y < height; y += 1) {
     const latitude = (0.5 - (y + 0.5) / height) * Math.PI;
     const cosLatitude = Math.cos(latitude);
     for (let x = 0; x < width; x += 1) {
       const longitude = ((x + 0.5) / width - 0.5) * 2 * Math.PI;
-      const dx = -Math.sin(longitude) * cosLatitude;
-      const dy = -Math.sin(latitude);
-      const dz = -Math.cos(longitude) * cosLatitude;
+      let dx = -Math.sin(longitude) * cosLatitude;
+      let dy = -Math.sin(latitude);
+      let dz = -Math.cos(longitude) * cosLatitude;
+      const tx = 2 * (qy * dz - qz * dy);
+      const ty = 2 * (qz * dx - qx * dz);
+      const tz = 2 * (qx * dy - qy * dx);
+      dx += qw * tx + qy * tz - qz * ty;
+      dy += qw * ty + qz * tx - qx * tz;
+      dz += qw * tz + qx * ty - qy * tx;
       const axisLength = Math.hypot(dx, dy);
       const colors = [1, -1].map((facing, index) => {
         const angle = Math.acos(Math.max(-1, Math.min(1, dz * facing)));

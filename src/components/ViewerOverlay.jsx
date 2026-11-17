@@ -388,9 +388,8 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
   };
 
   const openMetadata = () => {
-    if (showingItem.insv) return;
     if (showingItem.type === 'video') {
-      if (flatView && !orientationOpen) {
+      if (flatView && !orientationOpen && !showingItem.insv) {
         flatVideoRef.current?.pause();
       } else {
         panoramaRef.current?.pause?.();
@@ -443,8 +442,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
 
   const saveScreenshot = async () => {
     if (
-      showingItem.insv ||
-      flatView ||
+      (flatView && !showingItem.insv) ||
       orientationOpen ||
       metadataOpen ||
       shortcutsBlocked ||
@@ -501,7 +499,16 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
           ✕
         </button>
         {showingItem.insv ? (
-          <InsvViewer ref={panoramaRef} sources={insvSources} flatProjection={flatView} />
+          <InsvViewer
+            ref={panoramaRef}
+            sources={insvSources}
+            flatProjection={flatView}
+            motionMode={showingItem.motionMode}
+            motionWarning={showingItem.motionWarning}
+            onToggleFullscreen={toggleFullscreen}
+            isFullscreen={isFullscreen}
+            onCaptureReadyChange={setCanSaveScreenshot}
+          />
         ) : usePanoramaRenderer ? (
           <PanoramaViewer
             ref={panoramaRef}
@@ -590,7 +597,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
             >
               {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
             </button>
-            {!showingItem.insv && !flatView && canSaveScreenshot && (
+            {(!flatView || showingItem.insv) && canSaveScreenshot && (
               <button
                 type="button"
                 onClick={saveScreenshot}
@@ -602,24 +609,24 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
                 {isSavingScreenshot ? 'Saving screenshot…' : <CameraIcon />}
               </button>
             )}
-            <button
-              type="button"
-              onClick={toggleOrientationCorrection}
-              aria-expanded={orientationOpen}
-              aria-controls="orientation-correction"
-              aria-label="Adjust panorama orientation"
-              title="Adjust panorama orientation (O)"
-              disabled={Boolean(showingItem.insv)}
-            >
-              <OrientationIcon />
-            </button>
+            {!showingItem.insv && (
+              <button
+                type="button"
+                onClick={toggleOrientationCorrection}
+                aria-expanded={orientationOpen}
+                aria-controls="orientation-correction"
+                aria-label="Adjust panorama orientation"
+                title="Adjust panorama orientation (O)"
+              >
+                <OrientationIcon />
+              </button>
+            )}
             <button
               ref={metadataButtonRef}
               type="button"
               onClick={openMetadata}
               title="Show media information (I)"
               aria-label="Info"
-              disabled={Boolean(showingItem.insv)}
             >
               <InfoIcon />
             </button>

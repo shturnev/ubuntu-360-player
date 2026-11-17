@@ -58,6 +58,17 @@ describe('INSV thumbnail cache', () => {
     expect(pixel(4)[2]).toBeGreaterThan(120);
   });
 
+  test('rotates thumbnail directions like the viewer and keys the cache by correction', async () => {
+    const first = Buffer.from(Array.from({ length: 16 }, () => [255, 0, 0, 255]).flat());
+    const second = Buffer.from(Array.from({ length: 16 }, () => [0, 0, 255, 255]).flat());
+    const image = projectInsvThumbnail([first, second], 4, 18, 4, [0, 1, 0, 0]);
+    expect([...image.subarray(18 * 4, 18 * 4 + 3)]).toEqual([0, 0, 255]);
+    const pair = makePair();
+    const identity = await createInsvThumbnail(pair, cache);
+    const rotated = await createInsvThumbnail(pair, cache, [0, 1, 0, 0]);
+    expect(rotated).not.toBe(identity);
+  });
+
   test('uses the same sample time for both lenses and reuses a complete cache', async () => {
     const pair = makePair();
     const name = await createInsvThumbnail(pair, cache);

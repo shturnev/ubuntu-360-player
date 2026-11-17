@@ -1,3 +1,5 @@
+@use 'sass:color';
+
 $bg-deep: #0b1220;
 $bg-surface: rgba(15, 23, 42, 0.8);
 $bg-surface-soft: rgba(15, 23, 42, 0.7);
@@ -15,6 +17,7 @@ $accent-strong: #2563eb;
 $accent-soft: rgba(96, 165, 250, 0.9);
 $accent-light: #38bdf8;
 $accent-purple: #8b5cf6;
+$dark-text-color: color.adjust(#405172, $lightness: 20%);
 $warning: #fbbf24;
 $error-bg: rgba(127, 29, 29, 0.38);
 $error-border: rgba(248, 113, 113, 0.5);

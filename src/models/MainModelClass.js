@@ -14,6 +14,8 @@ const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFor
 const { validateInsvPair, assertCurrentPair } = require('./insvPair');
 const { InsvSourceServer } = require('./insvSourceServer');
 const { createInsvThumbnail } = require('./insvCache');
+const { closestInsvRotation } = require('./insvMotion');
+const { getCachedInsvMotion } = require('./insvMotionCache');
 const ConfigModel = require('./ConfigModel');
 const Updater = require('./Updater');
 
@@ -68,11 +70,14 @@ class MainModelClass {
       const origPath = payload?.origPath;
       const requestId = payload?.requestId;
       const type = payload?.type;
+      const isInsv = type === 'video' && this.authorizedMedia.get(origPath) === 'insv';
+      const token = isInsv ? this.insvTokens.get(origPath) : null;
+      const pair = token ? this.insvSources.records.get(token) : null;
       if (
         typeof origPath !== 'string' ||
         !Number.isSafeInteger(requestId) ||
         !['image', 'video'].includes(type) ||
-        this.authorizedMedia.get(origPath) !== type
+        (this.authorizedMedia.get(origPath) !== type && (!pair || pair.paths[0] !== origPath))
       ) {
         event.reply('media-metadata', {
           origPath: typeof origPath === 'string' ? origPath : '',
@@ -82,7 +87,20 @@ class MainModelClass {
         return;
       }
       try {
-        const entries = await Media.getMetadata(origPath, type);
+        let entries;
+        if (isInsv) {
+          await assertCurrentPair(pair);
+          entries = await Media.getInsvMetadata(pair);
+          await assertCurrentPair(pair);
+          if (
+            this.authorizedMedia.get(origPath) !== 'insv' ||
+            this.insvTokens.get(origPath) !== token ||
+            this.insvSources.records.get(token) !== pair
+          )
+            throw new Error('This INSV pair is no longer available in the current library.');
+        } else {
+          entries = await Media.getMetadata(origPath, type);
+        }
         event.reply('media-metadata', { origPath, requestId, entries });
       } catch (error) {
         event.reply('media-metadata', {
@@ -131,8 +149,10 @@ class MainModelClass {
     });
     ipcMain.on('get-cache-size', (event) => {
       getFolderSize(this.static_dir, (err, size) => {
-        const result = err ? 0 : (size / 1024 / 1024).toFixed(2);
-        event.reply('cache-size', result);
+        getFolderSize(path.join(this.homedir, 'insv-motion'), (motionError, motionSize) => {
+          const bytes = (err ? 0 : size) + (motionError ? 0 : motionSize);
+          event.reply('cache-size', (bytes / 1024 / 1024).toFixed(2));
+        });
       });
     });
     ipcMain.on('delete-cache', (event, items) => this.deleteCache(event, items));
@@ -488,7 +508,6 @@ class MainModelClass {
     const app = express();
     app.use(cors());
     app.get('/insv/:token/orientation', (req, res) => void this.insvSources.serveHorizon(req, res));
-    app.get('/insv/:token/gyro-orientation', (req, res) => void this.insvSources.serveHorizon(req, res, true));
     app.get('/insv/:token/:lens', (req, res) => void this.insvSources.serve(req, res));
     app.use(express.static(homedir + '/static'));
     const server = app.listen(0);
@@ -669,13 +688,31 @@ class MainModelClass {
           insvQueue = insvQueue.then(async () => {
             let result;
             try {
+              if (importGeneration !== this.directoryImportGeneration) return;
+              this.win?.webContents?.send('insv-progress', {
+                name: path.basename(filePath),
+                active: true,
+                stage: 'checking',
+              });
               const pair = await validateInsvPair(insvPair, Media.probeVideo, Media.verifyInsvVideo);
               if (importGeneration !== this.directoryImportGeneration) return;
               if (this.authorizedMedia.has(pair.paths[0])) throw new Error('This INSV pair is already in the library.');
-              const thumpName = await createInsvThumbnail(pair, path.join(this.static_dir, 'small'));
+              const motion = await getCachedInsvMotion(pair, path.join(this.homedir, 'insv-motion'), {
+                isCurrent: () => importGeneration === this.directoryImportGeneration,
+                onCacheMiss: () => {
+                  this.win?.webContents?.send('insv-progress', {
+                    name: path.basename(filePath),
+                    active: true,
+                    stage: 'stabilizing',
+                  });
+                },
+              });
+              if (importGeneration !== this.directoryImportGeneration) return;
+              const rotation = closestInsvRotation(motion.frames, pair.sampleTime);
+              const thumpName = await createInsvThumbnail(pair, path.join(this.static_dir, 'small'), rotation);
               await assertCurrentPair(pair);
               if (importGeneration !== this.directoryImportGeneration) return;
-              const insvToken = this.insvSources.register(pair);
+              const insvToken = this.insvSources.register(pair, motion.frames);
               this.insvTokens.set(pair.paths[0], insvToken);
               this.authorizedMedia.set(pair.paths[0], 'insv');
               result = {
@@ -685,6 +722,8 @@ class MainModelClass {
                 thumpName,
                 bigName: thumpName,
                 insvToken,
+                motionMode: motion.mode,
+                motionWarning: motion.warning,
               };
             } catch (validationError) {
               result = {
@@ -695,6 +734,10 @@ class MainModelClass {
                 },
                 origPath: filePath,
               };
+            } finally {
+              if (importGeneration === this.directoryImportGeneration) {
+                this.win?.webContents?.send('insv-progress', { active: false });
+              }
             }
             if (importGeneration === this.directoryImportGeneration) {
               this.win?.webContents?.send('read-media-file', result);
@@ -856,19 +899,23 @@ class MainModelClass {
     this.insvSources.clear();
     this.insvTokens.clear();
     const clearEverything = !Array.isArray(items) || !items.length;
+    const motionDir = path.join(this.homedir, 'insv-motion');
 
     if (clearEverything) {
-      if (!Helper.isFileExists(this.static_dir)) {
-        event.reply('delete-cache-finish', true);
-        return;
-      }
-
       try {
         rimraf.sync(this.static_dir, { glob: false });
+        rimraf.sync(motionDir, { glob: false });
         event.reply('delete-cache-finish', true);
       } catch (err) {
         event.reply('delete-error', err);
       }
+      return;
+    }
+
+    try {
+      rimraf.sync(motionDir, { glob: false });
+    } catch (error) {
+      event.reply('delete-error', error);
       return;
     }
 

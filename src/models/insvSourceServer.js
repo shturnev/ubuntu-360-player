@@ -1,8 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const { assertCurrentPair, matchesSnapshot } = require('./insvPair');
-const { createInsvHorizonTrack } = require('./insvHorizon');
-const { createInsvGyroTrack } = require('./insvGyro');
 
 function parseRange(value, size) {
   if (!value) return { start: 0, end: size - 1, partial: false };
@@ -20,42 +18,38 @@ function parseRange(value, size) {
 }
 
 class InsvSourceServer {
-  constructor({ createHorizonTrack = createInsvHorizonTrack, createGyroTrack = createInsvGyroTrack } = {}) {
+  constructor() {
     this.records = new Map();
     this.horizonTracks = new Map();
-    this.gyroTracks = new Map();
-    this.createHorizonTrack = createHorizonTrack;
-    this.createGyroTrack = createGyroTrack;
   }
 
-  register(pair) {
+  register(pair, frames = []) {
     if (
       !Array.isArray(pair?.paths) ||
       pair.paths.length !== 2 ||
       !Array.isArray(pair.snapshots) ||
-      pair.snapshots.length !== 2
+      pair.snapshots.length !== 2 ||
+      !Array.isArray(frames)
     ) {
       throw new Error('Invalid authorized INSV pair.');
     }
     const token = crypto.randomBytes(24).toString('hex');
     this.records.set(token, pair);
+    this.horizonTracks.set(token, frames);
     return token;
   }
 
   revoke(token) {
     this.records.delete(token);
     this.horizonTracks.delete(token);
-    this.gyroTracks.delete(token);
   }
 
   clear() {
     this.records.clear();
     this.horizonTracks.clear();
-    this.gyroTracks.clear();
   }
 
-  async serveHorizon(req, res, gyro = false) {
-    const cache = gyro ? this.gyroTracks : this.horizonTracks;
+  async serveHorizon(req, res) {
     const token = req.params.token;
     const pair = this.records.get(token);
     if (!pair) {
@@ -74,37 +68,7 @@ class InsvSourceServer {
       return;
     }
 
-    try {
-      let track = cache.get(token);
-      if (!track) {
-        track = gyro ? this.createGyroTrack(pair) : this.createHorizonTrack(pair);
-        cache.set(token, track);
-      }
-      const frames = await track;
-      await assertCurrentPair(pair);
-      if (this.records.get(token) !== pair) {
-        res.sendStatus(404);
-        return;
-      }
-      res.set('Cache-Control', 'no-store').json(frames);
-    } catch (error) {
-      cache.delete(token);
-      try {
-        await assertCurrentPair(pair);
-      } catch (sourceError) {
-        this.revoke(token);
-        res.status(410).send('The INSV pair is no longer available or has changed.');
-        return;
-      }
-      if (this.records.get(token) !== pair) {
-        res.sendStatus(404);
-        return;
-      }
-      const message = error.code
-        ? 'Unable to read motion data. Make sure ffprobe and ExifTool are available.'
-        : error.message;
-      res.status(422).send(message || 'Unable to calculate the INSV motion correction.');
-    }
+    res.set('Cache-Control', 'no-store').json(this.horizonTracks.get(token));
   }
 
   async serve(req, res) {

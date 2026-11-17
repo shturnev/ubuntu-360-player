@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InsvViewer from '../../src/components/InsvViewer.jsx';
 import ViewerOverlay from '../../src/components/ViewerOverlay.jsx';
 import { createInsvPlayback } from '../../src/insvPlayback.js';
@@ -7,6 +7,7 @@ import { createInsvPlayback } from '../../src/insvPlayback.js';
 jest.mock('../../src/insvPlayback.js', () => ({ createInsvPlayback: jest.fn() }));
 
 describe('INSV viewer', () => {
+  const originalFetch = global.fetch;
   let gl;
   let controller;
   let handlers;
@@ -57,12 +58,21 @@ describe('INSV viewer', () => {
       handlers = options;
       return controller;
     });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ time: 0, rotation: [0, 0, 0, 1] }],
+    });
   });
 
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.clearAllMocks();
+  });
 
-  test('uploads and renders both frames together and cleans up on unmount', () => {
-    const { unmount } = render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} />);
+  test('uploads and renders both frames together and cleans up on unmount', async () => {
+    const sources = ['http://localhost/00', 'http://localhost/10'];
+    const { unmount, rerender } = render(<InsvViewer sources={sources} />);
+    await waitFor(() => expect(createInsvPlayback).toHaveBeenCalled());
     const videos = document.querySelectorAll('video');
     videos.forEach((video) => {
       Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
@@ -73,6 +83,11 @@ describe('INSV viewer', () => {
     expect(gl.texImage2D).toHaveBeenCalledTimes(2);
     expect(gl.texImage2D.mock.calls.map((call) => call[5])).toEqual([...videos]);
     expect(gl.drawArrays).toHaveBeenCalledTimes(1);
+    expect(gl.uniform1i).toHaveBeenCalledWith('flatProjection', 0);
+    rerender(<InsvViewer sources={sources} flatProjection />);
+    expect(gl.uniform1i).toHaveBeenLastCalledWith('flatProjection', 1);
+    rerender(<InsvViewer sources={sources} />);
+    expect(gl.uniform1i).toHaveBeenLastCalledWith('flatProjection', 0);
     act(() => handlers.onFrame([1.03, 1]));
     expect(gl.texImage2D).toHaveBeenCalledTimes(2);
     unmount();
@@ -81,8 +96,9 @@ describe('INSV viewer', () => {
     expect(gl.deleteProgram).toHaveBeenCalled();
   });
 
-  test('controls both streams through the playback controller', () => {
+  test('controls both streams through the playback controller', async () => {
     render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Play video' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Play video' }));
     expect(controller.play).toHaveBeenCalled();
     act(() => handlers.onState({ playing: true, waiting: false }));
@@ -93,92 +109,61 @@ describe('INSV viewer', () => {
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeDisabled();
   });
 
-  test('enables and disables frame-specific horizon leveling', async () => {
-    const originalFetch = global.fetch;
+  test('loads and applies the prepared correction before rendering or enabling playback', async () => {
     const frames = [
       { time: 0, rotation: [0, 0, 0, 1] },
       { time: 1, rotation: [0, 0, 1, 0] },
     ];
-    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => frames });
-    try {
-      render(<InsvViewer sources={['http://localhost/insv/token/0', 'http://localhost/insv/token/1']} />);
-      document.querySelectorAll('video').forEach((video) => {
-        Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
-        Object.defineProperty(video, 'videoWidth', { value: 2880, configurable: true });
-        Object.defineProperty(video, 'videoHeight', { value: 2880, configurable: true });
-      });
-      act(() => handlers.onFrame([1, 1]));
-      expect(gl.uniform4f).toHaveBeenLastCalledWith('horizonRotation', 0, 0, 0, 1);
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Level horizon' })));
-      expect(global.fetch.mock.calls[0][0].toString()).toBe('http://localhost/insv/token/orientation');
-      expect(gl.uniform4f).toHaveBeenLastCalledWith('horizonRotation', 0, 0, 1, 0);
-      fireEvent.click(screen.getByRole('button', { name: 'Level horizon' }));
-      expect(gl.uniform4f).toHaveBeenLastCalledWith('horizonRotation', 0, 0, 0, 1);
-    } finally {
-      global.fetch = originalFetch;
-    }
+    let resolve;
+    global.fetch = jest.fn(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        })
+    );
+    render(<InsvViewer sources={['http://localhost/insv/token/0', 'http://localhost/insv/token/1']} />);
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeDisabled();
+    expect(createInsvPlayback).not.toHaveBeenCalled();
+    await act(async () => resolve({ ok: true, json: async () => frames }));
+    document.querySelectorAll('video').forEach((video) => {
+      Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
+      Object.defineProperty(video, 'videoWidth', { value: 2880, configurable: true });
+      Object.defineProperty(video, 'videoHeight', { value: 2880, configurable: true });
+    });
+    act(() => handlers.onFrame([1, 1]));
+    expect(global.fetch.mock.calls[0][0].toString()).toBe('http://localhost/insv/token/orientation');
+    expect(gl.uniform4f).toHaveBeenLastCalledWith('horizonRotation', 0, 0, 1, 0);
+    expect(screen.queryByRole('button', { name: 'Level horizon' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stabilize motion' })).not.toBeInTheDocument();
   });
 
-  test('reports unsupported horizon data without interrupting playback', async () => {
-    const originalFetch = global.fetch;
+  test('reports a prepared-track failure and prevents playback', async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, text: async () => 'Frame timestamps are unavailable.' });
-    try {
-      render(<InsvViewer sources={['http://localhost/insv/token/0', 'http://localhost/insv/token/1']} />);
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Level horizon' })));
-      expect(screen.getByRole('alert')).toHaveTextContent('Frame timestamps are unavailable.');
-      expect(controller.pause).not.toHaveBeenCalled();
-    } finally {
-      global.fetch = originalFetch;
-    }
+    render(<InsvViewer sources={['http://localhost/insv/token/0', 'http://localhost/insv/token/1']} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Frame timestamps are unavailable.');
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeDisabled();
+    expect(createInsvPlayback).not.toHaveBeenCalled();
   });
 
-  test('switches between horizon and gyro tracks without combining them', async () => {
-    const originalFetch = global.fetch;
-    global.fetch = jest.fn().mockImplementation(async (url) => ({
-      ok: true,
-      json: async () => [{ time: 0, rotation: url.toString().includes('gyro') ? [0, 1, 0, 0] : [1, 0, 0, 0] }],
-    }));
-    try {
-      render(<InsvViewer sources={['http://localhost/insv/token/0', 'http://localhost/insv/token/1']} />);
-      document.querySelectorAll('video').forEach((video) => {
-        Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
-        Object.defineProperty(video, 'videoWidth', { value: 2880, configurable: true });
-        Object.defineProperty(video, 'videoHeight', { value: 2880, configurable: true });
-      });
-
-      act(() => handlers.onFrame([0, 0]));
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Level horizon' })));
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Stabilize motion' })));
-      expect(gl.uniform4f).toHaveBeenLastCalledWith('horizonRotation', 0, 1, 0, 0);
-      expect(screen.getByRole('button', { name: 'Level horizon' })).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByRole('button', { name: 'Stabilize motion' })).toHaveAttribute('aria-pressed', 'true');
-      fireEvent.click(screen.getByRole('button', { name: 'Level horizon' }));
-      expect(gl.uniform4f).toHaveBeenLastCalledWith('horizonRotation', 1, 0, 0, 0);
-      expect(global.fetch).toHaveBeenCalledTimes(2);
-    } finally {
-      global.fetch = originalFetch;
-    }
+  test('accepts an explicitly uncorrected import and shows its warning', async () => {
+    global.fetch.mockResolvedValue({ ok: true, json: async () => [] });
+    render(
+      <InsvViewer
+        sources={['http://localhost/00', 'http://localhost/10']}
+        motionMode="none"
+        motionWarning="Not stabilized."
+      />
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Play video' })).toBeEnabled());
+    expect(screen.getByRole('note')).toHaveTextContent('Not stabilized.');
   });
 
-  test('keeps horizon leveling active when gyro data is unavailable', async () => {
-    const originalFetch = global.fetch;
-    global.fetch = jest
-      .fn()
-      .mockImplementation(async (url) =>
-        url.toString().includes('gyro')
-          ? { ok: false, text: async () => 'Gyro timing is unavailable.' }
-          : { ok: true, json: async () => [{ time: 0, rotation: [0, 0, 0, 1] }] }
-      );
-    try {
-      render(<InsvViewer sources={['http://localhost/insv/token/0', 'http://localhost/insv/token/1']} />);
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Level horizon' })));
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Stabilize motion' })));
-      expect(screen.getByRole('alert')).toHaveTextContent('Gyro timing is unavailable.');
-      expect(screen.getByRole('button', { name: 'Level horizon' })).toHaveAttribute('aria-pressed', 'true');
-      expect(controller.pause).not.toHaveBeenCalled();
-    } finally {
-      global.fetch = originalFetch;
-    }
+  test('aborts pending correction requests on unmount', () => {
+    global.fetch.mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} />);
+    const signal = global.fetch.mock.calls[0][1].signal;
+    unmount();
+    expect(signal.aborted).toBe(true);
   });
 
   test('reports missing WebGL instead of showing one lens', () => {
@@ -189,11 +174,15 @@ describe('INSV viewer', () => {
   });
 
   test('stops playback when either original is no longer available', async () => {
-    const originalFetch = global.fetch;
     jest.useFakeTimers();
-    global.fetch = jest.fn().mockResolvedValue({ ok: false });
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [{ time: 0, rotation: [0, 0, 0, 1] }] })
+      .mockResolvedValue({ ok: false });
     try {
       render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
       await act(async () => {
         jest.advanceTimersByTime(5000);
         await Promise.resolve();
@@ -201,14 +190,14 @@ describe('INSV viewer', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('no longer available or have changed');
       expect(controller.pause).toHaveBeenCalled();
     } finally {
-      global.fetch = originalFetch;
       jest.useRealTimers();
     }
   });
 
-  test('fails if the GPU cannot upload the pair', () => {
+  test('fails if the GPU cannot upload the pair', async () => {
     gl.getError.mockReturnValue(1285);
     render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} />);
+    await waitFor(() => expect(createInsvPlayback).toHaveBeenCalled());
     document.querySelectorAll('video').forEach((video) => {
       Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
       Object.defineProperty(video, 'videoWidth', { value: 2880, configurable: true });
@@ -220,7 +209,7 @@ describe('INSV viewer', () => {
     expect(controller.pause).toHaveBeenCalled();
   });
 
-  test('overlay uses both lenses even in flat mode and blocks unsupported pair actions', () => {
+  test('overlay uses both lenses in flat mode and blocks unsupported pair actions', async () => {
     const item = { type: 'video', insv: true, bigName: 'pair', origPath: '/video/00.insv' };
     const onDelete = jest.fn();
     const onOpenMetadata = jest.fn();
@@ -236,12 +225,52 @@ describe('INSV viewer', () => {
     );
     expect(document.querySelectorAll('video')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Info' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Adjust panorama orientation' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Info' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Adjust panorama orientation' })).not.toBeInTheDocument();
+    await waitFor(() => expect(createInsvPlayback).toHaveBeenCalled());
     fireEvent.keyDown(document, { key: ' ' });
     expect(controller.play).toHaveBeenCalled();
     fireEvent.keyDown(document, { key: 'i' });
     expect(onDelete).not.toHaveBeenCalled();
-    expect(onOpenMetadata).not.toHaveBeenCalled();
+    expect(onOpenMetadata).toHaveBeenCalledTimes(1);
+    expect(controller.pause).toHaveBeenCalled();
   });
+
+  test.each([false, true])(
+    'saves a corrected INSV screenshot in flat view=%s after a frame is ready',
+    async (flatView) => {
+      const item = { type: 'video', insv: true, bigName: 'pair', origPath: '/video/00.insv' };
+      const bytes = new Uint8Array([1, 2, 3]).buffer;
+      const encode = jest
+        .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+        .mockImplementation((callback) => callback({ arrayBuffer: async () => bytes }));
+      const onSaveScreenshot = jest.fn().mockResolvedValue({ success: true });
+      try {
+        render(
+          <ViewerOverlay
+            showingItem={item}
+            items={[item]}
+            insvSources={['http://localhost/00', 'http://localhost/10']}
+            flatView={flatView}
+            onSaveScreenshot={onSaveScreenshot}
+          />
+        );
+        await waitFor(() => expect(createInsvPlayback).toHaveBeenCalled());
+        expect(screen.queryByRole('button', { name: 'Save screenshot' })).not.toBeInTheDocument();
+        document.querySelectorAll('video').forEach((video) => {
+          Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
+          Object.defineProperty(video, 'videoWidth', { value: 2880, configurable: true });
+          Object.defineProperty(video, 'videoHeight', { value: 2880, configurable: true });
+        });
+        act(() => handlers.onFrame([1, 1]));
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save screenshot' })));
+        expect(encode).toHaveBeenCalledWith(expect.any(Function), 'image/jpeg', 0.92);
+        expect(onSaveScreenshot).toHaveBeenCalledWith(bytes);
+        act(() => handlers.onError('Source changed.'));
+        expect(screen.queryByRole('button', { name: 'Save screenshot' })).not.toBeInTheDocument();
+      } finally {
+        encode.mockRestore();
+      }
+    }
+  );
 });

@@ -121,6 +121,41 @@ describe('App', () => {
     return event;
   };
 
+  test('shows INSV import progress, badge, and correction fallback warning', () => {
+    renderApp();
+    act(() => {
+      listeners['start-read-dir']({}, 1);
+      listeners['insv-progress']({}, { active: true, name: 'clip.insv', stage: 'checking' });
+    });
+    expect(container.textContent).toContain('File clip.insv: checking stabilization');
+    act(() => {
+      listeners['insv-progress']({}, { active: true, name: 'clip.insv' });
+    });
+    expect(container.textContent).toContain('File clip.insv: stabilizing');
+    const heading = container.querySelector('.progress-heading');
+    expect(heading.textContent).toContain('Loading... 0 / 1');
+    expect(heading.querySelector('[role="status"]').textContent).toContain('File clip.insv: stabilizing');
+    expect(heading.nextElementSibling.getAttribute('role')).toBe('progressbar');
+    act(() => {
+      listeners['read-media-file'](
+        {},
+        {
+          type: 'video',
+          insv: true,
+          thumpName: 'clip.jpg',
+          bigName: 'clip.jpg',
+          motionMode: 'horizon',
+          motionWarning: 'Stabilization unavailable; horizon leveling only.',
+        }
+      );
+      listeners['insv-progress']({}, { active: false });
+    });
+    expect(container.textContent).not.toContain('File clip.insv: stabilizing');
+    expect(container.querySelector('.insv-badge').textContent).toBe('INSV');
+    expect(container.querySelector('.insv-warning').textContent).toBe('Horizon only');
+    expect(container.querySelector('.media-card').title).toContain('Stabilization unavailable');
+  });
+
   test('shows shortcut hints only in the empty library and keeps them in Settings', () => {
     renderApp();
     const emptyState = container.querySelector('.empty-state');

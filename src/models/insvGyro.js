@@ -227,7 +227,8 @@ function makeGyroTrack({ model, imu, captureTimes, exposureTimes }, playback, ti
 
 async function createInsvGyroTrack(pair) {
   const file = pair.paths[0];
-  const [metadata, frames, timing] = await Promise.all([
+  const timing = await readCameraTiming(file);
+  const [metadata, frames] = await Promise.all([
     run('perl', [
       exiftoolPath,
       '-m',
@@ -256,7 +257,6 @@ async function createInsvGyroTrack(pair) {
       'json',
       file,
     ]),
-    readCameraTiming(file),
   ]);
   const decoded = JSON.parse(frames);
   if (!Array.isArray(decoded.frames)) throw new Error('Unable to read INSV video frame timestamps.');

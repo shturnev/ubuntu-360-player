@@ -21,6 +21,7 @@ function App() {
   const [items, setItems] = useState([]);
   const [maxSizePx, setMaxSizePx] = useState(150);
   const [loadingProgress, setLoadingProgress] = useState(EMPTY_PROGRESS);
+  const [insvProgress, setInsvProgress] = useState('');
   const [exportProgress, setExportProgress] = useState(EMPTY_PROGRESS);
   const [showingItem, setShowingItem] = useState(null);
   const [flatView, setFlatView] = useState(false);
@@ -89,6 +90,7 @@ function App() {
         }
       },
       'start-read-dir': (_, total) => {
+        setInsvProgress('');
         appendImport.current = false;
         directoryRequestInProgress.current = true;
         setCanOpenDir(false);
@@ -107,6 +109,7 @@ function App() {
         setCanSelect(false);
       },
       'start-read-files': (_, total) => {
+        setInsvProgress('');
         appendImport.current = true;
         directoryRequestInProgress.current = true;
         setCanOpenDir(false);
@@ -114,6 +117,7 @@ function App() {
         setLoadingProgress(totalFiles > 0 ? { show: true, total: totalFiles, complete: 0 } : EMPTY_PROGRESS);
       },
       'import-finished': () => {
+        setInsvProgress('');
         setLoadingProgress(EMPTY_PROGRESS);
         setCanOpenDir(true);
         directoryRequestInProgress.current = false;
@@ -150,6 +154,13 @@ function App() {
           [...current, data].sort((a, b) => String(a.thumpName).localeCompare(String(b.thumpName)))
         );
       },
+      'insv-progress': (_, progress) => {
+        setInsvProgress(
+          progress?.active && progress.name
+            ? `File ${progress.name}: ${progress.stage === 'checking' ? 'checking stabilization' : 'stabilizing'}, please wait…`
+            : ''
+        );
+      },
       'file-deleted': (_, item) => {
         if (!item) return;
         setItems((current) =>
@@ -158,6 +169,7 @@ function App() {
       },
       'cache-size': (_, value) => setCacheSize(Number(value) || 0),
       'delete-cache-finish': () => {
+        setInsvProgress('');
         setCacheSize(0);
         setLoadingProgress(EMPTY_PROGRESS);
         setItems([]);
@@ -648,7 +660,9 @@ function App() {
         </EmptyLibraryState>
       )}
 
-      {loadingProgress.show && <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />}
+      {loadingProgress.show && (
+        <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} detail={insvProgress} />
+      )}
       {exportProgress.show && (
         <LoadingProgress
           complete={exportProgress.complete}

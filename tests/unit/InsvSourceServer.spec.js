@@ -37,10 +37,9 @@ describe('INSV source server', () => {
       return { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs };
     });
     sources = new InsvSourceServer();
-    token = sources.register({ paths: files, snapshots });
+    token = sources.register({ paths: files, snapshots }, [{ time: 0, rotation: [0, 0, 0, 1] }]);
     const app = express();
     app.get('/insv/:token/orientation', (req, res) => void sources.serveHorizon(req, res));
-    app.get('/insv/:token/gyro-orientation', (req, res) => void sources.serveHorizon(req, res, true));
     app.get('/insv/:token/:lens', (req, res) => void sources.serve(req, res));
     await new Promise((resolve) => {
       server = app.listen(0, '127.0.0.1', resolve);
@@ -105,56 +104,47 @@ describe('INSV source server', () => {
     }
   });
 
-  test('authorizes and caches horizon data for the current pair only', async () => {
+  test('serves the prepared track only to the authorized current pair', async () => {
     const track = [{ time: 0, rotation: [0, 0, 0, 1] }];
-    sources.createHorizonTrack = jest.fn().mockResolvedValue(track);
     const url = `/insv/${token}/orientation`;
     const response = await request(url);
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body)).toEqual(track);
     await request(url);
-    expect(sources.createHorizonTrack).toHaveBeenCalledTimes(1);
     sources.revoke(token);
     expect((await request(url)).status).toBe(404);
     expect(sources.horizonTracks.size).toBe(0);
   });
 
-  test.each([
-    ['orientation', 'createHorizonTrack'],
-    ['gyro-orientation', 'createGyroTrack'],
-  ])('does not send %s data if either source changes while calculating', async (route, factory) => {
-    let start;
-    let finish;
-    const started = new Promise((resolve) => {
-      start = resolve;
-    });
-
-    sources[factory] = jest.fn(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-          start();
-        })
-    );
-    const pending = request(`/insv/${token}/${route}`);
-    await started;
+  test('does not send the prepared track after either source changes', async () => {
     fs.appendFileSync(files[1], 'changed');
-    finish([{ time: 0, rotation: [0, 0, 0, 1] }]);
-    expect((await pending).status).toBe(410);
+    expect((await request(`/insv/${token}/orientation`)).status).toBe(410);
     expect(sources.records.has(token)).toBe(false);
   });
 
-  test('caches gyro and horizon tracks independently and revokes both', async () => {
-    sources.createHorizonTrack = jest.fn().mockResolvedValue([{ time: 0, rotation: [0, 0, 0, 1] }]);
-    sources.createGyroTrack = jest.fn().mockResolvedValue([{ time: 0, rotation: [0, 1, 0, 0] }]);
-    const url = `/insv/${token}/gyro-orientation`;
-    expect(JSON.parse((await request(url)).body)[0].rotation).toEqual([0, 1, 0, 0]);
-    await request(url);
-    await request(`/insv/${token}/orientation`);
-    expect(sources.createGyroTrack).toHaveBeenCalledTimes(1);
-    expect(sources.createHorizonTrack).toHaveBeenCalledTimes(1);
-    sources.revoke(token);
-    expect((await request(url)).status).toBe(404);
-    expect(sources.gyroTracks.size).toBe(0);
+  test('revocation while validating a prepared track prevents delivery', async () => {
+    const realpath = fs.promises.realpath.bind(fs.promises);
+    let resume;
+    let notify;
+    const started = new Promise((resolve) => {
+      notify = resolve;
+    });
+    const blocked = new Promise((resolve) => {
+      resume = resolve;
+    });
+    const spy = jest.spyOn(fs.promises, 'realpath').mockImplementation(async (...args) => {
+      notify();
+      await blocked;
+      return realpath(...args);
+    });
+    try {
+      const pending = request(`/insv/${token}/orientation`);
+      await started;
+      sources.revoke(token);
+      resume();
+      expect((await pending).status).toBe(404);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

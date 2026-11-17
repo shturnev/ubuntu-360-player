@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createInsvPlayback } from '../insvPlayback.js';
 import { INSV_FRAGMENT_SHADER, INSV_VERTEX_SHADER } from '../insvProjection.js';
+import VideoControls from './VideoControls.jsx';
 import './PanoramaViewer.scss';
 
 function compile(gl, type, source) {
@@ -29,7 +30,18 @@ function closestHorizonRotation(frames, time) {
   return frames[low].rotation;
 }
 
-const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = false }, ref) {
+const InsvViewer = forwardRef(function InsvViewer(
+  {
+    sources,
+    flatProjection = false,
+    motionMode = 'gyro',
+    motionWarning,
+    onToggleFullscreen,
+    isFullscreen,
+    onCaptureReadyChange,
+  },
+  ref
+) {
   const canvasRef = useRef(null);
   const firstRef = useRef(null);
   const secondRef = useRef(null);
@@ -37,18 +49,16 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
   const drawRef = useRef(() => {});
   const camera = useRef({ yaw: 0, pitch: 0, fov: 1.2, drag: null });
   const flatRef = useRef(flatProjection);
-  const horizonRef = useRef({ horizon: null, gyro: null });
-  const correctionModeRef = useRef(null);
-  const horizonRequestRef = useRef(null);
+  const horizonRef = useRef([]);
+  const correctionReadyRef = useRef(false);
+  const captureReadyRef = useRef(false);
   const frameTimeRef = useRef(0);
   const [message, setMessage] = useState('');
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [progress, setProgress] = useState({ time: 0, duration: 0 });
   const [volume, setVolume] = useState(1);
-  const [correctionMode, setCorrectionMode] = useState(null);
-  const [horizonLoading, setHorizonLoading] = useState(false);
-  const [horizonError, setHorizonError] = useState('');
+  const [correctionLoading, setCorrectionLoading] = useState(true);
   const firstSource = sources?.[0];
   const secondSource = sources?.[1];
 
@@ -60,8 +70,21 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
   useImperativeHandle(ref, () => ({
     pause: () => playbackRef.current?.pause(),
     togglePlayback: () => {
+      if (!correctionReadyRef.current) return;
       if (firstRef.current?.paused) void playbackRef.current?.play();
       else playbackRef.current?.pause();
+    },
+    async captureScreenshot() {
+      const canvas = canvasRef.current;
+      if (!captureReadyRef.current || !canvas) throw new Error('The 360° view is not ready to save.');
+      try {
+        drawRef.current();
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        if (!blob) throw new Error('Unable to encode the 360° view.');
+        return blob;
+      } catch (error) {
+        throw new Error('Unable to capture the current 360° view.');
+      }
     },
   }));
 
@@ -103,16 +126,19 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
     setPlaying(false);
     setWaiting(false);
     setProgress({ time: 0, duration: 0 });
-    horizonRef.current = { horizon: null, gyro: null };
-    correctionModeRef.current = null;
+    horizonRef.current = [];
+    correctionReadyRef.current = false;
+    captureReadyRef.current = false;
+    onCaptureReadyChange?.(false);
     frameTimeRef.current = 0;
-    setCorrectionMode(null);
-    setHorizonLoading(false);
-    setHorizonError('');
+    setCorrectionLoading(true);
 
     const fail = (error) => {
       if (disposed || failed) return;
       failed = true;
+      correctionReadyRef.current = false;
+      captureReadyRef.current = false;
+      onCaptureReadyChange?.(false);
       playback?.pause();
       setMessage(error?.message || String(error));
     };
@@ -132,8 +158,8 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
       gl.uniform1f(gl.getUniformLocation(program, 'pitch'), camera.current.pitch);
       gl.uniform1f(gl.getUniformLocation(program, 'fieldOfView'), camera.current.fov);
       gl.uniform1f(gl.getUniformLocation(program, 'aspectRatio'), width / height);
-      const track = horizonRef.current[correctionModeRef.current];
-      const rotation = track ? closestHorizonRotation(track, frameTimeRef.current) : [0, 0, 0, 1];
+      const track = horizonRef.current;
+      const rotation = track.length ? closestHorizonRotation(track, frameTimeRef.current) : [0, 0, 0, 1];
       gl.uniform4f(gl.getUniformLocation(program, 'horizonRotation'), ...rotation);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     };
@@ -182,67 +208,114 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
       }
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
       drawRef.current = draw;
-      playback = createInsvPlayback({
-        videos,
-        onFrame: (times) => {
-          if (failed || disposed || times[0] === uploaded[0] || times[1] === uploaded[1]) return;
-          if (videos.some((video) => video.readyState < 2 || !video.videoWidth || !video.videoHeight)) return;
-          try {
-            const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-            if (videos.some((video) => video.videoWidth > maxTextureSize || video.videoHeight > maxTextureSize)) {
-              throw new Error('The INSV video is larger than this GPU supports.');
+      const startPlayback = () => {
+        playback = createInsvPlayback({
+          videos,
+          onFrame: (times) => {
+            if (failed || disposed || times[0] === uploaded[0] || times[1] === uploaded[1]) return;
+            if (videos.some((video) => video.readyState < 2 || !video.videoWidth || !video.videoHeight)) return;
+            try {
+              const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+              if (videos.some((video) => video.videoWidth > maxTextureSize || video.videoHeight > maxTextureSize)) {
+                throw new Error('The INSV video is larger than this GPU supports.');
+              }
+              videos.forEach((video, index) => {
+                gl.activeTexture(gl.TEXTURE0 + index);
+                gl.bindTexture(gl.TEXTURE_2D, textures[index]);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+              });
+              if (gl.getError() !== gl.NO_ERROR) throw new Error('Unable to upload both INSV video frames.');
+              uploaded = times;
+              frameTimeRef.current = times[0];
+              hasFrame = true;
+              draw();
+              if (!captureReadyRef.current) {
+                captureReadyRef.current = true;
+                onCaptureReadyChange?.(true);
+              }
+            } catch (error) {
+              fail(error);
             }
-            videos.forEach((video, index) => {
-              gl.activeTexture(gl.TEXTURE0 + index);
-              gl.bindTexture(gl.TEXTURE_2D, textures[index]);
-              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          },
+          onState: (state) => {
+            if (disposed) return;
+            setPlaying(state.playing);
+            setWaiting(state.waiting);
+            updateProgress();
+          },
+          onError: (error) => fail(new Error(error)),
+        });
+        playbackRef.current = playback;
+        videos.forEach((video, index) => {
+          video.crossOrigin = 'anonymous';
+          video.addEventListener('timeupdate', updateProgress);
+          video.addEventListener('loadedmetadata', updateProgress);
+          video.src = index ? secondSource : firstSource;
+        });
+        canvas.addEventListener('webglcontextlost', handleContextLost);
+        window.addEventListener('resize', draw);
+        integrityTimer = setInterval(async () => {
+          if (checking || disposed || failed) return;
+          checking = true;
+          try {
+            const response = await fetch(firstSource, {
+              method: 'HEAD',
+              cache: 'no-store',
+              signal: abortChecks.signal,
             });
-            if (gl.getError() !== gl.NO_ERROR) throw new Error('Unable to upload both INSV video frames.');
-            uploaded = times;
-            frameTimeRef.current = times[0];
-            hasFrame = true;
-            draw();
+            if (!response.ok) throw new Error('The INSV sources are no longer available or have changed.');
           } catch (error) {
+            if (!disposed) fail(new Error('The INSV sources are no longer available or have changed.'));
+          } finally {
+            checking = false;
+          }
+        }, 5000);
+      };
+      const loadCorrection = async () => {
+        try {
+          const response = await fetch(new URL('./orientation', firstSource), {
+            signal: abortChecks.signal,
+            cache: 'no-store',
+          });
+          if (!response.ok) throw new Error((await response.text()) || 'INSV motion correction is unavailable.');
+          const frames = await response.json();
+          if (
+            !Array.isArray(frames) ||
+            (motionMode !== 'none' && !frames.length) ||
+            frames.some(
+              (frame, index) =>
+                !Number.isFinite(frame.time) ||
+                (index && frame.time <= frames[index - 1].time) ||
+                !Array.isArray(frame.rotation) ||
+                frame.rotation.length !== 4 ||
+                frame.rotation.some((value) => !Number.isFinite(value)) ||
+                Math.abs(Math.hypot(...frame.rotation) - 1) > 0.001
+            )
+          )
+            throw new Error('The INSV motion correction data is invalid.');
+          if (disposed) return;
+          horizonRef.current = frames;
+          startPlayback();
+          if (failed) return;
+          correctionReadyRef.current = true;
+          setCorrectionLoading(false);
+        } catch (error) {
+          if (!disposed) {
+            setCorrectionLoading(false);
             fail(error);
           }
-        },
-        onState: (state) => {
-          if (disposed) return;
-          setPlaying(state.playing);
-          setWaiting(state.waiting);
-          updateProgress();
-        },
-        onError: (error) => fail(new Error(error)),
-      });
-      playbackRef.current = playback;
-      videos.forEach((video, index) => {
-        video.crossOrigin = 'anonymous';
-        video.addEventListener('timeupdate', updateProgress);
-        video.addEventListener('loadedmetadata', updateProgress);
-        video.src = index ? secondSource : firstSource;
-      });
-      canvas.addEventListener('webglcontextlost', handleContextLost);
-      window.addEventListener('resize', draw);
-      integrityTimer = setInterval(async () => {
-        if (checking || disposed || failed) return;
-        checking = true;
-        try {
-          const response = await fetch(firstSource, { method: 'HEAD', cache: 'no-store', signal: abortChecks.signal });
-          if (!response.ok) throw new Error('The INSV sources are no longer available or have changed.');
-        } catch (error) {
-          if (!disposed) fail(new Error('The INSV sources are no longer available or have changed.'));
-        } finally {
-          checking = false;
         }
-      }, 5000);
+      };
+      void loadCorrection();
     } catch (error) {
       fail(error);
     }
 
     return () => {
       disposed = true;
-      horizonRequestRef.current?.abort();
-      horizonRequestRef.current = null;
+      correctionReadyRef.current = false;
+      captureReadyRef.current = false;
+      onCaptureReadyChange?.(false);
       clearInterval(integrityTimer);
       abortChecks.abort();
       if (playbackRef.current === playback) playbackRef.current = null;
@@ -260,65 +333,7 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
       if (vertex) gl.deleteShader(vertex);
       if (fragment) gl.deleteShader(fragment);
     };
-  }, [firstSource, secondSource]);
-
-  const toggleCorrection = async (mode) => {
-    if (correctionModeRef.current === mode) {
-      correctionModeRef.current = null;
-      setCorrectionMode(null);
-      drawRef.current();
-      return;
-    }
-    if (!firstSource || horizonRequestRef.current) return;
-    if (horizonRef.current[mode]) {
-      correctionModeRef.current = mode;
-      setCorrectionMode(mode);
-      setHorizonError('');
-      drawRef.current();
-      return;
-    }
-    const request = new AbortController();
-    horizonRequestRef.current = request;
-    setHorizonLoading(mode);
-    setHorizonError('');
-    try {
-      const response = await fetch(new URL(mode === 'gyro' ? './gyro-orientation' : './orientation', firstSource), {
-        signal: request.signal,
-        cache: 'no-store',
-      });
-      if (!response.ok) throw new Error((await response.text()) || 'INSV motion correction is unavailable.');
-      const frames = await response.json();
-      if (
-        !Array.isArray(frames) ||
-        !frames.length ||
-        frames.some(
-          (frame, index) =>
-            !Number.isFinite(frame.time) ||
-            (index && frame.time <= frames[index - 1].time) ||
-            !Array.isArray(frame.rotation) ||
-            frame.rotation.length !== 4 ||
-            frame.rotation.some((value) => !Number.isFinite(value)) ||
-            Math.abs(Math.hypot(...frame.rotation) - 1) > 0.001
-        )
-      ) {
-        throw new Error('The INSV motion correction data is invalid.');
-      }
-      if (horizonRequestRef.current !== request) return;
-      horizonRef.current[mode] = frames;
-      correctionModeRef.current = mode;
-      setCorrectionMode(mode);
-      drawRef.current();
-    } catch (error) {
-      if (horizonRequestRef.current === request) {
-        setHorizonError(error.message || 'INSV motion correction is unavailable.');
-      }
-    } finally {
-      if (horizonRequestRef.current === request) {
-        horizonRequestRef.current = null;
-        setHorizonLoading(false);
-      }
-    }
-  };
+  }, [firstSource, secondSource, motionMode, onCaptureReadyChange]);
 
   const handlePointerMove = (event) => {
     const drag = camera.current.drag;
@@ -338,9 +353,9 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
           {message}
         </p>
       )}
-      {!message && waiting && (
+      {!message && (correctionLoading || waiting) && (
         <p className="panorama-message" role="status">
-          Synchronizing both lenses…
+          {correctionLoading ? 'Loading prepared stabilization…' : 'Synchronizing both lenses…'}
         </p>
       )}
       <canvas
@@ -364,63 +379,31 @@ const InsvViewer = forwardRef(function InsvViewer({ sources, flatProjection = fa
           drawRef.current();
         }}
       />
-      <div className="panorama-video-controls">
-        <button
-          type="button"
-          onClick={() => (playing ? playbackRef.current?.pause() : void playbackRef.current?.play())}
-          disabled={Boolean(message)}
-          aria-label={playing ? 'Pause video' : 'Play video'}
-        >
-          {playing ? 'Pause' : 'Play'}
-        </button>
-        <input
-          type="range"
-          min="0"
-          max={progress.duration}
-          step="0.01"
-          value={Math.min(progress.time, progress.duration)}
-          aria-label="Seek video playback"
-          disabled={Boolean(message)}
-          onChange={(event) => void playbackRef.current?.seek(Number(event.target.value))}
-        />
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={volume}
-          aria-label="Adjust video volume"
-          onChange={(event) => {
-            const value = Number(event.target.value);
-            setVolume(value);
-            if (firstRef.current) firstRef.current.volume = value;
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => void toggleCorrection('horizon')}
-          disabled={Boolean(message) || horizonLoading}
-          aria-pressed={correctionMode === 'horizon'}
-        >
-          {horizonLoading === 'horizon' ? 'Calculating horizon…' : 'Level horizon'}
-        </button>
-        <button
-          type="button"
-          onClick={() => void toggleCorrection('gyro')}
-          disabled={Boolean(message) || horizonLoading}
-          aria-pressed={correctionMode === 'gyro'}
-        >
-          {horizonLoading === 'gyro' ? 'Calculating stabilization…' : 'Stabilize motion'}
-        </button>
-      </div>
-      {horizonError && (
-        <p className="panorama-message" role="alert">
-          {horizonError}
-        </p>
-      )}
+      <VideoControls
+        isPlaying={playing}
+        currentTime={Math.min(progress.time, progress.duration)}
+        duration={progress.duration}
+        volume={volume}
+        disabled={Boolean(message) || correctionLoading}
+        onPlayPause={() => (playing ? playbackRef.current?.pause() : void playbackRef.current?.play())}
+        onSeek={(event) => void playbackRef.current?.seek(Number(event.target.value))}
+        onVolumeChange={(event) => {
+          const value = Number(event.target.value);
+          setVolume(value);
+          if (firstRef.current) firstRef.current.volume = value;
+        }}
+        onToggleFullscreen={onToggleFullscreen}
+        isFullscreen={isFullscreen}
+      />
       <p className="insv-notice" role="note">
+        {motionWarning && (
+          <>
+            <strong>{motionWarning}</strong>
+            <br />
+          </>
+        )}
         Approximate stitching and experimental motion correction: seams, parallax and residual motion may be visible.
-        Export, metadata, deletion and screenshots are unavailable for INSV pairs.
+        Export and deletion are unavailable for INSV pairs.
       </p>
     </div>
   );

@@ -48,12 +48,14 @@ describe('preload IPC listener lifecycle', () => {
     api.send('add-files');
     api.send('read-arbitrary-file', '/secret');
     api.on('start-read-files', listener);
+    api.on('insv-progress', listener);
     api.on('import-finished', listener);
     ipcRenderer.emit('start-read-files', {}, 2);
+    ipcRenderer.emit('insv-progress', {}, { active: true, name: 'clip.insv' });
     ipcRenderer.emit('import-finished', {});
     expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
     expect(ipcRenderer.send).toHaveBeenCalledWith('add-files', undefined);
-    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 
   test('uses only the dedicated invoke channel to save panorama screenshots', async () => {
