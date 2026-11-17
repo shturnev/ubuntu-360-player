@@ -1,4 +1,4 @@
-const { autoUpdater } = require('electron-updater');
+const { autoUpdater, DebUpdater } = require('electron-updater');
 
 const RELEASES_URL = 'https://github.com/shturnev/ubuntu-360-player/releases/latest';
 
@@ -52,7 +52,11 @@ class Updater {
   }
 
   isSupported() {
-    return this.platform !== 'linux' || Boolean(this.environment.APPIMAGE);
+    return (
+      this.platform !== 'linux' ||
+      Boolean(this.environment.APPIMAGE) ||
+      (typeof DebUpdater === 'function' && this.client instanceof DebUpdater)
+    );
   }
 
   emit(channel, payload) {

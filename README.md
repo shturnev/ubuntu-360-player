@@ -103,10 +103,11 @@ assets as the PR-label process.
 The application checks published GitHub Releases when update checks are enabled.
 It first offers **Download update**; downloading never restarts the application.
 After the download completes, **Restart and install** requires separate explicit
-confirmation. AppImage updates use the release metadata directly. For `.deb`
-installs, the application does not check for updates; a configured APT repository
-or the system package manager may instead manage them. Auto-update requires a
-GitHub Release containing the packages and its update metadata.
+confirmation. AppImage and `.deb` installations use the release metadata directly.
+Installing a `.deb` update requires administrator authorization and a working
+system package manager. This update path is intended until a hosted APT
+repository is available. Auto-update requires a GitHub Release containing the
+packages and its update metadata.
 
 ### Available npm scripts
 
