@@ -68,7 +68,7 @@ and orientation correction fail with an error instead of saving without EXIF.
 Media processing also requires `ffmpeg` and GraphicsMagick. Exporting to
 filesystems without hard-link support requires `python3` in `PATH`.
 
-Use **Open folder** to replace the current library, or **Add files** to append
+Use **Import folder** to replace the current library, or **Import files** to append
 individual JPG, JPEG, PNG, INSP, and MP4 files. On Linux, installed desktop
 integration also offers 360 Media Viewer in **Open With** for these formats.
 Opening files in an already running instance appends them. A directory passed
