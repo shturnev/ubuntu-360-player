@@ -46,6 +46,7 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
     setExternalImportReady: jest.fn(),
     savePanoramaScreenshot: jest.fn(),
     saveCurrentMedia: jest.fn(),
+    saveSelectedMedia: jest.fn(),
   };
   const MainModelClass = jest.fn(() => appModel);
 
@@ -217,6 +218,36 @@ describe('Electron main process directory launch flow', () => {
     const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'save-current-media')[1];
     appModel.saveCurrentMedia.mockResolvedValue({ cancelled: true });
     await expect(handler({}, { origPath: '/media/a.jpg' })).resolves.toEqual({ cancelled: true });
+    expect(ipcMain.handle.mock.calls.filter(([name]) => name === 'save-selected-media')).toHaveLength(1);
+    const selectedHandler = ipcMain.handle.mock.calls.find(([name]) => name === 'save-selected-media')[1];
+    const sender = { isDestroyed: jest.fn(() => false), send: jest.fn() };
+    appModel.saveSelectedMedia.mockImplementation(async (_paths, progress) => {
+      progress({ complete: 0, total: 1 });
+      sender.isDestroyed.mockReturnValue(true);
+      progress({ complete: 1, total: 1 });
+      return { success: true, saved: 1, errors: [] };
+    });
+    await expect(selectedHandler({ sender }, ['/media/a.jpg'], 42)).resolves.toEqual({
+      success: true,
+      saved: 1,
+      errors: [],
+    });
+    expect(appModel.saveSelectedMedia).toHaveBeenCalledWith(['/media/a.jpg'], expect.any(Function));
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith('export-progress', { complete: 0, total: 1, requestId: 42 });
+  });
+
+  test('reports selection export unavailable before the model is initialized', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { getReadyCallback } = loadMain();
+    const ready = getReadyCallback()();
+    const { ipcMain } = require('electron');
+    const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'save-selected-media')[1];
+    await expect(handler({}, ['/media/a.jpg'])).resolves.toEqual({
+      success: false,
+      message: 'Saving media is unavailable.',
+    });
+    await ready;
   });
 
   test('declares supported media and directory MIME types for Linux packaging', () => {

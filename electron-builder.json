@@ -33,7 +33,7 @@
     "description": "Browse and view 360-degree photos and videos on Linux."
   },
   "deb": {
-    "depends": ["ffmpeg", "graphicsmagick", "perl"],
+    "depends": ["ffmpeg", "graphicsmagick", "perl", "python3"],
     "mimeTypes": []
   },
   "appImage": {

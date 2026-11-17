@@ -77,6 +77,7 @@ describe('App', () => {
       openExternal: jest.fn().mockResolvedValue(undefined),
       savePanoramaScreenshot: jest.fn().mockResolvedValue({ success: true }),
       saveCurrentMedia: jest.fn().mockResolvedValue({ success: true }),
+      saveSelectedMedia: jest.fn().mockResolvedValue({ success: true, saved: 1, errors: [] }),
       saveOrientationCorrection: jest.fn().mockResolvedValue({ success: true }),
     };
     window.shtVR = api;
@@ -128,8 +129,8 @@ describe('App', () => {
     const actions = hints.previousElementSibling;
     expect(actions.querySelectorAll('button')).toHaveLength(2);
     expect(actions.textContent).toContain('OR');
-    expect(actions.contains(button('Choose a media directory'))).toBe(true);
-    expect(actions.contains(button('Add media files'))).toBe(true);
+    expect(actions.contains(button('Import media folder'))).toBe(true);
+    expect(actions.contains(button('Import media files'))).toBe(true);
     expect(hints.querySelectorAll('dl > div')).toHaveLength(9);
     expect(hints.textContent).toContain('Ctrl+Shift+O');
 
@@ -151,13 +152,13 @@ describe('App', () => {
 
   test('opens the file picker from the empty state and re-enables both choices after cancellation', () => {
     renderApp();
-    click(button('Add media files'));
+    click(button('Import media files'));
     expect(api.send).toHaveBeenCalledWith('add-files', undefined);
-    expect(button('Choose a media directory').disabled).toBe(true);
-    expect(button('Add media files').disabled).toBe(true);
+    expect(button('Import media folder').disabled).toBe(true);
+    expect(button('Import media files').disabled).toBe(true);
     act(() => listeners['add-files']({}, false));
-    expect(button('Choose a media directory').disabled).toBe(false);
-    expect(button('Add media files').disabled).toBe(false);
+    expect(button('Import media folder').disabled).toBe(false);
+    expect(button('Import media files').disabled).toBe(false);
   });
 
   test('adds files without losing the existing viewer and selection, and unlocks after cancel or completion', () => {
@@ -169,12 +170,12 @@ describe('App', () => {
     click(button('Toggle selection'));
     click(container.querySelector('.media-card'));
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
-    click(button('Add files'));
+    click(button('Import files'));
     expect(api.send).toHaveBeenCalledWith('add-files', undefined);
-    expect(button('Open folder').disabled).toBe(true);
+    expect(button('Import folder').disabled).toBe(true);
     act(() => listeners['add-files']({}, false));
-    expect(button('Add files').disabled).toBe(false);
-    click(button('Add files'));
+    expect(button('Import files').disabled).toBe(false);
+    click(button('Import files'));
     act(() => {
       listeners['start-read-files']({}, 1);
       listeners['read-media-file'](
@@ -187,7 +188,7 @@ describe('App', () => {
     expect(container.querySelectorAll('.media-card.selected')).toHaveLength(1);
     expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
     expect(container.textContent).toContain('Media files');
-    expect(button('Add files').disabled).toBe(false);
+    expect(button('Import files').disabled).toBe(false);
   });
 
   test('handles folder and Settings shortcuts once and respects import and modal state', () => {
@@ -209,7 +210,7 @@ describe('App', () => {
 
   test('Ctrl+Shift+O adds files once and respects busy, editable and modal states', () => {
     renderApp();
-    expect(button('Add files').title).toBe('Add files (Ctrl+Shift+O)');
+    expect(button('Import files').title).toBe('Import files (Ctrl+Shift+O)');
     const input = document.createElement('input');
     container.appendChild(input);
     expect(keydown('O', { ctrlKey: true, shiftKey: true }, input).defaultPrevented).toBe(true);
@@ -324,6 +325,119 @@ describe('App', () => {
     expect(api.saveCurrentMedia).toHaveBeenCalledTimes(1);
     await act(async () => resolve({ success: false, message: 'Disk full' }));
     expect(container.textContent).toContain('Disk full');
+  });
+
+  test('saves only the selection, keeps it on cancellation and reports partial failures', async () => {
+    renderApp();
+    loadMedia();
+    const second = { type: 'image', thumpName: 'second.jpg', bigName: 'second.jpg', origPath: '/media/second.jpg' };
+    act(() => listeners['read-media-file']({}, second));
+    click(button('Toggle selection'));
+    expect(button('Export').disabled).toBe(true);
+    click(container.querySelector('.media-card'));
+    expect(button('Export').disabled).toBe(false);
+    api.saveSelectedMedia.mockResolvedValueOnce({ cancelled: true });
+    await act(async () => click(button('Export')));
+    expect(api.saveSelectedMedia).toHaveBeenLastCalledWith([media.origPath], 1);
+    expect(container.querySelectorAll('.media-card.selected')).toHaveLength(1);
+    expect(container.querySelector('.error')).toBeNull();
+    click(container.querySelectorAll('.media-card')[1]);
+    api.saveSelectedMedia.mockResolvedValueOnce({
+      success: false,
+      saved: 1,
+      errors: [{ origPath: second.origPath, message: 'Disk full' }],
+    });
+    await act(async () => click(button('Export')));
+    expect(api.saveSelectedMedia).toHaveBeenLastCalledWith([media.origPath, second.origPath], 2);
+    expect(container.textContent).toContain('Saved 1 file(s)');
+    expect(container.textContent).toContain('/media/second.jpg: Disk full');
+    expect(container.querySelectorAll('.media-card.selected')).toHaveLength(2);
+  });
+
+  test('removes selected media from the library without requesting file deletion', () => {
+    renderApp();
+    loadMedia();
+    click(button('Toggle selection'));
+    expect(button('Remove selected from library').disabled).toBe(true);
+    click(container.querySelector('.media-card'));
+    expect(button('Remove selected from library').disabled).toBe(false);
+    click(button('Remove selected from library'));
+    expect(api.send).toHaveBeenCalledWith('remove-from-library', [
+      expect.objectContaining({ origPath: media.origPath }),
+    ]);
+    expect(api.send).not.toHaveBeenCalledWith('delete-selected', expect.anything());
+    expect(container.querySelector('.media-card')).toBeNull();
+  });
+
+  test('shares the export lock with Ctrl+S without changing viewer shortcut behavior', async () => {
+    let resolve;
+    api.saveCurrentMedia.mockImplementationOnce(() => new Promise((done) => (resolve = done)));
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    click(button('Toggle selection'));
+    click(container.querySelector('.media-card'));
+    keydown('s', { ctrlKey: true });
+    expect(api.saveCurrentMedia).toHaveBeenCalledWith({ origPath: media.origPath });
+    expect(button('Export').disabled).toBe(true);
+    await act(async () => resolve({ cancelled: true }));
+    expect(button('Export').disabled).toBe(false);
+    api.saveSelectedMedia.mockImplementationOnce(() => new Promise((done) => (resolve = done)));
+    click(button('Export'));
+    expect(button('Export').disabled).toBe(true);
+    keydown('s', { ctrlKey: true });
+    expect(api.saveCurrentMedia).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ success: false, message: 'Export failed' }));
+    expect(container.textContent).toContain('Export failed');
+    expect(button('Export').disabled).toBe(false);
+    expect(container.querySelector('.media-card.selected')).not.toBeNull();
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+  });
+
+  test('shows export progress independently of import and ignores stale events', async () => {
+    let resolve;
+    api.saveSelectedMedia.mockImplementation(() => new Promise((done) => (resolve = done)));
+    renderApp();
+    loadMedia();
+    const second = { type: 'image', thumpName: 'second.jpg', bigName: 'second.jpg', origPath: '/media/second.jpg' };
+    act(() => listeners['read-media-file']({}, second));
+    click(button('Toggle selection'));
+    click(button('Toggle all'));
+    click(button('Export'));
+    expect(container.querySelector('[aria-label="Exporting"]')).toBeNull();
+    act(() => {
+      listeners['start-read-files']({}, 3);
+      listeners['export-progress']({}, { requestId: 1, complete: 0, total: 2 });
+    });
+    expect(container.textContent).toContain('Loading... 0 / 3');
+    expect(container.textContent).toContain('Exporting... 0 / 2');
+    act(() => listeners['export-progress']({}, { requestId: 1, complete: 1, total: 2 }));
+    const bar = container.querySelector('[aria-label="Exporting"]');
+    expect(bar.getAttribute('aria-valuenow')).toBe('1');
+    expect(bar.querySelector('span').style.width).toBe('50%');
+    act(() => {
+      listeners['export-progress']({}, { requestId: 1, complete: 3, total: 2 });
+      listeners['export-progress']({}, { requestId: 0, complete: 2, total: 2 });
+    });
+    expect(bar.getAttribute('aria-valuenow')).toBe('1');
+    act(() => listeners['export-progress']({}, { requestId: 1, complete: 2, total: 2 }));
+    expect(container.textContent).toContain('Processed 2 / 2');
+    await act(async () =>
+      resolve({ success: false, saved: 1, errors: [{ origPath: second.origPath, message: 'Disk full' }] })
+    );
+    expect(container.querySelector('[aria-label="Exporting"]')).toBeNull();
+    expect(container.textContent).toContain('Loading... 0 / 3');
+    expect(container.textContent).toContain('/media/second.jpg: Disk full');
+    expect(container.querySelectorAll('.media-card.selected')).toHaveLength(2);
+    click(button('Export'));
+    act(() => listeners['export-progress']({}, { requestId: 1, complete: 2, total: 2 }));
+    expect(container.querySelector('[aria-label="Exporting"]')).toBeNull();
+    act(() => listeners['export-progress']({}, { requestId: 2, complete: 0, total: 2 }));
+    expect(container.textContent).toContain('Exporting... 0 / 2');
+    await act(async () => resolve({ cancelled: true }));
+    expect(container.querySelector('[aria-label="Exporting"]')).toBeNull();
+    act(() => listeners['export-progress']({}, { requestId: 2, complete: 1, total: 2 }));
+    expect(container.querySelector('[aria-label="Exporting"]')).toBeNull();
   });
 
   test('does not save without media or when the panorama is not ready', async () => {

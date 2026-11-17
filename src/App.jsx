@@ -21,6 +21,7 @@ function App() {
   const [items, setItems] = useState([]);
   const [maxSizePx, setMaxSizePx] = useState(150);
   const [loadingProgress, setLoadingProgress] = useState(EMPTY_PROGRESS);
+  const [exportProgress, setExportProgress] = useState(EMPTY_PROGRESS);
   const [showingItem, setShowingItem] = useState(null);
   const [flatView, setFlatView] = useState(false);
   const [cacheSize, setCacheSize] = useState(0);
@@ -30,6 +31,7 @@ function App() {
   const [canSelect, setCanSelect] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [savingMedia, setSavingMedia] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [conversionProgress, setConversionProgress] = useState({
     active: false,
@@ -49,6 +51,8 @@ function App() {
   const directoryRequestInProgress = useRef(false);
   const appendImport = useRef(false);
   const mediaSaveInProgress = useRef(false);
+  const exportRequestId = useRef(0);
+  const activeExportId = useRef(null);
 
   const closeViewer = () => {
     setShowingItem(null);
@@ -114,6 +118,19 @@ function App() {
         setCanOpenDir(true);
         directoryRequestInProgress.current = false;
         request('get-cache-size', null);
+      },
+      'export-progress': (_, progress) => {
+        if (
+          activeExportId.current === null ||
+          progress?.requestId !== activeExportId.current ||
+          !Number.isSafeInteger(progress?.total) ||
+          progress.total <= 0 ||
+          !Number.isSafeInteger(progress.complete) ||
+          progress.complete < 0 ||
+          progress.complete > progress.total
+        )
+          return;
+        setExportProgress({ show: true, total: progress.total, complete: progress.complete });
       },
       'read-media-file': (_, data) => {
         setLoadingProgress((prev) => {
@@ -310,6 +327,7 @@ function App() {
   const saveCurrentMedia = async () => {
     if (!showingItem?.origPath || mediaSaveInProgress.current) return;
     mediaSaveInProgress.current = true;
+    setSavingMedia(true);
     try {
       if (!api || typeof api.saveCurrentMedia !== 'function') {
         throw new Error('Saving media is unavailable.');
@@ -320,6 +338,33 @@ function App() {
       setErrorMessage(error?.message || 'Unable to save media.');
     } finally {
       mediaSaveInProgress.current = false;
+      setSavingMedia(false);
+    }
+  };
+
+  const saveSelectedMedia = async () => {
+    const origPaths = items.filter((item) => item.selected).map((item) => item.origPath);
+    if (!origPaths.length || mediaSaveInProgress.current) return;
+    mediaSaveInProgress.current = true;
+    setSavingMedia(true);
+    const requestId = ++exportRequestId.current;
+    activeExportId.current = requestId;
+    try {
+      if (!api || typeof api.saveSelectedMedia !== 'function') throw new Error('Saving media is unavailable.');
+      const result = await api.saveSelectedMedia(origPaths, requestId);
+      if (result?.cancelled) return;
+      if (result?.errors?.length) {
+        const failures = result.errors.map((error) => `${error.origPath}: ${error.message}`).join('; ');
+        throw new Error(`Saved ${result.saved} file(s). Failed to save: ${failures}`);
+      }
+      if (!result?.success) throw new Error(result?.message || 'Unable to save selected media.');
+    } catch (error) {
+      setErrorMessage(error?.message || 'Unable to save selected media.');
+    } finally {
+      activeExportId.current = null;
+      setExportProgress(EMPTY_PROGRESS);
+      mediaSaveInProgress.current = false;
+      setSavingMedia(false);
     }
   };
 
@@ -576,6 +621,8 @@ function App() {
         <SelectionBar
           totalSelected={totalSelected}
           totalItems={items.length}
+          saving={savingMedia}
+          onSave={saveSelectedMedia}
           onToggleAll={() => toggleSelectionAll(!totalSelected)}
           onClear={clearSelected}
           onDelete={() => handleDelete(null)}
@@ -590,6 +637,14 @@ function App() {
       )}
 
       {loadingProgress.show && <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} />}
+      {exportProgress.show && (
+        <LoadingProgress
+          complete={exportProgress.complete}
+          total={exportProgress.total}
+          label="Exporting"
+          finishedLabel="Processed"
+        />
+      )}
 
       <MediaGrid
         items={items}

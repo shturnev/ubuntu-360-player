@@ -3,11 +3,11 @@ function ShortcutList() {
     <dl className="shortcut-list">
       <div>
         <dt>Ctrl+O</dt>
-        <dd>Open folder</dd>
+        <dd>Import folder</dd>
       </div>
       <div>
         <dt>Ctrl+Shift+O</dt>
-        <dd>Add files</dd>
+        <dd>Import files</dd>
       </div>
       <div>
         <dt>Ctrl+P</dt>

@@ -34,6 +34,7 @@ const allowedChannels = [
   'video-conversion-result',
   'get-media-metadata',
   'media-metadata',
+  'export-progress',
 ];
 
 contextBridge.exposeInMainWorld('shtVR', {
@@ -62,6 +63,9 @@ contextBridge.exposeInMainWorld('shtVR', {
   },
   async saveCurrentMedia(payload) {
     return ipcRenderer.invoke('save-current-media', payload);
+  },
+  async saveSelectedMedia(origPaths, requestId) {
+    return ipcRenderer.invoke('save-selected-media', origPaths, requestId);
   },
   async saveOrientationCorrection(payload) {
     return ipcRenderer.invoke('save-orientation-correction', payload);

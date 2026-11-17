@@ -320,6 +320,20 @@ async function initializeApplication() {
     }
     return appModel.saveCurrentMedia(payload);
   });
+  ipcMain.handle('save-selected-media', async (event, origPaths, requestId) => {
+    if (!appModel) {
+      return { success: false, message: 'Saving media is unavailable.' };
+    }
+    return appModel.saveSelectedMedia(origPaths, (progress) => {
+      try {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('export-progress', { ...progress, requestId });
+        }
+      } catch (error) {
+        console.error('Unable to report export progress:', error);
+      }
+    });
+  });
   ipcMain.handle('save-orientation-correction', async (_, payload) => {
     if (!appModel) {
       return { success: false, message: 'Saving orientation corrections is unavailable.' };

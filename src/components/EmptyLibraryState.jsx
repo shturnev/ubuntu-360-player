@@ -21,7 +21,7 @@ function EmptyLibraryState({ onOpenDir, onAddFiles, disabled, children }) {
           <span className="button-icon">
             <FolderPlusIcon />
           </span>
-          <span>Choose a media directory</span>
+          <span>Import media folder</span>
         </button>
         <span className="empty-state-separator">OR</span>
         <button
@@ -29,9 +29,9 @@ function EmptyLibraryState({ onOpenDir, onAddFiles, disabled, children }) {
           className="ghost-button"
           onClick={onAddFiles}
           disabled={disabled}
-          title="Add files (Ctrl+Shift+O)"
+          title="Import files (Ctrl+Shift+O)"
         >
-          Add media files
+          Import media files
         </button>
       </div>
       {children}

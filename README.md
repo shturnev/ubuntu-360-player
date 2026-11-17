@@ -47,7 +47,7 @@ This builds the production renderer and packages both Linux artifacts in
 - `*.AppImage`
 
 Install a local Debian package with APT, which will resolve its declared
-dependencies (including `ffmpeg`, `graphicsmagick`, and `perl`):
+dependencies (including `ffmpeg`, `graphicsmagick`, `perl`, and `python3`):
 
 ```bash
 sudo apt install ./dist_electron/<package>.deb
@@ -65,9 +65,10 @@ distributions require a compatible FUSE runtime to launch it. Install `perl`
 and make it available in `PATH` for EXIF preservation; the bundled ExifTool
 uses the system Perl runtime. Without it, imports requiring a derived image
 and orientation correction fail with an error instead of saving without EXIF.
-Media processing also requires `ffmpeg` and GraphicsMagick.
+Media processing also requires `ffmpeg` and GraphicsMagick. Exporting to
+filesystems without hard-link support requires `python3` in `PATH`.
 
-Use **Open folder** to replace the current library, or **Add files** to append
+Use **Import folder** to replace the current library, or **Import files** to append
 individual JPG, JPEG, PNG, INSP, and MP4 files. On Linux, installed desktop
 integration also offers 360 Media Viewer in **Open With** for these formats.
 Opening files in an already running instance appends them. A directory passed

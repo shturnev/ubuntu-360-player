@@ -83,8 +83,8 @@ function AppHeader({
             className="icon-button primary-icon-button"
             onClick={onOpenDir}
             disabled={!canOpenDir}
-            aria-label="Open folder"
-            title="Open folder (Ctrl+O)"
+            aria-label="Import folder"
+            title="Import folder (Ctrl+O)"
           >
             <FolderIcon />
           </button>
@@ -93,8 +93,8 @@ function AppHeader({
             className="icon-button primary-icon-button"
             onClick={onAddFiles}
             disabled={!canOpenDir}
-            aria-label="Add files"
-            title="Add files (Ctrl+Shift+O)"
+            aria-label="Import files"
+            title="Import files (Ctrl+Shift+O)"
           >
             <FilePlusIcon />
           </button>
