@@ -70,4 +70,15 @@ describe('preload IPC listener lifecycle', () => {
     await expect(api.saveCurrentMedia({ origPath: '/media/photo.jpg' })).resolves.toEqual({ success: true });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-current-media', { origPath: '/media/photo.jpg' });
   });
+
+  test('uses only the dedicated selection export invoke channel', async () => {
+    ipcRenderer.invoke.mockClear().mockResolvedValue({ success: true, saved: 1, errors: [] });
+    ipcRenderer.send = jest.fn();
+    const paths = ['/media/photo.jpg'];
+    api.send('save-selected-media', paths);
+    await expect(api.saveSelectedMedia(paths)).resolves.toEqual({ success: true, saved: 1, errors: [] });
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
+    expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-selected-media', paths);
+  });
 });

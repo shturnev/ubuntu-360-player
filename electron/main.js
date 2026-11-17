@@ -320,6 +320,12 @@ async function initializeApplication() {
     }
     return appModel.saveCurrentMedia(payload);
   });
+  ipcMain.handle('save-selected-media', async (_, origPaths) => {
+    if (!appModel) {
+      return { success: false, message: 'Saving media is unavailable.' };
+    }
+    return appModel.saveSelectedMedia(origPaths);
+  });
   ipcMain.handle('save-orientation-correction', async (_, payload) => {
     if (!appModel) {
       return { success: false, message: 'Saving orientation corrections is unavailable.' };

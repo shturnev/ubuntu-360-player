@@ -4,7 +4,7 @@ const path = require('path');
 const { Writable } = require('stream');
 
 jest.mock('electron', () => ({
-  dialog: { showOpenDialogSync: jest.fn(), showSaveDialog: jest.fn() },
+  dialog: { showOpenDialogSync: jest.fn(), showOpenDialog: jest.fn(), showSaveDialog: jest.fn() },
   ipcMain: { on: jest.fn(), handle: jest.fn() },
 }));
 
@@ -813,5 +813,215 @@ describe('MainModelClass', () => {
     expect(fs.existsSync(output)).toBe(false);
     mainModelClass.deleteSelected([{ origPath: original, bigName: 'linked.jpg', thumpName: 'missing.jpg' }]);
     expect((await mainModelClass.saveCurrentMedia({ origPath: original })).success).toBe(false);
+  });
+
+  test('exports cached bytes to unique names without overwriting existing objects', async () => {
+    const out = path.join(tempDir, 'out');
+    const originals = [path.join(tempDir, 'one', 'photo.insp'), path.join(tempDir, 'two', 'photo.jpg')];
+    fs.mkdirSync(out);
+    for (const original of originals) {
+      fs.mkdirSync(path.dirname(original), { recursive: true });
+      fs.writeFileSync(original, 'original');
+      mainModelClass.authorizedMedia.set(original, 'image');
+    }
+    const big = path.join(mainModelClass.static_dir, 'big');
+    const derived = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x0a, 0x45, 0x78, 0x69, 0x66, 0, 0, 0xff, 0xd9]);
+    fs.writeFileSync(path.join(big, 'derived.jpg'), derived);
+    fs.symlinkSync(originals[1], path.join(big, 'linked.jpg'));
+    mainModelClass.recordExportMedia(originals[0], 'derived.jpg');
+    mainModelClass.recordExportMedia(originals[1], 'linked.jpg');
+    fs.writeFileSync(path.join(out, 'photo.jpg'), 'existing');
+    fs.symlinkSync(originals[1], path.join(out, 'photo (1).jpg'));
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    await expect(mainModelClass.saveSelectedMedia(originals)).resolves.toEqual({ success: true, saved: 2, errors: [] });
+    expect(dialog.showOpenDialog).toHaveBeenCalledWith(
+      mainModelClass.win,
+      expect.objectContaining({ properties: ['openDirectory'] })
+    );
+    expect(fs.readFileSync(path.join(out, 'photo.jpg'), 'utf8')).toBe('existing');
+    expect(fs.readFileSync(path.join(out, 'photo (2).jpg'))).toEqual(derived);
+    expect(fs.readFileSync(path.join(out, 'photo (3).jpg'), 'utf8')).toBe('original');
+    expect(fs.lstatSync(path.join(out, 'photo (1).jpg')).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(out).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
+  });
+
+  test('rejects invalid batches and cancels without writing', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    fs.writeFileSync(original, 'image');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    dialog.showOpenDialog.mockClear().mockResolvedValue({ canceled: true, filePaths: [] });
+    for (const input of [null, [], [original, original], [original, 1], ['/unknown'], { origPaths: [original] }]) {
+      expect((await mainModelClass.saveSelectedMedia(input)).success).toBe(false);
+    }
+    expect(dialog.showOpenDialog).not.toHaveBeenCalled();
+    await expect(mainModelClass.saveSelectedMedia([original])).resolves.toEqual({ cancelled: true });
+    expect(dialog.showOpenDialog).toHaveBeenCalledTimes(1);
+    expect(fs.readFileSync(original, 'utf8')).toBe('image');
+  });
+
+  test('continues after missing or replaced sources and cleans temporary files', async () => {
+    const out = path.join(tempDir, 'out');
+    fs.mkdirSync(out);
+    const originals = ['missing.jpg', 'replaced.jpg', 'good.jpg'].map((name) => path.join(tempDir, name));
+    for (const original of originals) {
+      fs.writeFileSync(original, original);
+      fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', path.basename(original)));
+      mainModelClass.authorizedMedia.set(original, 'image');
+      mainModelClass.recordExportMedia(original, path.basename(original));
+    }
+    fs.unlinkSync(originals[0]);
+    const replacedLink = path.join(mainModelClass.static_dir, 'big', 'replaced.jpg');
+    fs.unlinkSync(replacedLink);
+    fs.symlinkSync(originals[2], replacedLink);
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    const result = await mainModelClass.saveSelectedMedia(originals);
+    expect(result.success).toBe(false);
+    expect(result.saved).toBe(1);
+    expect(result.errors.map((error) => error.origPath)).toEqual(originals.slice(0, 2));
+    expect(fs.readdirSync(out)).toEqual(['good.jpg']);
+    expect(fs.readFileSync(path.join(out, 'good.jpg'), 'utf8')).toBe(originals[2]);
+  });
+
+  test('continues after a partial write failure and removes its temporary file', async () => {
+    const out = path.join(tempDir, 'out');
+    fs.mkdirSync(out);
+    const originals = ['first.jpg', 'second.jpg'].map((name) => path.join(tempDir, name));
+    for (const original of originals) {
+      fs.writeFileSync(original, 'cached bytes');
+      fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', path.basename(original)));
+      mainModelClass.authorizedMedia.set(original, 'image');
+      mainModelClass.recordExportMedia(original, path.basename(original));
+    }
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    const open = fs.promises.open.bind(fs.promises);
+    let failed = false;
+    jest.spyOn(fs.promises, 'open').mockImplementation(async (filePath, ...args) => {
+      const handle = await open(filePath, ...args);
+      if (!failed && path.basename(filePath).startsWith('.sht-vr-export-')) {
+        failed = true;
+        jest.spyOn(handle, 'createWriteStream').mockImplementation(
+          () =>
+            new Writable({
+              write(chunk, _encoding, callback) {
+                handle.write(chunk.subarray(0, 3)).then(() => callback(new Error('Disk full')), callback);
+              },
+            })
+        );
+      }
+      return handle;
+    });
+    await expect(mainModelClass.saveSelectedMedia(originals)).resolves.toEqual({
+      success: false,
+      saved: 1,
+      errors: [{ origPath: originals[0], message: 'Disk full' }],
+    });
+    expect(fs.readdirSync(out)).toEqual(['second.jpg']);
+    expect(fs.readFileSync(path.join(out, 'second.jpg'), 'utf8')).toBe('cached bytes');
+  });
+
+  test('does not export an item removed from the library while the directory dialog is open', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    const out = path.join(tempDir, 'out');
+    fs.mkdirSync(out);
+    fs.writeFileSync(original, 'image');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    let resolveDialog;
+    dialog.showOpenDialog.mockImplementation(() => new Promise((resolve) => (resolveDialog = resolve)));
+    const batch = mainModelClass.saveSelectedMedia([original]);
+    mainModelClass.authorizedMedia.delete(original);
+    resolveDialog({ canceled: false, filePaths: [out] });
+    const result = await batch;
+    expect(result.saved).toBe(0);
+    expect(result.errors[0].origPath).toBe(original);
+    expect(fs.readdirSync(out)).toEqual([]);
+  });
+
+  test('rejects source changes during copying and removes the incomplete export', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    const out = path.join(tempDir, 'out');
+    fs.mkdirSync(out);
+    fs.writeFileSync(original, 'original');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    const open = fs.promises.open.bind(fs.promises);
+    jest.spyOn(fs.promises, 'open').mockImplementation(async (filePath, ...args) => {
+      const handle = await open(filePath, ...args);
+      if (path.basename(filePath).startsWith('.sht-vr-export-')) {
+        jest.spyOn(handle, 'createWriteStream').mockImplementation(
+          () =>
+            new Writable({
+              write(chunk, _encoding, callback) {
+                handle.write(chunk).then(() => {
+                  fs.writeFileSync(original, 'modified while copying');
+                  callback();
+                }, callback);
+              },
+            })
+        );
+      }
+      return handle;
+    });
+    const result = await mainModelClass.saveSelectedMedia([original]);
+    expect(result.success).toBe(false);
+    expect(result.saved).toBe(0);
+    expect(result.errors[0]).toEqual({ origPath: original, message: 'The cached media file has changed.' });
+    expect(fs.readdirSync(out)).toEqual([]);
+  });
+
+  test('handles a destination race atomically, including names without extensions', async () => {
+    const out = path.join(tempDir, 'out');
+    const original = path.join(tempDir, 'photo.jpg');
+    fs.mkdirSync(out);
+    fs.writeFileSync(original, 'original');
+    fs.writeFileSync(path.join(mainModelClass.static_dir, 'big', 'derived'), 'cached');
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'derived');
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    const link = fs.promises.link.bind(fs.promises);
+    jest.spyOn(fs.promises, 'link').mockImplementationOnce(async (source, target) => {
+      fs.writeFileSync(target, 'racer');
+      return link(source, target);
+    });
+    await expect(mainModelClass.saveSelectedMedia([original])).resolves.toEqual({
+      success: true,
+      saved: 1,
+      errors: [],
+    });
+    expect(fs.readFileSync(path.join(out, 'photo'), 'utf8')).toBe('racer');
+    expect(fs.readFileSync(path.join(out, 'photo (1)'), 'utf8')).toBe('cached');
+    expect(fs.readdirSync(out)).toEqual(['photo', 'photo (1)']);
+  });
+
+  test('shares the lock with Save As and detects changes while the directory dialog is open', async () => {
+    const original = path.join(tempDir, 'photo.jpg');
+    fs.writeFileSync(original, 'original');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    let resolveDialog;
+    dialog.showOpenDialog.mockImplementation(() => new Promise((resolve) => (resolveDialog = resolve)));
+    const batch = mainModelClass.saveSelectedMedia([original]);
+    expect((await mainModelClass.saveCurrentMedia({ origPath: original })).success).toBe(false);
+    expect((await mainModelClass.saveSelectedMedia([original])).success).toBe(false);
+    fs.writeFileSync(original, 'changed');
+    resolveDialog({ canceled: false, filePaths: [tempDir] });
+    const result = await batch;
+    expect(result.saved).toBe(0);
+    expect(result.errors[0].origPath).toBe(original);
+    expect(fs.readdirSync(tempDir).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
+    dialog.showSaveDialog.mockResolvedValue({ canceled: true });
+    await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({ cancelled: true });
+    let resolveSave;
+    dialog.showSaveDialog.mockImplementation(() => new Promise((resolve) => (resolveSave = resolve)));
+    const single = mainModelClass.saveCurrentMedia({ origPath: original });
+    expect((await mainModelClass.saveSelectedMedia([original])).success).toBe(false);
+    resolveSave({ canceled: true });
+    await single;
   });
 });

@@ -1,6 +1,6 @@
 import './SelectionBar.scss';
 
-function SelectionBar({ totalSelected, totalItems, onToggleAll, onClear, onDelete, onClose }) {
+function SelectionBar({ totalSelected, totalItems, saving, onSave, onToggleAll, onClear, onDelete, onClose }) {
   return (
     <div className="selection-bar">
       <span>
@@ -8,6 +8,9 @@ function SelectionBar({ totalSelected, totalItems, onToggleAll, onClear, onDelet
       </span>
       <button type="button" onClick={onToggleAll}>
         Toggle all
+      </button>
+      <button type="button" onClick={onSave} disabled={!totalSelected || saving}>
+        Export
       </button>
       <button type="button" onClick={onClear}>
         Clear

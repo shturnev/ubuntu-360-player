@@ -30,6 +30,7 @@ function App() {
   const [canSelect, setCanSelect] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [savingMedia, setSavingMedia] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [conversionProgress, setConversionProgress] = useState({
     active: false,
@@ -310,6 +311,7 @@ function App() {
   const saveCurrentMedia = async () => {
     if (!showingItem?.origPath || mediaSaveInProgress.current) return;
     mediaSaveInProgress.current = true;
+    setSavingMedia(true);
     try {
       if (!api || typeof api.saveCurrentMedia !== 'function') {
         throw new Error('Saving media is unavailable.');
@@ -320,6 +322,29 @@ function App() {
       setErrorMessage(error?.message || 'Unable to save media.');
     } finally {
       mediaSaveInProgress.current = false;
+      setSavingMedia(false);
+    }
+  };
+
+  const saveSelectedMedia = async () => {
+    const origPaths = items.filter((item) => item.selected).map((item) => item.origPath);
+    if (!origPaths.length || mediaSaveInProgress.current) return;
+    mediaSaveInProgress.current = true;
+    setSavingMedia(true);
+    try {
+      if (!api || typeof api.saveSelectedMedia !== 'function') throw new Error('Saving media is unavailable.');
+      const result = await api.saveSelectedMedia(origPaths);
+      if (result?.cancelled) return;
+      if (result?.errors?.length) {
+        const failures = result.errors.map((error) => `${error.origPath}: ${error.message}`).join('; ');
+        throw new Error(`Saved ${result.saved} file(s). Failed to save: ${failures}`);
+      }
+      if (!result?.success) throw new Error(result?.message || 'Unable to save selected media.');
+    } catch (error) {
+      setErrorMessage(error?.message || 'Unable to save selected media.');
+    } finally {
+      mediaSaveInProgress.current = false;
+      setSavingMedia(false);
     }
   };
 
@@ -576,6 +601,8 @@ function App() {
         <SelectionBar
           totalSelected={totalSelected}
           totalItems={items.length}
+          saving={savingMedia}
+          onSave={saveSelectedMedia}
           onToggleAll={() => toggleSelectionAll(!totalSelected)}
           onClear={clearSelected}
           onDelete={() => handleDelete(null)}

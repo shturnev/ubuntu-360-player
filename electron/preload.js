@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld('shtVR', {
   async saveCurrentMedia(payload) {
     return ipcRenderer.invoke('save-current-media', payload);
   },
+  async saveSelectedMedia(origPaths) {
+    return ipcRenderer.invoke('save-selected-media', origPaths);
+  },
   async saveOrientationCorrection(payload) {
     return ipcRenderer.invoke('save-orientation-correction', payload);
   },
