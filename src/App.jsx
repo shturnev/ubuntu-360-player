@@ -326,6 +326,10 @@ function App() {
 
   const saveCurrentMedia = async () => {
     if (!showingItem?.origPath || mediaSaveInProgress.current) return;
+    if (showingItem.insv) {
+      setErrorMessage('Exporting INSV pairs is not available.');
+      return;
+    }
     mediaSaveInProgress.current = true;
     setSavingMedia(true);
     try {
@@ -343,6 +347,10 @@ function App() {
   };
 
   const saveSelectedMedia = async () => {
+    if (items.some((item) => item.selected && item.insv)) {
+      setErrorMessage('Exporting INSV pairs is not available.');
+      return;
+    }
     const origPaths = items.filter((item) => item.selected).map((item) => item.origPath);
     if (!origPaths.length || mediaSaveInProgress.current) return;
     mediaSaveInProgress.current = true;
@@ -440,6 +448,10 @@ function App() {
       : -1;
     const selectedItems = items.filter((entry, index) => entry.selected || (item && index === targetIndex));
 
+    if (selectedItems.some((entry) => entry.insv)) {
+      setErrorMessage('Deleting INSV pairs is not available.');
+      return;
+    }
     const confirmed = window.confirm(
       item
         ? 'Delete this selected media item?'
@@ -666,6 +678,11 @@ function App() {
           showingItem={showingItem}
           items={items}
           viewerSrc={viewerSrc}
+          insvSources={
+            showingItem.insv && showingItem.insvToken
+              ? [0, 1].map((lens) => `${serverUrl}insv/${encodeURIComponent(showingItem.insvToken)}/${lens}`)
+              : undefined
+          }
           flatView={flatView}
           conversionProgress={conversionProgress}
           hasConvertedVideo={hasConvertedVideo}

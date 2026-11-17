@@ -354,6 +354,23 @@ describe('App', () => {
     expect(container.querySelectorAll('.media-card.selected')).toHaveLength(2);
   });
 
+  test('blocks exporting or deleting a selection containing an INSV pair', () => {
+    renderApp();
+    loadMedia();
+    const pair = { type: 'video', insv: true, thumpName: 'pair.jpg', bigName: 'pair', origPath: '/media/00.insv' };
+    act(() => listeners['read-media-file']({}, pair));
+    click(button('Toggle selection'));
+    click(container.querySelectorAll('.media-card')[0]);
+    click(container.querySelectorAll('.media-card')[1]);
+    click(button('Export'));
+    expect(container.textContent).toContain('Exporting INSV pairs is not available.');
+    expect(api.saveSelectedMedia).not.toHaveBeenCalled();
+    click(button('Delete'));
+    expect(container.textContent).toContain('Deleting INSV pairs is not available.');
+    expect(api.send.mock.calls.some(([channel]) => channel === 'delete-selected')).toBe(false);
+    expect(container.querySelectorAll('.media-card.selected')).toHaveLength(2);
+  });
+
   test('removes selected media from the library without requesting file deletion', () => {
     renderApp();
     loadMedia();

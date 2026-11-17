@@ -83,6 +83,22 @@ describe('Media', () => {
     expect(result.bigName).toContain('sample');
   });
 
+  test('checks INSV decoding without a shell and reports decoder failures', async () => {
+    const file = path.join(tempDir, 'lens name.insv');
+    execFile.mockImplementationOnce((_command, _args, _options, callback) =>
+      callback(null, '', '[Parsed_showinfo_0] n:   0 pts:  30 pts_time:0.001')
+    );
+    await expect(Media.verifyInsvVideo(file, 1)).resolves.toBe(0.001);
+    expect(execFile).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining(['-xerror', '-i', file, '-map', '0:v:0']),
+      expect.objectContaining({ timeout: 30000 }),
+      expect.any(Function)
+    );
+    execFile.mockImplementationOnce((_command, _args, _options, callback) => callback(new Error('decode failed')));
+    await expect(Media.verifyInsvVideo(file, 1)).rejects.toThrow('Unable to decode an INSV lens');
+  });
+
   test('creates a thumbnail payload for a local video file', () => {
     const filePath = path.join(tempDir, 'clip.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');

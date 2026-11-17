@@ -209,6 +209,51 @@ class Media {
     });
   }
 
+  static verifyInsvVideo(filePath, sampleTime) {
+    return new Promise((resolve, reject) => {
+      execFile(
+        'ffmpeg',
+        [
+          '-nostdin',
+          '-v',
+          'info',
+          '-xerror',
+          '-abort_on',
+          'empty_output',
+          '-threads',
+          '2',
+          '-ss',
+          String(sampleTime),
+          '-i',
+          filePath,
+          '-map',
+          '0:v:0',
+          '-vf',
+          'showinfo',
+          '-frames:v',
+          '1',
+          '-f',
+          'null',
+          '-',
+        ],
+        { timeout: 30000, maxBuffer: 256 * 1024 },
+        (error, _stdout, stderr) => {
+          if (error) {
+            reject(new Error('Unable to decode an INSV lens. Check that ffmpeg is available and the video is valid.'));
+            return;
+          }
+          const match = /\bn:\s*0\s+pts:\s*-?\d+\s+pts_time:([+-]?[\d.eE+-]+)/.exec(stderr || '');
+          const timestamp = match ? Number(match[1]) : NaN;
+          if (!Number.isFinite(timestamp)) {
+            reject(new Error('Unable to verify an INSV frame timestamp.'));
+            return;
+          }
+          resolve(timestamp);
+        }
+      );
+    });
+  }
+
   static async getMetadata(filePath, type) {
     if (type === 'image') {
       try {

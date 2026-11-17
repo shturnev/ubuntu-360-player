@@ -18,9 +18,11 @@ const { dialog, ipcMain } = require('electron');
 
 jest.mock('trash', () => jest.fn(async () => true));
 jest.mock('../../src/models/renameNoReplace', () => jest.fn(jest.requireActual('../../src/models/renameNoReplace')));
+jest.mock('../../src/models/insvCache', () => ({ createInsvThumbnail: jest.fn() }));
 
 const { MainModelClass, removeFilesHelper } = require('../../src/models/MainModelClass');
 const { Media } = require('../../src/models/Media');
+const { createInsvThumbnail } = require('../../src/models/insvCache');
 const renameNoReplace = require('../../src/models/renameNoReplace');
 
 describe('MainModelClass', () => {
@@ -132,6 +134,98 @@ describe('MainModelClass', () => {
     expect(send).toHaveBeenCalledWith('start-read-dir', 3);
     expect(saveImage.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual(['first.jpg', 'second.png']);
     expect(saveVideo.mock.calls.map(([file]) => path.basename(file))).toEqual(['third.mp4']);
+  });
+
+  test('imports a complete INSV pair as one item and rejects an incomplete pair', async () => {
+    const sourceDir = path.join(tempDir, 'insv');
+    fs.mkdirSync(sourceDir);
+    const names = [
+      'VID_20250125_151712_00_105.insv',
+      'VID_20250125_151712_10_105.INSV',
+      'VID_20250125_151800_00_106.insv',
+    ];
+    names.forEach((name) => fs.writeFileSync(path.join(sourceDir, name), 'original'));
+    const saveVideo = jest.spyOn(Media, 'saveVideo');
+    jest.spyOn(Media, 'probeVideo').mockResolvedValue({
+      streams: [
+        {
+          codec_type: 'video',
+          codec_name: 'h264',
+          width: 2880,
+          height: 2880,
+          r_frame_rate: '30000/1001',
+          start_time: '0',
+          duration: '34.6346',
+        },
+      ],
+    });
+    const verifyVideo = jest.spyOn(Media, 'verifyInsvVideo').mockResolvedValue(0.001);
+    createInsvThumbnail.mockResolvedValue('pair.jpg');
+    const send = mainModelClass.win.webContents.send;
+
+    await mainModelClass.readDir(sourceDir);
+
+    expect(send).toHaveBeenCalledWith('start-read-dir', 2);
+    const results = send.mock.calls.filter(([channel]) => channel === 'read-media-file').map(([, result]) => result);
+    expect(results).toHaveLength(2);
+    const item = results.find((result) => result.insv);
+    expect(item).toMatchObject({ type: 'video', origPath: path.join(sourceDir, names[0]), thumpName: 'pair.jpg' });
+    expect(results.find((result) => result.error).error.message).toMatch(/Incomplete INSV pair/);
+    expect(saveVideo).not.toHaveBeenCalled();
+    expect(verifyVideo).toHaveBeenCalledTimes(2);
+    expect(mainModelClass.authorizedMedia.get(item.origPath)).toBe('insv');
+    expect(mainModelClass.exportMedia.has(item.origPath)).toBe(false);
+    expect(mainModelClass.insvSources.records.has(item.insvToken)).toBe(true);
+    names.forEach((name) => expect(fs.readFileSync(path.join(sourceDir, name), 'utf8')).toBe('original'));
+
+    mainModelClass.deleteSelected([item]);
+    expect(send).toHaveBeenCalledWith(
+      'delete-error',
+      expect.objectContaining({ message: expect.stringContaining('INSV') })
+    );
+    expect(mainModelClass.insvSources.records.has(item.insvToken)).toBe(true);
+    mainModelClass.removeFromLibrary([item]);
+    expect(mainModelClass.insvSources.records.has(item.insvToken)).toBe(false);
+
+    send.mockClear();
+    await mainModelClass.readFiles([path.join(sourceDir, names[0])]);
+    expect(send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ error: expect.objectContaining({ message: expect.stringContaining('Incomplete') }) })
+    );
+    expect(mainModelClass.authorizedMedia.size).toBe(0);
+  });
+
+  test('reports thumbnail failure without authorizing or importing an INSV pair', async () => {
+    const sourceDir = path.join(tempDir, 'failed-insv');
+    fs.mkdirSync(sourceDir);
+    const names = ['VID_20250125_151712_00_105.insv', 'VID_20250125_151712_10_105.insv'];
+    names.forEach((name) => fs.writeFileSync(path.join(sourceDir, name), 'original'));
+    jest.spyOn(Media, 'probeVideo').mockResolvedValue({
+      streams: [
+        {
+          codec_type: 'video',
+          codec_name: 'h264',
+          width: 2880,
+          height: 2880,
+          r_frame_rate: '30000/1001',
+          start_time: '0',
+          duration: '34.6346',
+        },
+      ],
+    });
+    jest.spyOn(Media, 'verifyInsvVideo').mockResolvedValue(0.001);
+    createInsvThumbnail.mockRejectedValueOnce(new Error('Thumbnail failed.'));
+
+    await mainModelClass.readDir(sourceDir);
+
+    expect(mainModelClass.win.webContents.send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ error: expect.objectContaining({ message: 'Thumbnail failed.' }) })
+    );
+    expect(mainModelClass.authorizedMedia.size).toBe(0);
+    expect(mainModelClass.insvSources.records.size).toBe(0);
+    names.forEach((name) => expect(fs.readFileSync(path.join(sourceDir, name), 'utf8')).toBe('original'));
   });
 
   test('readDir routes .insp files through the Insta360 converter and preserves image authorization', async () => {
@@ -312,7 +406,7 @@ describe('MainModelClass', () => {
     expect(mainModelClass.openFiles(event)).toBe(false);
     expect(dialog.showOpenDialogSync).toHaveBeenLastCalledWith({
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Media', extensions: ['jpg', 'jpeg', 'png', 'insp', 'mp4'] }],
+      filters: [{ name: 'Media', extensions: ['jpg', 'jpeg', 'png', 'insp', 'mp4', 'insv'] }],
     });
     expect(event.reply).toHaveBeenCalledWith('add-files', false);
     expect(mainModelClass.authorizedMedia.get('/existing.jpg')).toBe('image');
