@@ -76,9 +76,15 @@ describe('preload IPC listener lifecycle', () => {
     ipcRenderer.send = jest.fn();
     const paths = ['/media/photo.jpg'];
     api.send('save-selected-media', paths);
-    await expect(api.saveSelectedMedia(paths)).resolves.toEqual({ success: true, saved: 1, errors: [] });
+    await expect(api.saveSelectedMedia(paths, 42)).resolves.toEqual({ success: true, saved: 1, errors: [] });
     expect(ipcRenderer.send).not.toHaveBeenCalled();
     expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1);
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-selected-media', paths);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-selected-media', paths, 42);
+    const listener = jest.fn();
+    const unsubscribe = api.on('export-progress', listener);
+    ipcRenderer.emit('export-progress', {}, { requestId: 42, complete: 1, total: 2 });
+    unsubscribe();
+    ipcRenderer.emit('export-progress', {}, { requestId: 42, complete: 2, total: 2 });
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

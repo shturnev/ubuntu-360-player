@@ -9,6 +9,7 @@ const { dialog, ipcMain } = require('electron');
 const { getStorageRoot } = require('../config/env');
 const { Helper } = require('./Helper');
 const { Media } = require('./Media');
+const renameNoReplace = require('./renameNoReplace');
 const { extensions, isSupportedMediaPath } = require('./mediaFormats');
 const ConfigModel = require('./ConfigModel');
 const Updater = require('./Updater');
@@ -242,7 +243,7 @@ class MainModelClass {
     }
   }
 
-  async saveSelectedMedia(origPaths) {
+  async saveSelectedMedia(origPaths, onProgress = () => {}) {
     if (this.mediaSaveInProgress) return { success: false, message: 'A media export is already in progress.' };
     this.mediaSaveInProgress = true;
     try {
@@ -272,6 +273,7 @@ class MainModelClass {
 
       let saved = 0;
       const errors = [];
+      onProgress({ complete: 0, total: entries.length });
       for (const entry of entries) {
         try {
           if (entry.error) throw entry.error;
@@ -287,6 +289,7 @@ class MainModelClass {
         } catch (error) {
           errors.push({ origPath: entry.origPath, message: error?.message || 'Unable to save media.' });
         }
+        onProgress({ complete: saved + errors.length, total: entries.length });
       }
       return { success: errors.length === 0, saved, errors };
     } catch (error) {
@@ -339,6 +342,7 @@ class MainModelClass {
       }
       if (unique) {
         const parsed = path.parse(filePath);
+        let useRename = false;
         for (let suffix = 0; ; suffix += 1) {
           const current = this.validateExportMedia(origPath, record);
           if (
@@ -350,7 +354,19 @@ class MainModelClass {
           }
           const target = suffix ? path.join(parsed.dir, `${parsed.name} (${suffix})${parsed.ext}`) : filePath;
           try {
-            await fs.promises.link(tempPath, target);
+            if (useRename) {
+              await renameNoReplace(tempPath, target);
+              tempPath = undefined;
+            } else {
+              try {
+                await fs.promises.link(tempPath, target);
+              } catch (error) {
+                if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].includes(error.code)) throw error;
+                useRename = true;
+                await renameNoReplace(tempPath, target);
+                tempPath = undefined;
+              }
+            }
             break;
           } catch (error) {
             if (error.code !== 'EEXIST') throw error;

@@ -17,9 +17,11 @@ jest.mock('electron-updater', () => ({
 const { dialog, ipcMain } = require('electron');
 
 jest.mock('trash', () => jest.fn(async () => true));
+jest.mock('../../src/models/renameNoReplace', () => jest.fn(jest.requireActual('../../src/models/renameNoReplace')));
 
 const { MainModelClass, removeFilesHelper } = require('../../src/models/MainModelClass');
 const { Media } = require('../../src/models/Media');
+const renameNoReplace = require('../../src/models/renameNoReplace');
 
 describe('MainModelClass', () => {
   let tempDir;
@@ -833,7 +835,17 @@ describe('MainModelClass', () => {
     fs.writeFileSync(path.join(out, 'photo.jpg'), 'existing');
     fs.symlinkSync(originals[1], path.join(out, 'photo (1).jpg'));
     dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
-    await expect(mainModelClass.saveSelectedMedia(originals)).resolves.toEqual({ success: true, saved: 2, errors: [] });
+    const progress = jest.fn();
+    await expect(mainModelClass.saveSelectedMedia(originals, progress)).resolves.toEqual({
+      success: true,
+      saved: 2,
+      errors: [],
+    });
+    expect(progress.mock.calls).toEqual([
+      [{ complete: 0, total: 2 }],
+      [{ complete: 1, total: 2 }],
+      [{ complete: 2, total: 2 }],
+    ]);
     expect(dialog.showOpenDialog).toHaveBeenCalledWith(
       mainModelClass.win,
       expect.objectContaining({ properties: ['openDirectory'] })
@@ -856,7 +868,9 @@ describe('MainModelClass', () => {
       expect((await mainModelClass.saveSelectedMedia(input)).success).toBe(false);
     }
     expect(dialog.showOpenDialog).not.toHaveBeenCalled();
-    await expect(mainModelClass.saveSelectedMedia([original])).resolves.toEqual({ cancelled: true });
+    const progress = jest.fn();
+    await expect(mainModelClass.saveSelectedMedia([original], progress)).resolves.toEqual({ cancelled: true });
+    expect(progress).not.toHaveBeenCalled();
     expect(dialog.showOpenDialog).toHaveBeenCalledTimes(1);
     expect(fs.readFileSync(original, 'utf8')).toBe('image');
   });
@@ -876,10 +890,17 @@ describe('MainModelClass', () => {
     fs.unlinkSync(replacedLink);
     fs.symlinkSync(originals[2], replacedLink);
     dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
-    const result = await mainModelClass.saveSelectedMedia(originals);
+    const progress = jest.fn();
+    const result = await mainModelClass.saveSelectedMedia(originals, progress);
     expect(result.success).toBe(false);
     expect(result.saved).toBe(1);
     expect(result.errors.map((error) => error.origPath)).toEqual(originals.slice(0, 2));
+    expect(progress.mock.calls).toEqual([
+      [{ complete: 0, total: 3 }],
+      [{ complete: 1, total: 3 }],
+      [{ complete: 2, total: 3 }],
+      [{ complete: 3, total: 3 }],
+    ]);
     expect(fs.readdirSync(out)).toEqual(['good.jpg']);
     expect(fs.readFileSync(path.join(out, 'good.jpg'), 'utf8')).toBe(originals[2]);
   });
@@ -996,6 +1017,73 @@ describe('MainModelClass', () => {
     expect(fs.readFileSync(path.join(out, 'photo'), 'utf8')).toBe('racer');
     expect(fs.readFileSync(path.join(out, 'photo (1)'), 'utf8')).toBe('cached');
     expect(fs.readdirSync(out)).toEqual(['photo', 'photo (1)']);
+  });
+
+  test.each(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])(
+    'uses atomic no-replace rename when hard links fail with %s',
+    async (code) => {
+      const out = path.join(tempDir, "output ' with spaces");
+      const original = path.join(tempDir, 'photo.jpg');
+      fs.mkdirSync(out);
+      fs.writeFileSync(original, 'original');
+      fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+      mainModelClass.authorizedMedia.set(original, 'image');
+      mainModelClass.recordExportMedia(original, 'linked.jpg');
+      dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+      const link = jest.spyOn(fs.promises, 'link').mockImplementation(async (_source, target) => {
+        fs.writeFileSync(target, 'racer');
+        throw Object.assign(new Error('Hard links unavailable'), { code });
+      });
+
+      await expect(mainModelClass.saveSelectedMedia([original])).resolves.toEqual({
+        success: true,
+        saved: 1,
+        errors: [],
+      });
+      expect(link).toHaveBeenCalledTimes(1);
+      expect(fs.readFileSync(path.join(out, 'photo.jpg'), 'utf8')).toBe('racer');
+      expect(fs.readFileSync(path.join(out, 'photo (1).jpg'), 'utf8')).toBe('original');
+      expect(fs.readdirSync(out).sort()).toEqual(['photo (1).jpg', 'photo.jpg']);
+    }
+  );
+
+  test('reports rename fallback failures without publishing or leaving a temporary file', async () => {
+    const out = path.join(tempDir, 'out');
+    const original = path.join(tempDir, 'photo.jpg');
+    fs.mkdirSync(out);
+    fs.writeFileSync(original, 'original');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    jest.spyOn(fs.promises, 'link').mockRejectedValue(Object.assign(new Error('Unsupported'), { code: 'ENOTSUP' }));
+    renameNoReplace.mockRejectedValueOnce(new Error('Atomic rename unavailable'));
+    const result = await mainModelClass.saveSelectedMedia([original]);
+    expect(result.success).toBe(false);
+    expect(result.saved).toBe(0);
+    expect(result.errors[0].message).toContain('Atomic rename unavailable');
+    expect(fs.readdirSync(out)).toEqual([]);
+  });
+
+  test('rename fallback never replaces an existing symlink to the source', async () => {
+    const out = path.join(tempDir, 'out');
+    const original = path.join(tempDir, 'photo.jpg');
+    fs.mkdirSync(out);
+    fs.writeFileSync(original, 'original');
+    fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
+    mainModelClass.authorizedMedia.set(original, 'image');
+    mainModelClass.recordExportMedia(original, 'linked.jpg');
+    fs.symlinkSync(original, path.join(out, 'photo.jpg'));
+    dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+    jest.spyOn(fs.promises, 'link').mockRejectedValue(Object.assign(new Error('Unsupported'), { code: 'EPERM' }));
+    await expect(mainModelClass.saveSelectedMedia([original])).resolves.toEqual({
+      success: true,
+      saved: 1,
+      errors: [],
+    });
+    expect(fs.lstatSync(path.join(out, 'photo.jpg')).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(original, 'utf8')).toBe('original');
+    expect(fs.readFileSync(path.join(out, 'photo (1).jpg'), 'utf8')).toBe('original');
   });
 
   test('shares the lock with Save As and detects changes while the directory dialog is open', async () => {

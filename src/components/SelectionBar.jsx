@@ -12,8 +12,8 @@ function SelectionBar({ totalSelected, totalItems, saving, onSave, onToggleAll, 
       <button type="button" onClick={onSave} disabled={!totalSelected || saving}>
         Export
       </button>
-      <button type="button" onClick={onClear}>
-        Clear
+      <button type="button" onClick={onClear} disabled={!totalSelected}>
+        Remove selected from library
       </button>
       <button type="button" onClick={onDelete} disabled={!totalSelected}>
         Delete
