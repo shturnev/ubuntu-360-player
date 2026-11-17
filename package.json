@@ -93,6 +93,9 @@
     },
     "@electron/universal": {
       "minimatch": "^11.0.1",
+      "@electron/asar": {
+        "minimatch": "^3.0.4"
+      },
       "dir-compare": {
         "minimatch": "^3.0.5"
       }
