@@ -464,10 +464,11 @@ function App() {
       setErrorMessage('Deleting INSV pairs is not available.');
       return;
     }
+    const count = selectedItems.length;
     const confirmed = window.confirm(
-      item
-        ? 'Delete this selected media item?'
-        : `Delete ${selectedItems.length > 1 ? `${selectedItems.length} selected files` : 'this file'}?`
+      count > 1
+        ? `Move ${count} original files to the Recycle Bin / Trash and remove them from the library?`
+        : 'Move the original file to the Recycle Bin / Trash and remove it from the library?'
     );
 
     if (!confirmed) return;

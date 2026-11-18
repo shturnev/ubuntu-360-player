@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { assertCurrentPair, matchesSnapshot } = require('./insvPair');
 const { openFileNoFollow } = require('./safeOpen');
+const { isSamePath } = require('./pathCompare');
 
 function parseRange(value, size) {
   if (!value) return { start: 0, end: size - 1, partial: false };
@@ -85,7 +86,7 @@ class InsvSourceServer {
     try {
       for (let index = 0; index < 2; index += 1) {
         const file = pair.paths[index];
-        if ((await fs.promises.realpath(file)) !== file) throw new Error('Source changed.');
+        if (!isSamePath(await fs.promises.realpath(file), file)) throw new Error('Source changed.');
         const handle = await openFileNoFollow(file);
         handles.push(handle);
         if (!matchesSnapshot(await handle.stat(), pair.snapshots[index])) throw new Error('Source changed.');

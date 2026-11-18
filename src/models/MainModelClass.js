@@ -4,7 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const { pipeline } = require('stream/promises');
-const { dialog, ipcMain } = require('electron');
+const { dialog, ipcMain, shell } = require('electron');
 
 const { getStorageRoot } = require('../config/env');
 const { Helper } = require('./Helper');
@@ -13,6 +13,8 @@ const renameNoReplace = require('./renameNoReplace');
 const mediaCache = require('./mediaCache');
 const { isSamePath } = require('./pathCompare');
 const { openFileNoFollow } = require('./safeOpen');
+const { exportFileName } = require('./exportName');
+const { renameWithRetry } = require('./fsRetry');
 const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFormats');
 const { validateInsvPair, assertCurrentPair } = require('./insvPair');
 const { InsvSourceServer } = require('./insvSourceServer');
@@ -24,7 +26,6 @@ const Updater = require('./Updater');
 
 const homedir = getStorageRoot();
 const clr = require('cli-color');
-const trash = require('trash');
 const getFolderSize = require('get-folder-size');
 const rimraf = require('rimraf');
 
@@ -80,7 +81,7 @@ class MainModelClass {
         typeof origPath !== 'string' ||
         !Number.isSafeInteger(requestId) ||
         !['image', 'video'].includes(type) ||
-        (this.authorizedMedia.get(origPath) !== type && (!pair || pair.paths[0] !== origPath))
+        (this.authorizedMedia.get(origPath) !== type && (!pair || !isSamePath(pair.paths[0], origPath)))
       ) {
         event.reply('media-metadata', {
           origPath: typeof origPath === 'string' ? origPath : '',
@@ -287,7 +288,7 @@ class MainModelClass {
       const record = typeof origPath === 'string' && this.exportMedia.get(origPath);
       const initialStat = this.validateExportMedia(origPath, record);
       const extension = path.extname(record.bigName);
-      const defaultPath = `${path.parse(origPath).name}${extension}`;
+      const defaultPath = exportFileName(origPath, extension);
       const result = await dialog.showSaveDialog(this.win, {
         title: 'Save media',
         defaultPath,
@@ -340,7 +341,7 @@ class MainModelClass {
       for (const entry of entries) {
         try {
           if (entry.error) throw entry.error;
-          const name = `${path.parse(entry.origPath).name}${path.extname(entry.record.bigName)}`;
+          const name = exportFileName(entry.origPath, path.extname(entry.record.bigName));
           await this.copyExportMedia(
             entry.origPath,
             entry.record,
@@ -452,7 +453,7 @@ class MainModelClass {
           throw new Error('The destination file has changed.');
         }
         this.validateExportMedia(origPath, record);
-        await fs.promises.rename(tempPath, filePath);
+        await renameWithRetry(tempPath, filePath);
         tempPath = undefined;
       }
     } finally {
@@ -951,37 +952,64 @@ class MainModelClass {
     if (importGeneration === this.directoryImportGeneration) this.win?.webContents?.send('import-finished');
   }
 
-  deleteSelected(dataArray = []) {
-    dataArray.forEach(async (item) => {
+  // Moves the original file to the Recycle Bin/Trash (never a permanent unlink), then drops its cache.
+  // Only files authorized by an import can be deleted, and a failed trash keeps the item in the library.
+  async deleteSelected(dataArray = []) {
+    for (const item of dataArray) {
       if (this.authorizedMedia.get(item.origPath) === 'insv') {
         this.win?.webContents?.send('delete-error', { message: 'Deleting INSV pairs is not available.' });
-        return;
+        continue;
       }
+      if (!this.authorizedMedia.has(item.origPath)) {
+        this.win?.webContents?.send('delete-error', { message: 'This media file is not part of the current library.' });
+        continue;
+      }
+
+      const validName = (name) =>
+        typeof name === 'string' && name !== '' && name === path.basename(name) && name !== '.' && name !== '..';
+      if (!validName(item.thumpName) || !validName(item.bigName)) {
+        this.win?.webContents?.send('delete-error', { message: 'Invalid cache file name.' });
+        continue;
+      }
+
+      try {
+        // Windows trashItem fails with "Operation was aborted" on forward-slash paths
+        const trashPath = path.resolve(item.origPath);
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await shell.trashItem(trashPath);
+            break;
+          } catch (error) {
+            if (attempt >= 2 || !Helper.isFileExists(trashPath)) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+          }
+        }
+      } catch (error) {
+        // Only a file that is really gone counts as deleted; ENOENT from a broken trash backend does not.
+        if (Helper.isFileExists(item.origPath)) {
+          this.win?.webContents?.send('delete-error', {
+            message: `Unable to move ${path.basename(item.origPath)} to the trash: ${error.message}`,
+          });
+          continue;
+        }
+      }
+
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
       mediaCache.unregisterSource(item.bigName);
       const thumpPath = this.static_dir + '/small/' + item.thumpName;
       const symlPath = this.static_dir + '/big/' + item.bigName;
 
-      if (Helper.isFileExists(thumpPath)) {
-        fs.unlink(thumpPath, (err) => {
-          if (err) {
-            this.win.webContents.send('delete-error', err);
-            return;
-          }
-        });
-      }
-      if (Helper.isFileExists(symlPath)) {
-        fs.unlink(symlPath, (err) => {
-          if (err) {
-            this.win.webContents.send('delete-error', err);
-            return;
-          }
-        });
+      for (const cacheFile of [thumpPath, symlPath]) {
+        try {
+          await fs.promises.unlink(cacheFile);
+        } catch (error) {
+          if (error.code !== 'ENOENT') this.win?.webContents?.send('delete-error', error);
+        }
       }
 
-      if (this.win && this.win.webContents) this.win.webContents.send('file-deleted', item);
-    });
+      this.win?.webContents?.send('file-deleted', item);
+    }
 
     return true;
   }

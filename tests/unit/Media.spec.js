@@ -186,15 +186,15 @@ describe('Media', () => {
     const firstFile = path.join(firstDirectory, 'photo.jpg');
     const secondFile = path.join(secondDirectory, 'photo.jpg');
     fs.writeFileSync(firstFile, 'image');
-    fs.writeFileSync(secondFile, 'image');
+    fs.writeFileSync(secondFile, 'imagf');
 
     const firstResult = Media.saveImage(firstFile, { webContents: { send: jest.fn() } });
     const secondResult = Media.saveImage(secondFile, { webContents: { send: jest.fn() } });
     const bigDir = path.join(tempDir, '.sht-vr-player', 'static', 'big');
 
     expect(firstResult.bigName).not.toBe(secondResult.bigName);
-    expect(fs.realpathSync(path.join(bigDir, firstResult.bigName))).toBe(firstFile);
-    expect(fs.realpathSync(path.join(bigDir, secondResult.bigName))).toBe(secondFile);
+    expect(fs.readFileSync(path.join(bigDir, firstResult.bigName), 'utf8')).toBe('image');
+    expect(fs.readFileSync(path.join(bigDir, secondResult.bigName), 'utf8')).toBe('imagf');
   });
 
   test('converts an Insta360 photo into cached JPEG panorama and thumbnail after ffmpeg succeeds', async () => {

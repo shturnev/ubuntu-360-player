@@ -48,8 +48,10 @@ describe('INSV stabilization cache', () => {
     expect(prepareInsvMotion).toHaveBeenCalledTimes(1);
     expect(onCacheMiss).toHaveBeenCalledTimes(1);
     expect(fs.readdirSync(cacheDir)).toHaveLength(1);
-    expect(fs.statSync(cacheDir).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(path.join(cacheDir, fs.readdirSync(cacheDir)[0])).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(cacheDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.join(cacheDir, fs.readdirSync(cacheDir)[0])).mode & 0o777).toBe(0o600);
+    }
     fs.appendFileSync(files[1], 'changed');
     await expect(getCachedInsvMotion(first, cacheDir)).rejects.toThrow(/changed/);
     expect(await getCachedInsvMotion(makePair(), cacheDir)).toEqual(motion);

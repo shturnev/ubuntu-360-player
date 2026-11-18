@@ -4,6 +4,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { assertCurrentPair } = require('./insvPair');
 const mediaTools = require('./mediaTools');
+const { renameWithRetry } = require('./fsRetry');
 const { projectInsvThumbnail } = require('./insvThumbnailProjection');
 const geometry = require('../insvGeometry.json');
 
@@ -163,7 +164,7 @@ async function createInsvThumbnail(pair, smallDir, rotation = [0, 0, 0, 1]) {
     created = true;
     if (!(await isValidThumbnail(temporary))) throw new Error('FFmpeg produced an invalid INSV thumbnail.');
     await assertCurrentPair(pair);
-    await fs.promises.rename(temporary, target);
+    await renameWithRetry(temporary, target);
     created = false;
     return name;
   } finally {

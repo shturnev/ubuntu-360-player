@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { isSamePath } = require('./pathCompare');
 
 function frameRate(value) {
   const match = /^(\d+)\/(\d+)$/.exec(String(value));
@@ -70,7 +71,7 @@ async function assertCurrentPair(pair) {
   for (let index = 0; index < 2; index += 1) {
     const file = pair.paths[index];
     if (
-      (await fs.promises.realpath(file)) !== file ||
+      !isSamePath(await fs.promises.realpath(file), file) ||
       !matchesSnapshot(await fs.promises.stat(file), pair.snapshots[index])
     ) {
       throw new Error('An INSV source changed while it was being checked.');
@@ -84,11 +85,18 @@ async function validateInsvPair(files, probeVideo, verifyVideo) {
   }
   const directories = await Promise.all(files.map((file) => fs.promises.realpath(path.dirname(file))));
   const paths = await Promise.all(files.map((file) => fs.promises.realpath(file)));
-  if (directories[0] !== directories[1] || paths.some((file) => path.dirname(file) !== directories[0])) {
+  if (
+    !isSamePath(directories[0], directories[1]) ||
+    paths.some((file) => !isSamePath(path.dirname(file), directories[0]))
+  ) {
     throw new Error('INSV lenses must be original files in the same directory.');
   }
   const before = await Promise.all(paths.map((file) => fs.promises.stat(file)));
-  if (before.some((stat) => !stat.isFile()) || (before[0].dev === before[1].dev && before[0].ino === before[1].ino)) {
+  if (
+    before.some((stat) => !stat.isFile()) ||
+    isSamePath(paths[0], paths[1]) ||
+    (before[0].ino !== 0 && before[0].dev === before[1].dev && before[0].ino === before[1].ino)
+  ) {
     throw new Error('INSV lenses must be two distinct regular files.');
   }
 
@@ -116,7 +124,9 @@ async function validateInsvPair(files, probeVideo, verifyVideo) {
   }
   const after = await Promise.all(paths.map((file) => fs.promises.stat(file)));
   const currentPaths = await Promise.all(files.map((file) => fs.promises.realpath(file)));
-  if (paths.some((file, index) => file !== currentPaths[index] || !sameFileState(before[index], after[index]))) {
+  if (
+    paths.some((file, index) => !isSamePath(file, currentPaths[index]) || !sameFileState(before[index], after[index]))
+  ) {
     throw new Error('An INSV source changed while it was being checked.');
   }
   return { paths, video: first, snapshots: after.map(snapshot), sampleTime };

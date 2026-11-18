@@ -7,6 +7,7 @@ const exifr = require('exifr');
 const { getStorageRoot } = require('../config/env');
 const mediaTools = require('./mediaTools');
 const mediaCache = require('./mediaCache');
+const { renameWithRetry, renameSyncWithRetry } = require('./fsRetry');
 function execExiftool(args, ...rest) {
   let invocation;
   try {
@@ -150,7 +151,7 @@ class Media {
         ) {
           throw new Error('The cached media file changed during import.');
         }
-        await fs.promises.rename(tempPath, bigPath);
+        await renameWithRetry(tempPath, bigPath);
         created = false;
       } finally {
         if (created) await fs.promises.unlink(tempPath);
@@ -897,10 +898,10 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
     for (const entry of entries) {
       entry.hadDestination = fs.existsSync(entry.destination);
       if (entry.hadDestination) {
-        fs.renameSync(entry.destination, entry.backup);
+        renameSyncWithRetry(entry.destination, entry.backup);
         entry.backupCreated = true;
       }
-      fs.renameSync(entry.replacement, entry.destination);
+      renameSyncWithRetry(entry.replacement, entry.destination);
       entry.replaced = true;
     }
   } catch (error) {
@@ -909,7 +910,7 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
         removeFileIfPresent(entry.destination);
       }
       if (entry.backupCreated) {
-        fs.renameSync(entry.backup, entry.destination);
+        renameSyncWithRetry(entry.backup, entry.destination);
       }
     }
     throw error;
@@ -1037,8 +1038,13 @@ function writeThumbnail(filePath, thumpPath, callback) {
     return;
   }
   // Windows has no GraphicsMagick: sharp is bundled instead (resize to width 450, honor EXIF orientation).
+  // The libvips file cache would keep the source open and block moving it to the Recycle Bin.
   Promise.resolve()
-    .then(() => require('sharp')(filePath).rotate().resize({ width: 450 }).toFile(thumpPath))
+    .then(() => {
+      const sharp = require('sharp');
+      sharp.cache(false);
+      return sharp(filePath).rotate().resize({ width: 450 }).toFile(thumpPath);
+    })
     .then(() => callback(null), callback);
 }
 
