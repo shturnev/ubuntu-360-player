@@ -124,8 +124,10 @@ jobs:
         run: |
           $exe = Get-ChildItem dist_electron/win-unpacked/*.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
           $env:ELECTRON_RUN_AS_NODE = '1'
-          & $exe.FullName "$($exe.DirectoryName)/resources/app.asar/electron/smoke-tools.js"
-          if ($LASTEXITCODE -ne 0) { throw "Packaged smoke test failed" }
+            $script = "$($exe.DirectoryName)/resources/app.asar/electron/smoke-tools.js"
+            # A GUI-subsystem exe is not awaited by '&', so wait explicitly and read its exit code.
+            $p = Start-Process -FilePath $exe.FullName -ArgumentList "`"$script`"" -Wait -PassThru -NoNewWindow
+            if ($p.ExitCode -ne 0) { throw "Packaged smoke test failed ($($p.ExitCode))" }
 
       - name: Collect release assets
         shell: bash
