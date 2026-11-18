@@ -51,6 +51,7 @@ describe('PanoramaViewer', () => {
 
   beforeEach(() => {
     makeWebGL();
+    jest.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => new Promise(() => {}));
     Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
       value: jest.fn(),
       configurable: true,
@@ -161,6 +162,72 @@ describe('PanoramaViewer', () => {
     expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
+  });
+
+  test('automatically starts each opened panorama video without restarting on projection changes', async () => {
+    const play = HTMLMediaElement.prototype.play.mockResolvedValue();
+    const onVideoPlaybackSuccess = jest.fn();
+    let rerender;
+    await act(async () => {
+      ({ rerender } = render(
+        <PanoramaViewer
+          source="http://localhost/one.mp4"
+          type="video"
+          onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+        />
+      ));
+    });
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
+
+    await act(async () => {
+      rerender(
+        <PanoramaViewer
+          source="http://localhost/two.mp4"
+          type="video"
+          onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+        />
+      );
+    });
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(2);
+
+    rerender(<PanoramaViewer source="http://localhost/two.mp4" type="video" flatProjection />);
+    expect(play).toHaveBeenCalledTimes(2);
+  });
+
+  test('ignores a previous video autoplay failure after navigating to another video', async () => {
+    let rejectPrevious;
+    const play = HTMLMediaElement.prototype.play
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectPrevious = reject)))
+      .mockResolvedValue();
+    const onVideoPlaybackFailure = jest.fn();
+    const { rerender } = render(
+      <PanoramaViewer source="http://localhost/one.mp4" type="video" onVideoPlaybackFailure={onVideoPlaybackFailure} />
+    );
+    rerender(
+      <PanoramaViewer source="http://localhost/two.mp4" type="video" onVideoPlaybackFailure={onVideoPlaybackFailure} />
+    );
+    await act(async () => rejectPrevious(new Error('Previous playback cancelled')));
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(onVideoPlaybackFailure).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
+  });
+
+  test('reports an automatic panorama playback failure', async () => {
+    HTMLMediaElement.prototype.play.mockRejectedValue(new Error('decode failed'));
+    const onVideoPlaybackFailure = jest.fn();
+    await act(async () => {
+      render(
+        <PanoramaViewer
+          source="http://localhost/broken.mp4"
+          type="video"
+          onVideoPlaybackFailure={onVideoPlaybackFailure}
+        />
+      );
+    });
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video');
   });
 
   test('toggles flat video playback with Space without interfering with text inputs', async () => {

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import VideoControls from './VideoControls.jsx';
 import './PanoramaViewer.scss';
 
@@ -163,6 +163,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   const captureFrame = useRef(null);
   const captureReady = useRef(false);
   const playbackGeneration = useRef(0);
+  const autoPlayPending = useRef(false);
   const onVideoPlaybackFailureRef = useRef(onVideoPlaybackFailure);
   const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
   const fallbackVideoFrameTimer = useRef(null);
@@ -191,25 +192,30 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
     onCaptureReadyChange?.(ready);
   };
 
+  const playVideo = useCallback((video) => {
+    const generation = ++playbackGeneration.current;
+    video
+      .play()
+      .then(() => {
+        if (generation !== playbackGeneration.current) return;
+        setIsPlaying(true);
+        onVideoPlaybackSuccessRef.current?.();
+      })
+      .catch((error) => {
+        if (generation !== playbackGeneration.current) return;
+        onVideoPlaybackFailureRef.current?.();
+        setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`);
+      });
+  }, []);
+
   const startOrPauseVideo = () => {
     const video = mediaRef.current || fallbackVideoRef.current;
     if (!video) return;
 
     if (video.paused) {
-      const generation = playbackGeneration.current;
-      video
-        .play()
-        .then(() => {
-          if (generation !== playbackGeneration.current) return;
-          setIsPlaying(true);
-          onVideoPlaybackSuccessRef.current?.();
-        })
-        .catch((error) => {
-          if (generation !== playbackGeneration.current) return;
-          onVideoPlaybackFailureRef.current?.();
-          setFallbackMessage(`${getVideoFailureMessage(video, error)} Showing the flat video instead.`);
-        });
+      playVideo(video);
     } else {
+      playbackGeneration.current += 1;
       video.pause();
       setIsPlaying(false);
     }
@@ -218,9 +224,10 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   useImperativeHandle(ref, () => ({
     togglePlayback: startOrPauseVideo,
     pause() {
-      const video = [mediaRef.current, fallbackVideoRef.current].find((candidate) => candidate && !candidate.paused);
+      autoPlayPending.current = false;
+      playbackGeneration.current += 1;
+      const video = mediaRef.current || fallbackVideoRef.current;
       if (video) {
-        playbackGeneration.current += 1;
         video.pause();
       }
     },
@@ -245,6 +252,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
 
   useEffect(() => {
     playbackGeneration.current += 1;
+    autoPlayPending.current = type === 'video';
     setFallbackMessage('');
     setIsPlaying(false);
     setVideoReady(false);
@@ -494,6 +502,10 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
 
       media.crossOrigin = 'anonymous';
       media.src = source;
+      if (type === 'video' && autoPlayPending.current) {
+        autoPlayPending.current = false;
+        playVideo(media);
+      }
       renderRequest.current = requestRender;
       captureFrame.current = () => {
         drawFrame();
@@ -566,7 +578,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         if (texture) gl.deleteTexture(texture);
       };
     }
-  }, [flatProjection, source, type]);
+  }, [flatProjection, source, type, playVideo]);
 
   const handlePointerDown = (event) => {
     if (flatProjection && !orientationEditingRef.current) return;

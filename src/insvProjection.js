@@ -53,7 +53,8 @@ export const INSV_FRAGMENT_SHADER = `
       direction.xz = mat2(yawCos, yawSin, -yawSin, yawCos) * direction.xz;
     }
 
-    direction.xy = -direction.xy;
+    // Convert to camera coordinates before applying gyro correction.
+    direction.y = -direction.y;
     vec3 correction = 2.0 * cross(horizonRotation.xyz, direction);
     direction += horizonRotation.w * correction + cross(horizonRotation.xyz, correction);
     vec4 first = texture2D(lens00, lensCoordinates(direction, 1.0));
