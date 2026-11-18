@@ -143,6 +143,8 @@ describe('MainModelClass', () => {
     await mainModelClass.deleteSelected([
       { thumpName: '../../victim.png', bigName: 'big.png', origPath: originalFile },
       { thumpName: 'thumb.png', bigName: '..', origPath: originalFile },
+      { thumpName: '.', bigName: 'big.png', origPath: originalFile },
+      { thumpName: 'thumb.png', bigName: '.', origPath: originalFile },
     ]);
 
     expect(shell.trashItem).not.toHaveBeenCalled();

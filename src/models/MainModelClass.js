@@ -966,7 +966,7 @@ class MainModelClass {
       }
 
       const validName = (name) =>
-        typeof name === 'string' && name !== '' && name === path.basename(name) && name !== '..';
+        typeof name === 'string' && name !== '' && name === path.basename(name) && name !== '.' && name !== '..';
       if (!validName(item.thumpName) || !validName(item.bigName)) {
         this.win?.webContents?.send('delete-error', { message: 'Invalid cache file name.' });
         continue;
