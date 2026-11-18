@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.8.0] - 2026-11-18
+### Changed
+- feat: Windows x64 support \(\#76\) ([#93](https://github.com/shturnev/ubuntu-360-player/pull/93))
+
 ## [3.7.0] - 2026-11-18
 ### Changed
 - Fix INSV orientation and autoplay videos ([#89](https://github.com/shturnev/ubuntu-360-player/pull/89))
