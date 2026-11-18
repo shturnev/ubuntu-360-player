@@ -81,7 +81,7 @@ class MainModelClass {
         typeof origPath !== 'string' ||
         !Number.isSafeInteger(requestId) ||
         !['image', 'video'].includes(type) ||
-        (this.authorizedMedia.get(origPath) !== type && (!pair || pair.paths[0] !== origPath))
+        (this.authorizedMedia.get(origPath) !== type && (!pair || !isSamePath(pair.paths[0], origPath)))
       ) {
         event.reply('media-metadata', {
           origPath: typeof origPath === 'string' ? origPath : '',
