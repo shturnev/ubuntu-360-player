@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.9.0] - 2026-11-18
+### Changed
+- feat: Delete moves original files to the trash \(\#92\) ([#95](https://github.com/shturnev/ubuntu-360-player/pull/95))
+
 ## [3.8.1] - 2026-11-18
 ### Changed
 - fix: stabilize release CI tests and Windows smoke check \(\#76\) ([#94](https://github.com/shturnev/ubuntu-360-player/pull/94))
