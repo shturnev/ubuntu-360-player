@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.7.0] - 2026-11-18
+### Changed
+- Fix INSV orientation and autoplay videos ([#89](https://github.com/shturnev/ubuntu-360-player/pull/89))
+
 ## [3.6.1] - 2026-11-18
 ### Changed
 - Fix packaged INSV startup and update README ([#88](https://github.com/shturnev/ubuntu-360-player/pull/88))
