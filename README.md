@@ -104,10 +104,10 @@ The installer is per-user (no administrator rights) and lets you pick the instal
 - Updates are published as `latest.yml` next to the installer.
 
 Known limitations: the installer is not code-signed, so Windows SmartScreen may warn on
-first launch. Click **More info** → **Run anyway** to continue. Bundled `ffmpeg-static` is a GPL build (GPL-3.0-or-later); keep its license
-in mind when redistributing the installer. The release workflow builds the installer on a
-Windows runner and runs the smoke test; interactive behaviour (installer, import, export,
-auto-update) has not been verified on a clean Windows machine yet.
+first launch. Click **More info** → **Run anyway** to continue. The Windows installer bundles FFmpeg, FFprobe
+(GPL builds), ExifTool and sharp/libvips as separate programs and libraries under their own licenses; see
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The release workflow builds the installer on a
+Windows runner and runs the smoke test.
 
 ## Keyboard shortcuts
 
@@ -232,6 +232,7 @@ sufficient to make `apt install <package>` work on arbitrary machines.
 * If you are a designer, you can help with the visual design. Help is needed in the design of [https://viewer360.app/](https://viewer360.app/), and the interface in the application.
 
 * The source code is available under the [Business Source License 1.1](LICENSE). The application is **free** for personal and commercial use on the terms in `LICENSE`. Contributors may create forks, issues, and pull requests to improve this project. Competitive production use is prohibited until the Change Date.
+* Third-party components (FFmpeg, ExifTool, sharp/libvips, Electron) keep their own licenses: see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 ## Are you in touch?
 Of course, you can always contact me at this email: **sergii@shturnev.com**

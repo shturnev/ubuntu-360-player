@@ -15,6 +15,7 @@
     "project.config.js",
     "package.json"
   ],
+  "extraResources": ["LICENSE", "THIRD_PARTY_LICENSES.md"],
   "asarUnpack": [
     "node_modules/exiftool-vendored.pl/**",
     "node_modules/exiftool-vendored.exe/**",
