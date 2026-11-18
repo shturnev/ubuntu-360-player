@@ -28,14 +28,24 @@ function copyAtomically(origPath, linkPath) {
   const tempPath = `${linkPath}.${crypto.randomUUID()}.tmp`;
   try {
     fs.copyFileSync(origPath, tempPath, fs.constants.COPYFILE_EXCL);
-    fs.renameSync(tempPath, linkPath);
-  } catch (error) {
+    try {
+      // link() never replaces; an entry created concurrently by another import wins.
+      fs.linkSync(tempPath, linkPath);
+    } catch (error) {
+      if (error.code === 'EEXIST') return;
+      if (!UNSUPPORTED.has(error.code)) throw error;
+      try {
+        fs.copyFileSync(tempPath, linkPath, fs.constants.COPYFILE_EXCL);
+      } catch (copyError) {
+        if (copyError.code !== 'EEXIST') throw copyError;
+      }
+    }
+  } finally {
     try {
       fs.unlinkSync(tempPath);
     } catch (cleanupError) {
       // The temporary copy may never have been created.
     }
-    throw error;
   }
 }
 

@@ -12,6 +12,7 @@ const { Media } = require('./Media');
 const renameNoReplace = require('./renameNoReplace');
 const mediaCache = require('./mediaCache');
 const { isSamePath } = require('./pathCompare');
+const { openFileNoFollow } = require('./safeOpen');
 const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFormats');
 const { validateInsvPair, assertCurrentPair } = require('./insvPair');
 const { InsvSourceServer } = require('./insvSourceServer');
@@ -356,7 +357,7 @@ class MainModelClass {
     let tempPath;
     try {
       this.validateExportMedia(origPath, record);
-      source = await fs.promises.open(record.sourcePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      source = await openFileNoFollow(record.sourcePath);
       const sourceStat = await source.stat();
       if (
         !sourceStat.isFile() ||
@@ -531,6 +532,55 @@ class MainModelClass {
     }
   }
 
+  // Streams the validated open handle (not the path) so a swapped path cannot redirect the read.
+  async serveDirectSource(req, res, origPath, record) {
+    let handle;
+    try {
+      const initial = this.validateExportMedia(origPath, record);
+      handle = await openFileNoFollow(record.sourcePath);
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.dev !== record.dev || stat.ino !== record.ino || stat.size !== initial.size) {
+        throw new Error('The cached media file has changed.');
+      }
+      let start = 0;
+      let end = stat.size - 1;
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'no-store');
+      res.type(path.extname(record.sourcePath) || 'bin');
+      if (range && (range[1] || range[2])) {
+        if (range[1]) {
+          start = Number(range[1]);
+          if (range[2]) end = Math.min(Number(range[2]), end);
+        } else {
+          start = Math.max(stat.size - Number(range[2]), 0);
+        }
+        if (start > end || start >= stat.size) {
+          res.setHeader('Content-Range', `bytes */${stat.size}`);
+          res.sendStatus(416);
+          await handle.close();
+          return;
+        }
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      }
+      res.setHeader('Content-Length', stat.size ? end - start + 1 : 0);
+      if (!stat.size) {
+        res.end();
+        await handle.close();
+        return;
+      }
+      const stream = handle.createReadStream({ start, end, autoClose: true });
+      stream.on('error', () => res.destroy());
+      res.on('close', () => stream.destroy());
+      stream.pipe(res);
+    } catch (error) {
+      if (handle) await handle.close().catch(() => {});
+      if (!res.headersSent) res.sendStatus(404);
+      else res.destroy();
+    }
+  }
+
   startFileServer() {
     const app = express();
     app.use(cors());
@@ -550,9 +600,7 @@ class MainModelClass {
         res.sendStatus(404);
         return;
       }
-      res.sendFile(origPath, { dotfiles: 'allow', headers: { 'Cache-Control': 'no-store' } }, (error) => {
-        if (error && !res.headersSent) res.sendStatus(error.status || 500);
-      });
+      this.serveDirectSource(req, res, origPath, record);
     });
     app.use(express.static(homedir + '/static'));
     const server = app.listen(0);
