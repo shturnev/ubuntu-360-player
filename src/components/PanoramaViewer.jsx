@@ -168,6 +168,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   const onVideoPlaybackSuccessRef = useRef(onVideoPlaybackSuccess);
   const fallbackVideoFrameTimer = useRef(null);
   const fallbackVideoHasFrame = useRef(false);
+  const flatProjectionRef = useRef(flatProjection);
   const orientationRef = useRef(orientation);
   const orientationEditingRef = useRef(isOrientationEditing);
   const onOrientationChangeRef = useRef(onOrientationChange);
@@ -175,6 +176,11 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [videoProgress, setVideoProgress] = useState({ duration: 0, currentTime: 0, volume: 1 });
+
+  useEffect(() => {
+    flatProjectionRef.current = flatProjection;
+    renderRequest.current();
+  }, [flatProjection]);
 
   useEffect(() => {
     orientationRef.current = orientation;
@@ -393,7 +399,6 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
       gl.uniform1i(gl.getUniformLocation(program, 'panorama'), 0);
-      gl.uniform1i(gl.getUniformLocation(program, 'flatProjection'), flatProjection ? 1 : 0);
 
       const uploadMedia = () => {
         if (failed) return;
@@ -441,8 +446,9 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         resize();
         const { yaw, pitch, fieldOfView } = camera.current;
         const correction = orientationRef.current;
-        const viewYaw = flatProjection ? 0 : yaw;
-        const viewPitch = flatProjection ? 0 : pitch;
+        const viewYaw = flatProjectionRef.current ? 0 : yaw;
+        const viewPitch = flatProjectionRef.current ? 0 : pitch;
+        gl.uniform1i(gl.getUniformLocation(program, 'flatProjection'), flatProjectionRef.current ? 1 : 0);
         gl.uniform1f(gl.getUniformLocation(program, 'yaw'), viewYaw + degreesToRadians(correction.yaw));
         gl.uniform1f(gl.getUniformLocation(program, 'pitch'), viewPitch + degreesToRadians(correction.pitch));
         gl.uniform1f(gl.getUniformLocation(program, 'roll'), degreesToRadians(correction.roll));
@@ -578,7 +584,7 @@ const PanoramaViewer = forwardRef(function PanoramaViewer(
         if (texture) gl.deleteTexture(texture);
       };
     }
-  }, [flatProjection, source, type, playVideo]);
+  }, [source, type, playVideo]);
 
   const handlePointerDown = (event) => {
     if (flatProjection && !orientationEditingRef.current) return;

@@ -31,7 +31,8 @@ describe('PanoramaViewer', () => {
       deleteTexture: jest.fn(),
       uniform1i: jest.fn(),
       getUniformLocation: jest.fn(
-        (program, name) => ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5 })[name] ?? 1
+        (program, name) =>
+          ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5, flatProjection: 6 })[name] ?? 1
       ),
       uniform1f: jest.fn(),
       viewport: jest.fn(),
@@ -98,7 +99,9 @@ describe('PanoramaViewer', () => {
       return queuedRaf.length;
     });
 
-    render(<PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />);
+    const { rerender } = render(
+      <PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />
+    );
 
     const image = document.querySelector('.panorama-source');
     const canvas = document.querySelector('.panorama-canvas');
@@ -117,6 +120,22 @@ describe('PanoramaViewer', () => {
 
     expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
     expect(gl.drawArrays).toHaveBeenCalled();
+
+    rerender(
+      <PanoramaViewer
+        source="http://localhost:3000/big/photo-1000.jpg"
+        type="image"
+        alt="photo-1000.jpg"
+        flatProjection
+      />
+    );
+    queuedRaf.splice(0).forEach((callback) => callback());
+    expect(gl.uniform1i).toHaveBeenLastCalledWith(6, 1);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
+    rerender(<PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />);
+    queuedRaf.splice(0).forEach((callback) => callback());
+    expect(gl.uniform1i).toHaveBeenLastCalledWith(6, 0);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
 
     gl.drawArrays.mockClear();
     Object.defineProperty(canvas, 'clientWidth', { value: 1200, configurable: true });
@@ -192,8 +211,24 @@ describe('PanoramaViewer', () => {
     expect(play).toHaveBeenCalledTimes(2);
     expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(2);
 
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'currentTime', { value: 12, writable: true, configurable: true });
+    Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
+    video.pause.mockClear();
     rerender(<PanoramaViewer source="http://localhost/two.mp4" type="video" flatProjection />);
     expect(play).toHaveBeenCalledTimes(2);
+    expect(video.pause).not.toHaveBeenCalled();
+    expect(video).toHaveAttribute('src', 'http://localhost/two.mp4');
+    expect(video.currentTime).toBe(12);
+    expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
+
+    video.paused = true;
+    fireEvent.pause(video);
+    rerender(<PanoramaViewer source="http://localhost/two.mp4" type="video" />);
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(video.pause).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(12);
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeInTheDocument();
   });
 
   test('ignores a previous video autoplay failure after navigating to another video', async () => {
