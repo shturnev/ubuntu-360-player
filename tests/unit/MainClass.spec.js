@@ -100,11 +100,14 @@ describe('MainModelClass', () => {
     fs.writeFileSync(thumpFile, 'thumb');
     fs.writeFileSync(originalFile, 'image');
     mainModelClass.authorizedMedia.set(originalFile, 'image');
-    shell.trashItem.mockRejectedValueOnce(new Error('Trash unavailable'));
+    shell.trashItem.mockClear();
+    shell.trashItem.mockRejectedValue(new Error('Trash unavailable'));
     const send = jest.fn();
     mainModelClass.win = { webContents: { send } };
 
     await mainModelClass.deleteSelected([{ thumpName: 'thumb.png', bigName: 'big.png', origPath: originalFile }]);
+    expect(shell.trashItem).toHaveBeenCalledTimes(3);
+    shell.trashItem.mockReset().mockImplementation(async () => {});
 
     expect(fs.existsSync(originalFile)).toBe(true);
     expect(fs.existsSync(thumpFile)).toBe(true);

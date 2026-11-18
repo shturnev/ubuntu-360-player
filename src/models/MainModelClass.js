@@ -967,7 +967,16 @@ class MainModelClass {
 
       try {
         // Windows trashItem fails with "Operation was aborted" on forward-slash paths
-        await shell.trashItem(path.resolve(item.origPath));
+        const trashPath = path.resolve(item.origPath);
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await shell.trashItem(trashPath);
+            break;
+          } catch (error) {
+            if (attempt >= 2 || error?.code === 'ENOENT' || !Helper.isFileExists(trashPath)) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+          }
+        }
       } catch (error) {
         if (error?.code !== 'ENOENT' && Helper.isFileExists(item.origPath)) {
           this.win?.webContents?.send('delete-error', {
