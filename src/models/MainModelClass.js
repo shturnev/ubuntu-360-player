@@ -209,7 +209,16 @@ class MainModelClass {
       if (!isSamePath(sourceOnly, origPath)) throw new Error('Invalid cached media link.');
       const stat = fs.statSync(origPath);
       if (!stat.isFile() || !isSamePath(fs.realpathSync(origPath), origPath)) throw new Error('Invalid cached media.');
-      const record = { bigName, cachePath, sourcePath: origPath, direct: true, dev: stat.dev, ino: stat.ino };
+      const record = {
+        bigName,
+        cachePath,
+        sourcePath: origPath,
+        direct: true,
+        dev: stat.dev,
+        ino: stat.ino,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+      };
       this.exportMedia.set(origPath, record);
       return record;
     }
@@ -244,7 +253,9 @@ class MainModelClass {
         !stat.isFile() ||
         !isSamePath(fs.realpathSync(record.sourcePath), record.sourcePath) ||
         stat.dev !== record.dev ||
-        stat.ino !== record.ino
+        stat.ino !== record.ino ||
+        stat.size !== record.size ||
+        stat.mtimeMs !== record.mtimeMs
       ) {
         throw new Error('The cached media file has changed.');
       }

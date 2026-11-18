@@ -1350,6 +1350,12 @@ describe('MainModelClass', () => {
       mainModelClass.authorizedMedia.set(original, 'image');
       mainModelClass.recordExportMedia(original, 'linked.jpg');
       dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [out] });
+      // The global link() stub would break the real fallback; emulate its exclusive-copy behaviour.
+      const exclusiveCopy = async (source, target) => {
+        await fs.promises.copyFile(source, target, fs.constants.COPYFILE_EXCL);
+        await fs.promises.unlink(source);
+      };
+      renameNoReplace.mockImplementationOnce(exclusiveCopy).mockImplementationOnce(exclusiveCopy);
       const link = jest.spyOn(fs.promises, 'link').mockImplementation(async (_source, target) => {
         fs.writeFileSync(target, 'racer');
         throw Object.assign(new Error('Hard links unavailable'), { code });
