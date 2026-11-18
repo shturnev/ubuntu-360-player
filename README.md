@@ -1,7 +1,7 @@
 ![360 Media Viewer — Immersive photo & video viewing for Linux](docs/360-media-viewer-banner.png)
 
-## Hello, this is 360 Media Viewer for Linux!
-> At the moment, it is a strong word. Because at now it’s only for Debian-like distributions. But this is cool too, right? And over time, we will do porting for other popular Linux distributions.
+## Hello, this is 360 Media Viewer for Linux and Windows!
+> Linux support targets Debian-like distributions (`.deb`, `.AppImage`). Windows 10+ x64 is supported through an NSIS installer.
 
 ## Modern Electron + React build
 This project has been migrated from the legacy Vue 2 + Quasar + Electron 7 stack to a supported Electron + React + Vite configuration.
@@ -47,7 +47,7 @@ This builds the production renderer and packages both Linux artifacts in
 - `*.AppImage`
 
 Install a local Debian package with APT, which will resolve its declared
-dependencies (including `ffmpeg`, `graphicsmagick`, `perl`, and `python3`):
+dependencies (including `ffmpeg`, `graphicsmagick`, and `perl`):
 
 ```bash
 sudo apt install ./dist_electron/<package>.deb
@@ -65,8 +65,32 @@ distributions require a compatible FUSE runtime to launch it. Install `perl`
 and make it available in `PATH` for EXIF preservation; the bundled ExifTool
 uses the system Perl runtime. Without it, imports requiring a derived image
 and orientation correction fail with an error instead of saving without EXIF.
-Media processing also requires `ffmpeg`, `ffprobe`, and GraphicsMagick. Exporting to
-filesystems without hard-link support requires `python3` in `PATH`.
+Media processing also requires `ffmpeg`, `ffprobe`, and GraphicsMagick.
+Exports to filesystems without hard-link support fall back to a copy; `python3` is no longer required.
+
+### Windows
+
+Windows 10 or newer (x64) is supported. Download `360-media-viewer-<version>-setup.exe`
+from the [Releases](https://github.com/shturnev/ubuntu-360-player/releases) page and run it.
+The installer is per-user (no administrator rights) and lets you pick the install directory.
+
+- No extra software is needed: `ffmpeg`, `ffprobe`, ExifTool (the standalone `.exe`, no Perl)
+  and `sharp` for thumbnails are bundled. Set `SHT_VR_TOOLS=system` to use `ffmpeg`/`ffprobe`
+  from `PATH` instead.
+- The installer adds 360 Media Viewer to **Open with** for JPG, JPEG, PNG, MP4, INSP and INSV.
+  It never changes your default applications.
+- Data lives in `%USERPROFILE%\.sht-vr-player` (or `%SHT_VR_HOME%\.sht-vr-player`).
+- Windows normally forbids symlinks without Developer Mode. The original cache therefore tries
+  a symlink, then a copy (images) or hard link (videos), and finally serves the original video
+  directly, so large videos are not duplicated. Deleting the cache never touches originals.
+- Updates are published as `latest.yml` next to the installer.
+- Build locally: `npm ci`, then `npm run electron:build -- --win --publish never`.
+  Check the bundled tools with `node electron/smoke-tools.js`.
+
+Known limitations: the installer is not code-signed, so Windows SmartScreen may warn on
+first launch. Bundled `ffmpeg-static` is a GPL build (GPL-3.0-or-later); keep its license
+in mind when redistributing the installer. The release workflow builds the installer on a Windows runner and runs`nthe smoke test; interactive behaviour (installer, import, export, auto-update) has not
+been verified on a clean Windows machine yet.
 
 Use **Import folder** to replace the current library, or **Import files** to append
 JPG, JPEG, PNG, INSP, MP4, and paired INSV files. On Linux, installed desktop
