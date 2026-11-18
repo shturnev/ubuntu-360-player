@@ -89,7 +89,11 @@ describe('INSV viewer', () => {
     rerender(<InsvViewer sources={sources} />);
     expect(gl.uniform1i).toHaveBeenLastCalledWith('flatProjection', 0);
     act(() => handlers.onFrame([1.03, 1]));
-    expect(gl.texImage2D).toHaveBeenCalledTimes(2);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(4);
+    act(() => handlers.onFrame([1.03, 1.03]));
+    expect(gl.texImage2D).toHaveBeenCalledTimes(6);
+    act(() => handlers.onFrame([1.03, 1.03]));
+    expect(gl.texImage2D).toHaveBeenCalledTimes(6);
     unmount();
     expect(controller.destroy).toHaveBeenCalled();
     expect(gl.deleteTexture).toHaveBeenCalledTimes(2);

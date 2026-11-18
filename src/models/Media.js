@@ -224,6 +224,7 @@ class Media {
           '2',
           '-ss',
           String(sampleTime),
+          '-an',
           '-i',
           filePath,
           '-map',

@@ -523,6 +523,27 @@ describe('MainModelClass', () => {
     expect(event.reply).toHaveBeenCalledWith('delete-cache-finish', true);
   });
 
+  test('partial cache cleanup preserves motion tracks and retained thumbnails', () => {
+    const smallDir = path.join(mainModelClass.static_dir, 'small');
+    const bigDir = path.join(mainModelClass.static_dir, 'big');
+    const motionDir = path.join(mainModelClass.homedir, 'insv-motion');
+    fs.mkdirSync(motionDir);
+    fs.writeFileSync(path.join(motionDir, 'first.json'), 'first track');
+    fs.writeFileSync(path.join(motionDir, 'second.json'), 'second track');
+    fs.writeFileSync(path.join(smallDir, 'keep.jpg'), 'keep');
+    fs.writeFileSync(path.join(smallDir, 'remove.jpg'), 'remove');
+    fs.writeFileSync(path.join(bigDir, 'keep.jpg'), 'keep');
+    fs.writeFileSync(path.join(bigDir, 'remove.jpg'), 'remove');
+
+    const event = { reply: jest.fn() };
+    mainModelClass.deleteCache(event, [{ thumpName: 'keep.jpg', bigName: 'keep.jpg' }]);
+
+    expect(fs.readdirSync(motionDir).sort()).toEqual(['first.json', 'second.json']);
+    expect(fs.readdirSync(smallDir)).toEqual(['keep.jpg']);
+    expect(fs.readdirSync(bigDir)).toEqual(['keep.jpg']);
+    expect(event.reply).toHaveBeenCalledWith('delete-cache-finish', true);
+  });
+
   test('openDir preserves the cancellation behavior without reading a directory', () => {
     jest.spyOn(dialog, 'showOpenDialogSync').mockReturnValue(undefined);
     const event = { reply: jest.fn() };

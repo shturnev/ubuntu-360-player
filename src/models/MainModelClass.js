@@ -912,13 +912,6 @@ class MainModelClass {
       return;
     }
 
-    try {
-      rimraf.sync(motionDir, { glob: false });
-    } catch (error) {
-      event.reply('delete-error', error);
-      return;
-    }
-
     const smallDeleted = removeFilesHelper(
       path.join(this.static_dir, 'small'),
       items.map((item) => item.thumpName)

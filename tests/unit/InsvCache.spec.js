@@ -77,6 +77,7 @@ describe('INSV thumbnail cache', () => {
     expect(decodes).toHaveLength(2);
     expect(decodes.map(([, args]) => args[args.indexOf('-i') + 1])).toEqual(files);
     expect(decodes.map(([, args]) => args[args.indexOf('-ss') + 1])).toEqual(['1', '1']);
+    decodes.forEach(([, args]) => expect(args.indexOf('-an')).toBeLessThan(args.indexOf('-i')));
     execFile.mockClear();
     expect(await createInsvThumbnail(pair, cache)).toBe(name);
     expect(execFile.mock.calls.some(([, args]) => args.includes('pipe:1'))).toBe(false);

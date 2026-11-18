@@ -212,7 +212,7 @@ const InsvViewer = forwardRef(function InsvViewer(
         playback = createInsvPlayback({
           videos,
           onFrame: (times) => {
-            if (failed || disposed || times[0] === uploaded[0] || times[1] === uploaded[1]) return;
+            if (failed || disposed || (times[0] === uploaded[0] && times[1] === uploaded[1])) return;
             if (videos.some((video) => video.readyState < 2 || !video.videoWidth || !video.videoHeight)) return;
             try {
               const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
