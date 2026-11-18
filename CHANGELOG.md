@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.6.1] - 2026-11-18
+### Changed
+- Fix packaged INSV startup and update README ([#88](https://github.com/shturnev/ubuntu-360-player/pull/88))
+
 ## [3.6.0] - 2026-11-18
 ### Changed
 - feat: add paired INSV playback and stabilization ([#87](https://github.com/shturnev/ubuntu-360-player/pull/87))
