@@ -16,7 +16,7 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * View the original filename, EXIF, and other media metadata, including date, time, and location when available.
 * Save a screenshot of a ready 360° panorama or export a copy of the current cached media.
 * Preserve image EXIF metadata when creating derived cached images.
-* Remove one or multiple media items and their cached files, including from the full-size viewer; INSV pair deletion is unavailable.
+* Delete one or multiple media items, including from the full-size viewer: after confirmation, the original files are moved to the Recycle Bin / Trash and their cache is removed. INSV pair deletion is unavailable. **Remove selected from library** only removes items from the list.
 * Inspect and clear the local media cache.
 * Check, download, and install application updates for supported installations.
 * Start the application with a media directory or multiple media files as command-line arguments, or use Open With.

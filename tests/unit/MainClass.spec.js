@@ -6,6 +6,7 @@ const { Writable } = require('stream');
 jest.mock('electron', () => ({
   dialog: { showOpenDialogSync: jest.fn(), showOpenDialog: jest.fn(), showSaveDialog: jest.fn() },
   ipcMain: { on: jest.fn(), handle: jest.fn() },
+  shell: { trashItem: jest.fn(async () => {}) },
 }));
 
 jest.mock('electron-updater', () => ({
@@ -14,7 +15,7 @@ jest.mock('electron-updater', () => ({
   },
 }));
 
-const { dialog, ipcMain } = require('electron');
+const { dialog, ipcMain, shell } = require('electron');
 
 jest.mock('trash', () => jest.fn(async () => true));
 jest.mock('../../src/models/renameNoReplace', () => jest.fn(jest.requireActual('../../src/models/renameNoReplace')));
@@ -59,7 +60,7 @@ describe('MainModelClass', () => {
     jest.restoreAllMocks();
   });
 
-  test('deleteSelected clears cache files without deleting the original media', async () => {
+  test('deleteSelected moves the original to the trash and clears its cache files', async () => {
     const targetDir = mainModelClass.static_dir;
     const thumpFile = path.join(targetDir, 'small', 'thumb.png');
     const bigFile = path.join(targetDir, 'big', 'big.png');
@@ -68,6 +69,10 @@ describe('MainModelClass', () => {
     fs.writeFileSync(thumpFile, 'thumb');
     fs.writeFileSync(bigFile, 'big');
     fs.writeFileSync(originalFile, 'image');
+    mainModelClass.authorizedMedia.set(originalFile, 'image');
+    shell.trashItem.mockImplementationOnce(async (target) => fs.unlinkSync(target));
+    const send = jest.fn();
+    mainModelClass.win = { webContents: { send } };
 
     const payload = [
       {
@@ -79,11 +84,49 @@ describe('MainModelClass', () => {
       },
     ];
 
-    const result = mainModelClass.deleteSelected(payload);
+    const result = await mainModelClass.deleteSelected(payload);
     expect(result).toBe(true);
+    expect(shell.trashItem).toHaveBeenCalledWith(originalFile);
     expect(fs.existsSync(thumpFile)).toBe(false);
     expect(fs.existsSync(bigFile)).toBe(false);
+    expect(fs.existsSync(originalFile)).toBe(false);
+    expect(mainModelClass.authorizedMedia.has(originalFile)).toBe(false);
+    expect(send).toHaveBeenCalledWith('file-deleted', payload[0]);
+  });
+
+  test('deleteSelected keeps the item and cache when the original cannot be trashed', async () => {
+    const thumpFile = path.join(mainModelClass.static_dir, 'small', 'thumb.png');
+    const originalFile = path.join(tempDir, 'original.png');
+    fs.writeFileSync(thumpFile, 'thumb');
+    fs.writeFileSync(originalFile, 'image');
+    mainModelClass.authorizedMedia.set(originalFile, 'image');
+    shell.trashItem.mockRejectedValueOnce(new Error('Trash unavailable'));
+    const send = jest.fn();
+    mainModelClass.win = { webContents: { send } };
+
+    await mainModelClass.deleteSelected([{ thumpName: 'thumb.png', bigName: 'big.png', origPath: originalFile }]);
+
     expect(fs.existsSync(originalFile)).toBe(true);
+    expect(fs.existsSync(thumpFile)).toBe(true);
+    expect(mainModelClass.authorizedMedia.has(originalFile)).toBe(true);
+    expect(send).toHaveBeenCalledWith(
+      'delete-error',
+      expect.objectContaining({ message: expect.stringContaining('Trash unavailable') })
+    );
+    expect(send).not.toHaveBeenCalledWith('file-deleted', expect.anything());
+  });
+
+  test('deleteSelected refuses files that were not imported', async () => {
+    const send = jest.fn();
+    mainModelClass.win = { webContents: { send } };
+    shell.trashItem.mockClear();
+
+    await mainModelClass.deleteSelected([
+      { thumpName: 't.png', bigName: 'b.png', origPath: path.join(tempDir, 'x.png') },
+    ]);
+
+    expect(shell.trashItem).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith('delete-error', expect.objectContaining({ message: expect.any(String) }));
   });
 
   test('saves orientation correction only for an authorized image', async () => {
@@ -1133,7 +1176,7 @@ describe('MainModelClass', () => {
     resolveDialog({ canceled: false, filePath: output });
     expect((await save).success).toBe(false);
     expect(fs.existsSync(output)).toBe(false);
-    mainModelClass.deleteSelected([{ origPath: original, bigName: 'linked.jpg', thumpName: 'missing.jpg' }]);
+    await mainModelClass.deleteSelected([{ origPath: original, bigName: 'linked.jpg', thumpName: 'missing.jpg' }]);
     expect((await mainModelClass.saveCurrentMedia({ origPath: original })).success).toBe(false);
   });
 
