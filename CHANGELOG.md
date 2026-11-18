@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.8.1] - 2026-11-18
+### Changed
+- fix: stabilize release CI tests and Windows smoke check \(\#76\) ([#94](https://github.com/shturnev/ubuntu-360-player/pull/94))
+
 ## [3.8.0] - 2026-11-18
 ### Changed
 - feat: Windows x64 support \(\#76\) ([#93](https://github.com/shturnev/ubuntu-360-player/pull/93))
