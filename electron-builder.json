@@ -10,6 +10,7 @@
     "electron/**/*",
     "src/config/**/*",
     "src/models/**/*",
+    "src/insvGeometry.json",
     "build_resources/icon/png/icon.png",
     "project.config.js",
     "package.json"

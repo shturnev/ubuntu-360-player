@@ -7,7 +7,7 @@
 This project has been migrated from the legacy Vue 2 + Quasar + Electron 7 stack to a supported Electron + React + Vite configuration.
 
 - Electron: 45.x
-- Node.js: 20 LTS
+- Node.js: 20.19.x or 22.12+
 - Renderer: React 18
 - Build tool: Vite
 - Packaging: electron-builder for Linux `.deb` and `.AppImage`
@@ -65,12 +65,13 @@ distributions require a compatible FUSE runtime to launch it. Install `perl`
 and make it available in `PATH` for EXIF preservation; the bundled ExifTool
 uses the system Perl runtime. Without it, imports requiring a derived image
 and orientation correction fail with an error instead of saving without EXIF.
-Media processing also requires `ffmpeg` and GraphicsMagick. Exporting to
+Media processing also requires `ffmpeg`, `ffprobe`, and GraphicsMagick. Exporting to
 filesystems without hard-link support requires `python3` in `PATH`.
 
 Use **Import folder** to replace the current library, or **Import files** to append
-individual JPG, JPEG, PNG, INSP, and MP4 files. On Linux, installed desktop
-integration also offers 360 Media Viewer in **Open With** for these formats.
+JPG, JPEG, PNG, INSP, MP4, and paired INSV files. On Linux, installed desktop
+integration also offers 360 Media Viewer in **Open With** for JPG, JPEG, PNG,
+INSP, and MP4 files.
 Opening files in an already running instance appends them. A directory passed
 alongside files replaces the library first, then the files are added.
 
@@ -79,6 +80,29 @@ type for `.insp` files, because the system MIME database does not generally
 define that extension. The AppImage includes the same MIME definition; making
 it available to a desktop environment requires an AppImage integration tool.
 Neither package makes the application the default file handler.
+
+### Insta360 INSV video
+
+Import a folder containing both lens files, or select both files together with
+**Import files**. The filenames must match the Insta360 pattern
+`VID_YYYYMMDD_HHMMSS_00_NNN.insv` and `VID_YYYYMMDD_HHMMSS_10_NNN.insv`,
+with the same date, time, and numeric identifier in the same folder. A valid
+pair appears as one item; incomplete, ambiguous, or incompatible pairs are
+reported as errors. Each lens must contain compatible square H.264 video.
+
+The viewer streams both lenses and stitches them in WebGL without creating a
+full MP4. During import it prepares a stitched thumbnail and, where supported,
+an experimental gyro stabilization track. Gyro stabilization is currently
+calibrated for normal video from Insta360 One2; unsupported recordings fall
+back to horizon leveling or no correction, with a warning. Initial preparation
+can be slow or time out; the motion track is cached for unchanged files.
+
+Stitching and motion correction are approximate, not factory calibration or
+FlowState: seams, parallax, and residual motion may remain. Both 360° and Flat
+views can save a screenshot of the current view, not a full-resolution
+spherical export. Full-video export, pair deletion, and manual orientation
+correction are unavailable for INSV pairs. Audio is played only from the first
+lens; recordings with audio only in the second lens currently play silently.
 
 Maintainers planning Snap Store or repository-wide APT distribution should
 follow [the distribution guide](docs/distribution.md). A local `.deb` is not
@@ -129,7 +153,7 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 
 ## What can?
 * Open a media directory or add individual media files and browse them in a thumbnail grid.
-* View ordinary photos and videos as well as 360° photos and videos, including Insta360 `.insp` photos.
+* View ordinary photos and videos as well as 360° photos and videos, including Insta360 `.insp` photos and paired `.insv` videos.
 * Explore 360° media in an interactive panorama viewer, with a flat-view fallback.
 * Correct panorama orientation with yaw, pitch, and roll controls; use center guides in Flat view and save the correction to the local cache.
 * Navigate between media items, adjust thumbnail size, and select multiple items.
@@ -137,7 +161,7 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * View the original filename, EXIF, and other media metadata, including date, time, and location when available.
 * Save a screenshot of a ready 360° panorama or export a copy of the current cached media.
 * Preserve image EXIF metadata when creating derived cached images.
-* Delete one or multiple media files, including from the full-size viewer.
+* Remove one or multiple media items and their cached files, including from the full-size viewer; INSV pair deletion is unavailable.
 * Inspect and clear the local media cache.
 * Check, download, and install application updates for supported installations.
 * Start the application with a media directory or multiple media files as command-line arguments, or use Linux Open With.
@@ -154,11 +178,11 @@ is open. The browser defaults for `Ctrl+O`, `Ctrl+Shift+O`, `Ctrl+P`,
 | --- | --- |
 | `Ctrl+O` | Open a folder for import. |
 | `Ctrl+Shift+O` | Add media files to the current library. |
-| `Ctrl+P` | Save a screenshot of the ready 360° panorama. Not available in Flat view or fallback. |
-| `Ctrl+S` | Save a byte-for-byte copy of the current cached media file, which may differ from the original after conversion or orientation correction. |
+| `Ctrl+P` | Save a screenshot of the ready 360° panorama. Also available in Flat view for INSV pairs; unavailable in other Flat views or fallback. |
+| `Ctrl+S` | Save a byte-for-byte copy of the current cached media file, which may differ from the original after conversion or orientation correction. Not available for INSV pairs. |
 | `F1` | Open Settings. |
 | `I` | Show information about the current media; pauses video. |
-| `O` | Toggle orientation correction for the current media. |
+| `O` | Toggle orientation correction for the current media, except INSV pairs. |
 | `Space` | Play or pause video. |
 | `Left` / `Right` | Show the previous / next media. |
 

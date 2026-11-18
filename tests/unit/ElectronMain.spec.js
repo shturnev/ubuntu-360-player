@@ -259,6 +259,19 @@ describe('Electron main process directory launch flow', () => {
     ]);
   });
 
+  test('packages the shared geometry required by the main-process INSV modules', () => {
+    const { FileMatcher } = require('app-builder-lib/out/fileMatcher');
+    const config = require('../../electron-builder.json');
+    const root = path.resolve(__dirname, '../..');
+    const filter = new FileMatcher(root, root, (value) => value, config.files).createFilter();
+    for (const moduleName of ['insvThumbnailProjection', 'insvCache']) {
+      const modulePath = path.join(root, 'src', 'models', `${moduleName}.js`);
+      const geometry = require.resolve('../insvGeometry.json', { paths: [path.dirname(modulePath)] });
+      expect(filter(modulePath, fs.statSync(modulePath))).toBe(true);
+      expect(filter(geometry, fs.statSync(geometry))).toBe(true);
+    }
+  });
+
   test('parses multiple file URIs and relative paths using the second process working directory', () => {
     const directory = path.join(tempDir, 'photos');
     const image = path.join(tempDir, 'світлина space.JPG');
