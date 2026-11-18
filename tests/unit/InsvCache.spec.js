@@ -6,6 +6,7 @@ const { createInsvThumbnail } = require('../../src/models/insvCache');
 const { projectInsvThumbnail } = require('../../src/models/insvThumbnailProjection');
 
 jest.mock('child_process', () => ({ execFile: jest.fn() }));
+jest.mock('../../src/models/mediaTools', () => jest.requireActual('./linuxTools'));
 
 describe('INSV thumbnail cache', () => {
   let directory;

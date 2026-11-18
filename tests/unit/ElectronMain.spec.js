@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
   jest.resetModules();
@@ -96,7 +97,7 @@ describe('Electron main process directory launch flow', () => {
     const { main } = loadMain();
 
     expect(main.getDirectoryFromArgv(['/app/360-media-viewer', firstDirectory, spacedDirectory])).toBe(firstDirectory);
-    expect(main.getDirectoryFromArgv(['/app/360-media-viewer', `file://${encodeURI(spacedDirectory)}`])).toBe(
+    expect(main.getDirectoryFromArgv(['/app/360-media-viewer', pathToFileURL(spacedDirectory).href])).toBe(
       spacedDirectory
     );
   });
@@ -254,9 +255,37 @@ describe('Electron main process directory launch flow', () => {
     const config = require('../../electron-builder.json');
 
     expect(config.linux.mimeTypes).toEqual(['inode/directory', 'image/jpeg', 'image/png', 'video/mp4']);
-    expect(config.fileAssociations).toEqual([
+    expect(config.linux.fileAssociations).toEqual([
       expect.objectContaining({ ext: 'insp', mimeType: 'image/x-360-media-viewer-insp' }),
     ]);
+    expect(config.deb.depends).not.toContain('python3');
+  });
+
+  test('configures a per-user x64 NSIS installer that never claims default applications', () => {
+    const config = require('../../electron-builder.json');
+    const installer = fs.readFileSync(path.resolve(__dirname, '../../', config.nsis.include), 'utf8');
+
+    expect(config.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }]);
+    expect(config.win.icon).toBe('build_resources/icon/png/icon.ico');
+    expect(config.nsis).toMatchObject({ oneClick: false, perMachine: false, allowElevation: false });
+    // fileAssociations register the file class as the default handler; only "Open with" entries are allowed.
+    expect(config.fileAssociations).toBeUndefined();
+    expect(config.win.fileAssociations).toBeUndefined();
+    for (const ext of ['.jpg', '.jpeg', '.png', '.mp4', '.insp', '.insv']) {
+      expect(installer).toContain(`registerOpenWith "${ext}"`);
+    }
+    expect(installer).not.toMatch(/Software\\Classes\\\.\w+"\s+""/);
+    expect(config.publish).toEqual([expect.objectContaining({ provider: 'github' })]);
+  });
+
+  test('unpacks bundled media tools and does not ship Squirrel', () => {
+    const config = require('../../electron-builder.json');
+    const manifest = require('../../package.json');
+
+    for (const name of ['ffmpeg-static', 'ffprobe-static', 'exiftool-vendored.exe', 'sharp', 'exiftool-vendored.pl']) {
+      expect(config.asarUnpack).toContain(`node_modules/${name}/**`);
+    }
+    expect(JSON.stringify(manifest)).not.toContain('squirrel');
   });
 
   test('packages the shared geometry required by the main-process INSV modules', () => {

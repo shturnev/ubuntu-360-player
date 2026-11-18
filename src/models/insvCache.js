@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { assertCurrentPair } = require('./insvPair');
+const mediaTools = require('./mediaTools');
 const { projectInsvThumbnail } = require('./insvThumbnailProjection');
 const geometry = require('../insvGeometry.json');
 
@@ -14,7 +15,7 @@ const HEIGHT = 225;
 function runFfmpeg(args, { input, ...options } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
-      'ffmpeg',
+      mediaTools.ffmpeg(),
       args,
       { timeout: 60000, maxBuffer: 8 * 1024 * 1024, ...options },
       (error, stdout) => {

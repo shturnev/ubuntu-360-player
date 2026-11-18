@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { fileURLToPath } = require('url');
 const { loadProjectDotenv, getCandidatePorts, normalizePort } = require('../src/config/env');
 
 loadProjectDotenv();
@@ -8,6 +7,7 @@ loadProjectDotenv();
 const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { MainModelClass } = require('../src/models/MainModelClass');
 const { isSupportedMediaPath } = require('../src/models/mediaFormats');
+const { resolveLaunchPath } = require('../src/models/launchPaths');
 
 const isDevelopment = !app.isPackaged;
 if (process.platform === 'linux') {
@@ -28,19 +28,9 @@ function getMediaFromArgv(argv, { isDevelopment = false, workingDirectory = proc
 
   const userArguments = argv.slice(isDevelopment ? 2 : 1);
   for (const argument of userArguments) {
-    if (typeof argument !== 'string' || argument.length === 0 || argument.startsWith('-')) {
-      continue;
-    }
-
-    let directoryPath;
     try {
-      if (argument.startsWith('file:')) {
-        directoryPath = fileURLToPath(argument);
-      } else if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(argument)) {
-        continue;
-      } else {
-        directoryPath = path.resolve(workingDirectory, argument);
-      }
+      const directoryPath = resolveLaunchPath(argument, { workingDirectory });
+      if (!directoryPath) continue;
 
       const stat = fs.statSync(directoryPath);
       if (stat.isDirectory() && !result.directory) result.directory = directoryPath;

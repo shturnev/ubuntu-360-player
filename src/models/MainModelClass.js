@@ -10,6 +10,8 @@ const { getStorageRoot } = require('../config/env');
 const { Helper } = require('./Helper');
 const { Media } = require('./Media');
 const renameNoReplace = require('./renameNoReplace');
+const mediaCache = require('./mediaCache');
+const { isSamePath } = require('./pathCompare');
 const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFormats');
 const { validateInsvPair, assertCurrentPair } = require('./insvPair');
 const { InsvSourceServer } = require('./insvSourceServer');
@@ -201,6 +203,15 @@ class MainModelClass {
     }
     const bigDir = fs.realpathSync(path.join(this.static_dir, 'big'));
     const cachePath = path.join(bigDir, bigName);
+    const sourceOnly = mediaCache.getSource(bigName);
+    if (sourceOnly !== undefined) {
+      if (!isSamePath(sourceOnly, origPath)) throw new Error('Invalid cached media link.');
+      const stat = fs.statSync(origPath);
+      if (!stat.isFile() || !isSamePath(fs.realpathSync(origPath), origPath)) throw new Error('Invalid cached media.');
+      const record = { bigName, cachePath, sourcePath: origPath, direct: true, dev: stat.dev, ino: stat.ino };
+      this.exportMedia.set(origPath, record);
+      return record;
+    }
     const linkStat = fs.lstatSync(cachePath);
     if (!linkStat.isFile() && !linkStat.isSymbolicLink()) throw new Error('Invalid cached media.');
     const sourcePath = fs.realpathSync(cachePath);
@@ -224,6 +235,19 @@ class MainModelClass {
   validateExportMedia(origPath, record) {
     if (!record || !this.authorizedMedia.has(origPath) || this.exportMedia.get(origPath) !== record) {
       throw new Error('This media file is no longer available in the current library.');
+    }
+    if (record.direct) {
+      const stat = fs.statSync(record.sourcePath);
+      if (
+        mediaCache.getSource(record.bigName) !== record.sourcePath ||
+        !stat.isFile() ||
+        !isSamePath(fs.realpathSync(record.sourcePath), record.sourcePath) ||
+        stat.dev !== record.dev ||
+        stat.ino !== record.ino
+      ) {
+        throw new Error('The cached media file has changed.');
+      }
+      return stat;
     }
     const link = fs.lstatSync(record.cachePath);
     const sourcePath = fs.realpathSync(record.cachePath);
@@ -347,7 +371,10 @@ class MainModelClass {
       this.validateExportMedia(origPath, record);
       const destStat = unique ? null : await getExportDestinationStat(filePath);
       if (destStat && !destStat.isFile()) throw new Error('The destination must be a regular file.');
-      if (destStat && destStat.dev === sourceStat.dev && destStat.ino === sourceStat.ino) {
+      if (
+        (destStat && destStat.dev === sourceStat.dev && destStat.ino === sourceStat.ino) ||
+        isSamePath(filePath, record.sourcePath)
+      ) {
         throw new Error('Cannot save media over its source.');
       }
       const candidate = path.join(path.dirname(filePath), `.sht-vr-export-${crypto.randomUUID()}.tmp`);
@@ -509,6 +536,24 @@ class MainModelClass {
     app.use(cors());
     app.get('/insv/:token/orientation', (req, res) => void this.insvSources.serveHorizon(req, res));
     app.get('/insv/:token/:lens', (req, res) => void this.insvSources.serve(req, res));
+    app.get('/big/:name', (req, res, next) => {
+      const origPath = mediaCache.getSource(req.params.name);
+      if (origPath === undefined) {
+        next();
+        return;
+      }
+      const record = this.exportMedia.get(origPath);
+      try {
+        if (!record || !record.direct || record.bigName !== req.params.name) throw new Error('Not authorized.');
+        this.validateExportMedia(origPath, record);
+      } catch (error) {
+        res.sendStatus(404);
+        return;
+      }
+      res.sendFile(origPath, { dotfiles: 'allow', headers: { 'Cache-Control': 'no-store' } }, (error) => {
+        if (error && !res.headersSent) res.sendStatus(error.status || 500);
+      });
+    });
     app.use(express.static(homedir + '/static'));
     const server = app.listen(0);
 
@@ -855,6 +900,7 @@ class MainModelClass {
       }
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
+      mediaCache.unregisterSource(item.bigName);
       const thumpPath = this.static_dir + '/small/' + item.thumpName;
       const symlPath = this.static_dir + '/big/' + item.bigName;
 
@@ -899,6 +945,7 @@ class MainModelClass {
     this.exportMedia.clear();
     this.insvSources.clear();
     this.insvTokens.clear();
+    mediaCache.clearSources();
     const clearEverything = !Array.isArray(items) || !items.length;
     const motionDir = path.join(this.homedir, 'insv-motion');
 

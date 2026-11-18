@@ -1,6 +1,5 @@
 const fs = require('fs');
-const exiftoolPath = require('exiftool-vendored.pl').replace(/\.asar([/\\])/, '.asar.unpacked$1');
-const { lowerBound, parseTelemetry, run } = require('./insvHorizon');
+const { lowerBound, parseTelemetry, runExiftool, runFfprobe } = require('./insvHorizon');
 
 function readVarint(data, position) {
   let value = 0n;
@@ -229,8 +228,7 @@ async function createInsvGyroTrack(pair) {
   const file = pair.paths[0];
   const timing = await readCameraTiming(file);
   const [metadata, frames] = await Promise.all([
-    run('perl', [
-      exiftoolPath,
+    runExiftool([
       '-m',
       '-ee',
       '-G3:1',
@@ -245,7 +243,7 @@ async function createInsvGyroTrack(pair) {
       '-VideoTimeStamp',
       file,
     ]),
-    run('ffprobe', [
+    runFfprobe([
       '-v',
       'error',
       '-select_streams',
