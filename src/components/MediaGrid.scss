@@ -51,6 +51,27 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
+.insv-badge,
+.insv-warning {
+  position: absolute;
+  left: 8px;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.78);
+  color: white;
+  font-size: 0.7rem;
+}
+
+.insv-badge {
+  top: 8px;
+  font-weight: bold;
+}
+
+.insv-warning {
+  bottom: 8px;
+  color: #ffdd87;
+}
+
 .selection-mark {
   position: absolute;
   right: 8px;

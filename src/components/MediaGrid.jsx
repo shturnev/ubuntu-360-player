@@ -9,6 +9,7 @@ function MediaGrid({ items, serverUrl, maxSizePx, canSelect, onToggleSelection, 
           className={`media-card ${item.selected ? 'selected' : ''}`}
           onClick={() => (canSelect ? onToggleSelection(index) : onOpenItem({ ...item, index }))}
           role="button"
+          title={item.motionWarning || undefined}
           tabIndex={0}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -30,6 +31,10 @@ function MediaGrid({ items, serverUrl, maxSizePx, canSelect, onToggleSelection, 
             }}
           >
             {item.type === 'video' && <span className="video-badge">▶</span>}
+            {item.insv && <span className="insv-badge">INSV</span>}
+            {item.motionWarning && (
+              <span className="insv-warning">{item.motionMode === 'horizon' ? 'Horizon only' : 'Not stabilized'}</span>
+            )}
           </div>
           <div className="selection-mark">✓</div>
         </div>

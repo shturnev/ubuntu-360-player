@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import PanoramaViewer from '../PanoramaViewer.jsx';
+import InsvViewer from './InsvViewer.jsx';
 import { shortcutKey } from '../shortcutKey.js';
 import './PanoramaViewer.scss';
 
@@ -157,6 +158,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     showingItem,
     items,
     viewerSrc,
+    insvSources,
     flatView,
     conversionProgress,
     hasConvertedVideo,
@@ -197,6 +199,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
   const [orientationSaveError, setOrientationSaveError] = useState('');
   const convertButton =
     showingItem.type === 'video' &&
+    !showingItem.insv &&
     hasPlaybackFailure &&
     onConvertVideo &&
     !conversionProgress?.active &&
@@ -247,7 +250,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
         if (showingItem?.type !== 'video' || event.repeat || event.target?.closest?.('button, a')) return;
 
         event.preventDefault();
-        if (flatView && !orientationOpen) {
+        if (flatView && !orientationOpen && !showingItem.insv) {
           const video = flatVideoRef.current;
           if (!video) return;
           if (video.paused) {
@@ -278,6 +281,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     onVideoPlaybackFailure,
     orientationOpen,
     showingItem?.type,
+    showingItem?.insv,
     shortcutsBlocked,
   ]);
 
@@ -385,7 +389,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
 
   const openMetadata = () => {
     if (showingItem.type === 'video') {
-      if (flatView && !orientationOpen) {
+      if (flatView && !orientationOpen && !showingItem.insv) {
         flatVideoRef.current?.pause();
       } else {
         panoramaRef.current?.pause?.();
@@ -395,6 +399,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
   };
 
   const toggleOrientationCorrection = () => {
+    if (showingItem.insv) return;
     if (!flatView) {
       onToggleFlatView?.();
       setOrientationOpen(true);
@@ -437,7 +442,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
 
   const saveScreenshot = async () => {
     if (
-      flatView ||
+      (flatView && !showingItem.insv) ||
       orientationOpen ||
       metadataOpen ||
       shortcutsBlocked ||
@@ -493,7 +498,19 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
         <button type="button" className="close-viewer" onClick={onClose}>
           ✕
         </button>
-        {usePanoramaRenderer ? (
+        {showingItem.insv ? (
+          <InsvViewer
+            ref={panoramaRef}
+            sources={insvSources}
+            frameRate={showingItem.frameRate}
+            flatProjection={flatView}
+            motionMode={showingItem.motionMode}
+            motionWarning={showingItem.motionWarning}
+            onToggleFullscreen={toggleFullscreen}
+            isFullscreen={isFullscreen}
+            onCaptureReadyChange={setCanSaveScreenshot}
+          />
+        ) : usePanoramaRenderer ? (
           <PanoramaViewer
             ref={panoramaRef}
             source={viewerSrc}
@@ -528,7 +545,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
         ) : (
           <img src={viewerSrc} alt={showingItem.bigName} />
         )}
-        {flatView && !orientationOpen && showingItem.type === 'video' && hasPlaybackFailure && (
+        {!showingItem.insv && flatView && !orientationOpen && showingItem.type === 'video' && hasPlaybackFailure && (
           <div className="error-block viewer-flat-error">
             <p role="status">Unable to play this video in Flat view.</p>
             <div className="error-block-actions">
@@ -581,7 +598,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
             >
               {isFullscreen ? CloseFullScreenIcon() : OpenFullScreenIcon()}
             </button>
-            {!flatView && canSaveScreenshot && (
+            {(!flatView || showingItem.insv) && canSaveScreenshot && (
               <button
                 type="button"
                 onClick={saveScreenshot}
@@ -593,16 +610,18 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
                 {isSavingScreenshot ? 'Saving screenshot…' : <CameraIcon />}
               </button>
             )}
-            <button
-              type="button"
-              onClick={toggleOrientationCorrection}
-              aria-expanded={orientationOpen}
-              aria-controls="orientation-correction"
-              aria-label="Adjust panorama orientation"
-              title="Adjust panorama orientation (O)"
-            >
-              <OrientationIcon />
-            </button>
+            {!showingItem.insv && (
+              <button
+                type="button"
+                onClick={toggleOrientationCorrection}
+                aria-expanded={orientationOpen}
+                aria-controls="orientation-correction"
+                aria-label="Adjust panorama orientation"
+                title="Adjust panorama orientation (O)"
+              >
+                <OrientationIcon />
+              </button>
+            )}
             <button
               ref={metadataButtonRef}
               type="button"
@@ -613,7 +632,12 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
               <InfoIcon />
             </button>
           </div>
-          <button type="button" onClick={onDelete} title={'Delete'}>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={Boolean(showingItem.insv)}
+            title={showingItem.insv ? 'Deletion of INSV pairs is not available.' : 'Delete'}
+          >
             Delete
           </button>
           <button type="button" onClick={onNext} disabled={items.length < 2} aria-label="Next media">

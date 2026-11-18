@@ -10,7 +10,12 @@ const { getStorageRoot } = require('../config/env');
 const { Helper } = require('./Helper');
 const { Media } = require('./Media');
 const renameNoReplace = require('./renameNoReplace');
-const { extensions, isSupportedMediaPath } = require('./mediaFormats');
+const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFormats');
+const { validateInsvPair, assertCurrentPair } = require('./insvPair');
+const { InsvSourceServer } = require('./insvSourceServer');
+const { createInsvThumbnail } = require('./insvCache');
+const { closestInsvRotation } = require('./insvMotion');
+const { getCachedInsvMotion } = require('./insvMotionCache');
 const ConfigModel = require('./ConfigModel');
 const Updater = require('./Updater');
 
@@ -45,6 +50,8 @@ class MainModelClass {
     this.externalImports = [];
     this.externalImportReady = true;
     this.pendingMedia = new Map();
+    this.insvSources = new InsvSourceServer();
+    this.insvTokens = new Map();
   }
 
   init() {
@@ -63,11 +70,14 @@ class MainModelClass {
       const origPath = payload?.origPath;
       const requestId = payload?.requestId;
       const type = payload?.type;
+      const isInsv = type === 'video' && this.authorizedMedia.get(origPath) === 'insv';
+      const token = isInsv ? this.insvTokens.get(origPath) : null;
+      const pair = token ? this.insvSources.records.get(token) : null;
       if (
         typeof origPath !== 'string' ||
         !Number.isSafeInteger(requestId) ||
         !['image', 'video'].includes(type) ||
-        this.authorizedMedia.get(origPath) !== type
+        (this.authorizedMedia.get(origPath) !== type && (!pair || pair.paths[0] !== origPath))
       ) {
         event.reply('media-metadata', {
           origPath: typeof origPath === 'string' ? origPath : '',
@@ -77,7 +87,20 @@ class MainModelClass {
         return;
       }
       try {
-        const entries = await Media.getMetadata(origPath, type);
+        let entries;
+        if (isInsv) {
+          await assertCurrentPair(pair);
+          entries = await Media.getInsvMetadata(pair);
+          await assertCurrentPair(pair);
+          if (
+            this.authorizedMedia.get(origPath) !== 'insv' ||
+            this.insvTokens.get(origPath) !== token ||
+            this.insvSources.records.get(token) !== pair
+          )
+            throw new Error('This INSV pair is no longer available in the current library.');
+        } else {
+          entries = await Media.getMetadata(origPath, type);
+        }
         event.reply('media-metadata', { origPath, requestId, entries });
       } catch (error) {
         event.reply('media-metadata', {
@@ -126,8 +149,10 @@ class MainModelClass {
     });
     ipcMain.on('get-cache-size', (event) => {
       getFolderSize(this.static_dir, (err, size) => {
-        const result = err ? 0 : (size / 1024 / 1024).toFixed(2);
-        event.reply('cache-size', result);
+        getFolderSize(path.join(this.homedir, 'insv-motion'), (motionError, motionSize) => {
+          const bytes = (err ? 0 : size) + (motionError ? 0 : motionSize);
+          event.reply('cache-size', (bytes / 1024 / 1024).toFixed(2));
+        });
       });
     });
     ipcMain.on('delete-cache', (event, items) => this.deleteCache(event, items));
@@ -159,6 +184,8 @@ class MainModelClass {
     this.directoryImportGeneration += 1;
     this.authorizedMedia.clear();
     this.exportMedia.clear();
+    this.insvSources.clear();
+    this.insvTokens.clear();
     if (win?.webContents && this.serverUrl) win.webContents.send('start-file-server', this.serverUrl);
   }
 
@@ -480,6 +507,8 @@ class MainModelClass {
   startFileServer() {
     const app = express();
     app.use(cors());
+    app.get('/insv/:token/orientation', (req, res) => void this.insvSources.serveHorizon(req, res));
+    app.get('/insv/:token/:lens', (req, res) => void this.insvSources.serve(req, res));
     app.use(express.static(homedir + '/static'));
     const server = app.listen(0);
 
@@ -584,6 +613,8 @@ class MainModelClass {
     const importGeneration = ++this.directoryImportGeneration;
     this.authorizedMedia = new Map();
     this.exportMedia = new Map();
+    this.insvSources.clear();
+    this.insvTokens.clear();
     this.pendingMedia.clear();
     return new Promise((resolve) =>
       fs.readdir(pathDir, async (err, files) => {
@@ -630,8 +661,13 @@ class MainModelClass {
     Helper.checkDir(this.static_dir + '/big/');
     const seen = new Set();
     const work = [];
-    for (const filePath of files) {
+    for (const { filePath, error: groupingError, insvPair } of groupInsvFiles(files)) {
       try {
+        if (groupingError) throw new Error(groupingError);
+        if (insvPair) {
+          work.push({ filePath, insvPair });
+          continue;
+        }
         if (!isSupportedMediaPath(filePath)) throw new Error('Unsupported media file.');
         const origPath = fs.realpathSync(filePath);
         if (!fs.statSync(origPath).isFile()) throw new Error('The selected path is not a regular file.');
@@ -645,64 +681,113 @@ class MainModelClass {
     this.win?.webContents?.send(append ? 'start-read-files' : 'start-read-dir', work.length);
     if (!work.length && !append) this.win?.webContents?.send('open-dir', false);
     const exifSyncs = new Map();
+    let insvQueue = Promise.resolve();
     await Promise.all(
-      work.map(
-        ({ filePath, origPath, error }) =>
-          new Promise((resolve) => {
-            if (error) {
-              this.win?.webContents?.send('read-media-file', { error: { message: error }, origPath: filePath });
+      work.map(({ filePath, origPath, error, insvPair }) => {
+        if (insvPair) {
+          insvQueue = insvQueue.then(async () => {
+            let result;
+            try {
+              if (importGeneration !== this.directoryImportGeneration) return;
+              this.win?.webContents?.send('insv-progress', {
+                name: path.basename(filePath),
+                active: true,
+                stage: 'checking',
+              });
+              const pair = await validateInsvPair(insvPair, Media.probeVideo, Media.verifyInsvVideo);
+              if (importGeneration !== this.directoryImportGeneration) return;
+              if (this.authorizedMedia.has(pair.paths[0])) throw new Error('This INSV pair is already in the library.');
+              const motion = await getCachedInsvMotion(pair, path.join(this.homedir, 'insv-motion'), {
+                isCurrent: () => importGeneration === this.directoryImportGeneration,
+                onCacheMiss: () => {
+                  this.win?.webContents?.send('insv-progress', {
+                    name: path.basename(filePath),
+                    active: true,
+                    stage: 'stabilizing',
+                  });
+                },
+              });
+              if (importGeneration !== this.directoryImportGeneration) return;
+              const rotation = closestInsvRotation(motion.frames, pair.sampleTime);
+              const thumpName = await createInsvThumbnail(pair, path.join(this.static_dir, 'small'), rotation);
+              await assertCurrentPair(pair);
+              if (importGeneration !== this.directoryImportGeneration) return;
+              const insvToken = this.insvSources.register(pair, motion.frames);
+              this.insvTokens.set(pair.paths[0], insvToken);
+              this.authorizedMedia.set(pair.paths[0], 'insv');
+              result = {
+                type: 'video',
+                insv: true,
+                origPath: pair.paths[0],
+                thumpName,
+                bigName: thumpName,
+                insvToken,
+                frameRate: pair.video.fps,
+                motionMode: motion.mode,
+                motionWarning: motion.warning,
+              };
+            } catch (validationError) {
+              result = {
+                error: {
+                  message: validationError.code
+                    ? 'Unable to access or inspect the INSV pair. Make sure both files and ffprobe are available.'
+                    : validationError.message,
+                },
+                origPath: filePath,
+              };
+            } finally {
+              if (importGeneration === this.directoryImportGeneration) {
+                this.win?.webContents?.send('insv-progress', { active: false });
+              }
+            }
+            if (importGeneration === this.directoryImportGeneration) {
+              this.win?.webContents?.send('read-media-file', result);
+            }
+          });
+          return insvQueue;
+        }
+        return new Promise((resolve) => {
+          if (error) {
+            this.win?.webContents?.send('read-media-file', { error: { message: error }, origPath: filePath });
+            resolve();
+            return;
+          }
+          const ext = path.extname(filePath).slice(1).toLowerCase();
+          const type = ext === 'mp4' ? 'video' : 'image';
+          const token = {};
+          this.pendingMedia.set(origPath, token);
+          this.authorizedMedia.set(origPath, type);
+          let completed = false;
+          const sendMediaResult = async (result) => {
+            if (completed) return;
+            completed = true;
+            const isCurrent = () =>
+              importGeneration === this.directoryImportGeneration &&
+              this.pendingMedia.get(origPath) === token &&
+              this.authorizedMedia.get(origPath) === type;
+            if (!isCurrent()) {
+              if (importGeneration === this.directoryImportGeneration) {
+                this.win?.webContents?.send('read-media-file', {
+                  error: { message: 'Media is no longer available.' },
+                  origPath,
+                });
+              }
               resolve();
               return;
             }
-            const ext = path.extname(filePath).slice(1).toLowerCase();
-            const type = ext === 'mp4' ? 'video' : 'image';
-            const token = {};
-            this.pendingMedia.set(origPath, token);
-            this.authorizedMedia.set(origPath, type);
-            let completed = false;
-            const sendMediaResult = async (result) => {
-              if (completed) return;
-              completed = true;
-              const isCurrent = () =>
-                importGeneration === this.directoryImportGeneration &&
-                this.pendingMedia.get(origPath) === token &&
-                this.authorizedMedia.get(origPath) === type;
-              if (!isCurrent()) {
-                if (importGeneration === this.directoryImportGeneration) {
-                  this.win?.webContents?.send('read-media-file', {
-                    error: { message: 'Media is no longer available.' },
-                    origPath,
-                  });
-                }
-                resolve();
-                return;
-              }
-              if (result && result.error) {
-                this.authorizedMedia.delete(origPath);
-                this.exportMedia.delete(origPath);
-              } else if (result && result.bigName) {
-                try {
-                  const record = this.recordExportMedia(origPath, result.bigName);
-                  if (type === 'image' && !fs.lstatSync(record.cachePath).isSymbolicLink()) {
-                    let sync = exifSyncs.get(record.cachePath);
-                    if (!sync) {
-                      sync = Media.syncCachedExif(origPath, record.cachePath, isCurrent);
-                      exifSyncs.set(record.cachePath, sync);
-                    }
-                    await sync;
-                    if (!isCurrent()) {
-                      if (importGeneration === this.directoryImportGeneration) {
-                        this.win?.webContents?.send('read-media-file', {
-                          error: { message: 'Media is no longer available.' },
-                          origPath,
-                        });
-                      }
-                      resolve();
-                      return;
-                    }
-                    this.recordExportMedia(origPath, result.bigName);
+            if (result && result.error) {
+              this.authorizedMedia.delete(origPath);
+              this.exportMedia.delete(origPath);
+            } else if (result && result.bigName) {
+              try {
+                const record = this.recordExportMedia(origPath, result.bigName);
+                if (type === 'image' && !fs.lstatSync(record.cachePath).isSymbolicLink()) {
+                  let sync = exifSyncs.get(record.cachePath);
+                  if (!sync) {
+                    sync = Media.syncCachedExif(origPath, record.cachePath, isCurrent);
+                    exifSyncs.set(record.cachePath, sync);
                   }
-                } catch (error) {
+                  await sync;
                   if (!isCurrent()) {
                     if (importGeneration === this.directoryImportGeneration) {
                       this.win?.webContents?.send('read-media-file', {
@@ -713,44 +798,61 @@ class MainModelClass {
                     resolve();
                     return;
                   }
-                  result = {
-                    ...result,
-                    error: { message: error?.message || 'Unable to validate the cached media file.' },
-                  };
-                  this.authorizedMedia.delete(origPath);
-                  this.exportMedia.delete(origPath);
+                  this.recordExportMedia(origPath, result.bigName);
                 }
+              } catch (error) {
+                if (!isCurrent()) {
+                  if (importGeneration === this.directoryImportGeneration) {
+                    this.win?.webContents?.send('read-media-file', {
+                      error: { message: 'Media is no longer available.' },
+                      origPath,
+                    });
+                  }
+                  resolve();
+                  return;
+                }
+                result = {
+                  ...result,
+                  error: { message: error?.message || 'Unable to validate the cached media file.' },
+                };
+                this.authorizedMedia.delete(origPath);
+                this.exportMedia.delete(origPath);
               }
-              if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
-                this.win.webContents.send('read-media-file', result);
-              }
-              if (this.pendingMedia.get(origPath) === token) this.pendingMedia.delete(origPath);
-              resolve();
-            };
-
-            try {
-              let operation;
-              if (type === 'video') {
-                operation = Media.saveVideo(origPath, this.win, sendMediaResult);
-              } else if (ext === 'insp') {
-                operation = Media.saveInsta360Image(origPath, this.win, sendMediaResult);
-              } else {
-                operation = Media.saveImage(origPath, this.win, sendMediaResult);
-              }
-              if (operation && typeof operation.catch === 'function') {
-                operation.catch((err) => sendMediaResult({ origPath, error: { message: err.message } }));
-              }
-            } catch (err) {
-              sendMediaResult({ origPath, error: { message: err.message } });
             }
-          })
-      )
+            if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
+              this.win.webContents.send('read-media-file', result);
+            }
+            if (this.pendingMedia.get(origPath) === token) this.pendingMedia.delete(origPath);
+            resolve();
+          };
+
+          try {
+            let operation;
+            if (type === 'video') {
+              operation = Media.saveVideo(origPath, this.win, sendMediaResult);
+            } else if (ext === 'insp') {
+              operation = Media.saveInsta360Image(origPath, this.win, sendMediaResult);
+            } else {
+              operation = Media.saveImage(origPath, this.win, sendMediaResult);
+            }
+            if (operation && typeof operation.catch === 'function') {
+              operation.catch((err) => sendMediaResult({ origPath, error: { message: err.message } }));
+            }
+          } catch (err) {
+            sendMediaResult({ origPath, error: { message: err.message } });
+          }
+        });
+      })
     );
     if (importGeneration === this.directoryImportGeneration) this.win?.webContents?.send('import-finished');
   }
 
   deleteSelected(dataArray = []) {
     dataArray.forEach(async (item) => {
+      if (this.authorizedMedia.get(item.origPath) === 'insv') {
+        this.win?.webContents?.send('delete-error', { message: 'Deleting INSV pairs is not available.' });
+        return;
+      }
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
       const thumpPath = this.static_dir + '/small/' + item.thumpName;
@@ -783,6 +885,9 @@ class MainModelClass {
     if (!Array.isArray(items)) return;
     for (const item of items) {
       if (typeof item?.origPath !== 'string') continue;
+      const token = this.insvTokens.get(item.origPath);
+      if (token) this.insvSources.revoke(token);
+      this.insvTokens.delete(item.origPath);
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
     }
@@ -792,16 +897,15 @@ class MainModelClass {
     this.directoryImportGeneration += 1;
     this.authorizedMedia.clear();
     this.exportMedia.clear();
+    this.insvSources.clear();
+    this.insvTokens.clear();
     const clearEverything = !Array.isArray(items) || !items.length;
+    const motionDir = path.join(this.homedir, 'insv-motion');
 
     if (clearEverything) {
-      if (!Helper.isFileExists(this.static_dir)) {
-        event.reply('delete-cache-finish', true);
-        return;
-      }
-
       try {
         rimraf.sync(this.static_dir, { glob: false });
+        rimraf.sync(motionDir, { glob: false });
         event.reply('delete-cache-finish', true);
       } catch (err) {
         event.reply('delete-error', err);

@@ -209,6 +209,53 @@ class Media {
     });
   }
 
+  static verifyInsvVideo(filePath, sampleTime) {
+    return new Promise((resolve, reject) => {
+      execFile(
+        'ffmpeg',
+        [
+          '-nostdin',
+          '-v',
+          'info',
+          '-xerror',
+          '-copyts',
+          '-abort_on',
+          'empty_output',
+          '-threads',
+          '2',
+          '-ss',
+          String(sampleTime),
+          '-an',
+          '-i',
+          filePath,
+          '-map',
+          '0:v:0',
+          '-vf',
+          'showinfo',
+          '-frames:v',
+          '1',
+          '-f',
+          'null',
+          '-',
+        ],
+        { timeout: 30000, maxBuffer: 256 * 1024 },
+        (error, _stdout, stderr) => {
+          if (error) {
+            reject(new Error('Unable to decode an INSV lens. Check that ffmpeg is available and the video is valid.'));
+            return;
+          }
+          const match = /\bn:\s*0\s+pts:\s*-?\d+\s+pts_time:([+-]?[\d.eE+-]+)/.exec(stderr || '');
+          const timestamp = match ? Number(match[1]) : NaN;
+          if (!Number.isFinite(timestamp)) {
+            reject(new Error('Unable to verify an INSV frame timestamp.'));
+            return;
+          }
+          resolve(timestamp);
+        }
+      );
+    });
+  }
+
   static async getMetadata(filePath, type) {
     if (type === 'image') {
       try {
@@ -227,6 +274,66 @@ class Media {
     }
 
     throw new Error('Unsupported media type.');
+  }
+
+  static async getInsvMetadata(pair) {
+    const file = pair.paths[0];
+    try {
+      const [video, exif] = await Promise.all([
+        Media.probeVideoMetadata(file),
+        new Promise((resolve, reject) => {
+          execFile(
+            'perl',
+            [
+              exiftoolPath,
+              '-m',
+              '-ee',
+              '-json',
+              '-s',
+              '-Make',
+              '-Model',
+              '-SerialNumber',
+              '-Firmware',
+              '-Software',
+              '-CreateDate',
+              '-DateTimeOriginal',
+              '-GPSPosition',
+              '-LensModel',
+              '-FNumber',
+              '-ISO',
+              '-FocalLength',
+              file,
+            ],
+            { timeout: 30000, maxBuffer: 1024 * 1024 },
+            (error, stdout) => {
+              if (error) return reject(error);
+              try {
+                const result = JSON.parse(stdout);
+                if (!Array.isArray(result) || !result[0] || typeof result[0] !== 'object') {
+                  throw new Error('Invalid INSV metadata.');
+                }
+                resolve(result[0]);
+              } catch (parseError) {
+                reject(parseError);
+              }
+            }
+          );
+        }),
+      ]);
+      const videoEntries = formatVideoMetadata(video).map((item) =>
+        item.key === 'dimensions' ? { ...item, label: 'Lens dimensions' } : item
+      );
+      return compactEntries([
+        entry('second-lens', 'Second lens file', path.basename(pair.paths[1])),
+        ...videoEntries,
+        ...formatImageMetadata(exif).filter((item) => item.key !== 'dimensions'),
+        entry('serial-number', 'Camera serial number', exif.SerialNumber),
+        entry('firmware', 'Firmware', exif.Firmware),
+        entry('gps-position', 'GPS position', exif.GPSPosition),
+      ]);
+    } catch (error) {
+      throw new Error('Unable to read INSV metadata. Make sure ffprobe and ExifTool are available.');
+    }
   }
 
   static probeVideoMetadata(filePath) {

@@ -83,6 +83,24 @@ describe('Media', () => {
     expect(result.bigName).toContain('sample');
   });
 
+  test('checks INSV decoding without a shell and reports decoder failures', async () => {
+    const file = path.join(tempDir, 'lens name.insv');
+    execFile.mockImplementationOnce((_command, _args, _options, callback) =>
+      callback(null, '', '[Parsed_showinfo_0] n:   0 pts:  30 pts_time:0.001')
+    );
+    await expect(Media.verifyInsvVideo(file, 1)).resolves.toBe(0.001);
+    expect(execFile).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining(['-xerror', '-copyts', '-an', '-i', file, '-map', '0:v:0']),
+      expect.objectContaining({ timeout: 30000 }),
+      expect.any(Function)
+    );
+    const args = execFile.mock.calls[0][1];
+    expect(args.indexOf('-an')).toBeLessThan(args.indexOf('-i'));
+    execFile.mockImplementationOnce((_command, _args, _options, callback) => callback(new Error('decode failed')));
+    await expect(Media.verifyInsvVideo(file, 1)).rejects.toThrow('Unable to decode an INSV lens');
+  });
+
   test('creates a thumbnail payload for a local video file', () => {
     const filePath = path.join(tempDir, 'clip.mp4');
     fs.writeFileSync(filePath, 'not-a-real-video');
@@ -582,6 +600,41 @@ describe('Media', () => {
 
     execFile.mockImplementationOnce((_command, _args, callback) => callback(new Error('missing ffprobe')));
     await expect(Media.getMetadata('/media/broken.mp4', 'video')).rejects.toThrow('Unable to read video metadata.');
+  });
+
+  test('reads embedded camera EXIF and video metadata from the first INSV lens', async () => {
+    jest.spyOn(Media, 'probeVideoMetadata').mockResolvedValue({
+      format: { duration: '30' },
+      streams: [{ codec_type: 'video', width: 2880, height: 2880, codec_name: 'h264' }],
+    });
+    execFile.mockImplementationOnce((_command, _args, _options, callback) =>
+      callback(null, JSON.stringify([{ Model: 'Insta360 One2', SerialNumber: 'camera-id', Firmware: 'v1' }]))
+    );
+    const pair = { paths: ['/media/00.insv', '/media/10.insv'] };
+    const entries = await Media.getInsvMetadata(pair);
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        { key: 'second-lens', label: 'Second lens file', value: '10.insv' },
+        { key: 'dimensions', label: 'Lens dimensions', value: '2880 × 2880' },
+        { key: 'camera-model', label: 'Camera model', value: 'Insta360 One2' },
+        { key: 'serial-number', label: 'Camera serial number', value: 'camera-id' },
+        { key: 'firmware', label: 'Firmware', value: 'v1' },
+      ])
+    );
+    expect(execFile).toHaveBeenCalledWith(
+      'perl',
+      expect.arrayContaining(['-ee', '-json', '-Model', '/media/00.insv']),
+      expect.objectContaining({ timeout: 30000 }),
+      expect.any(Function)
+    );
+  });
+
+  test('reports invalid or unavailable INSV EXIF rather than returning partial metadata', async () => {
+    jest.spyOn(Media, 'probeVideoMetadata').mockResolvedValue({});
+    execFile.mockImplementationOnce((_command, _args, _options, callback) => callback(null, 'not json'));
+    await expect(Media.getInsvMetadata({ paths: ['/media/00.insv', '/media/10.insv'] })).rejects.toThrow(
+      'Unable to read INSV metadata'
+    );
   });
 
   test('carries duration rounding into the next minute', () => {

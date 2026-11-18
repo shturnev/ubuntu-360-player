@@ -1,16 +1,23 @@
 import './LoadingProgress.scss';
 
-function LoadingProgress({ complete, total, label = 'Loading', finishedLabel }) {
+function LoadingProgress({ complete, total, label = 'Loading', finishedLabel, detail }) {
   const progressPercent = total ? (complete / total) * 100 : 0;
 
   return (
     <div className="progress-block">
-      <div>
-        {complete === 0 || complete !== total
-          ? `${label}... ${complete} / ${total}`
-          : finishedLabel
-            ? `${finishedLabel} ${complete} / ${total}`
-            : 'Completed'}
+      <div className="progress-heading">
+        <span>
+          {complete === 0 || complete !== total
+            ? `${label}... ${complete} / ${total}`
+            : finishedLabel
+              ? `${finishedLabel} ${complete} / ${total}`
+              : 'Completed'}
+        </span>
+        {detail && (
+          <span className="progress-detail" role="status">
+            {detail}
+          </span>
+        )}
       </div>
       <div
         className="progress-bar"
