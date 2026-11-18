@@ -1038,8 +1038,13 @@ function writeThumbnail(filePath, thumpPath, callback) {
     return;
   }
   // Windows has no GraphicsMagick: sharp is bundled instead (resize to width 450, honor EXIF orientation).
+  // The libvips file cache would keep the source open and block moving it to the Recycle Bin.
   Promise.resolve()
-    .then(() => require('sharp')(filePath).rotate().resize({ width: 450 }).toFile(thumpPath))
+    .then(() => {
+      const sharp = require('sharp');
+      sharp.cache(false);
+      return sharp(filePath).rotate().resize({ width: 450 }).toFile(thumpPath);
+    })
     .then(() => callback(null), callback);
 }
 
