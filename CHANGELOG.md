@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.6.0] - 2026-11-18
+### Changed
+- feat: add paired INSV playback and stabilization ([#87](https://github.com/shturnev/ubuntu-360-player/pull/87))
+
 ## [3.5.0] - 2026-11-16
 ### Changed
 - Add individual media file imports ([#83](https://github.com/shturnev/ubuntu-360-player/pull/83))
