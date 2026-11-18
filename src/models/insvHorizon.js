@@ -1,5 +1,5 @@
 const { execFile } = require('child_process');
-const exiftoolPath = require('exiftool-vendored.pl').replace(/\.asar([/\\])/, '.asar.unpacked$1');
+const mediaTools = require('./mediaTools');
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -8,6 +8,17 @@ function run(command, args) {
       else resolve(stdout);
     });
   });
+}
+
+function runExiftool(args) {
+  return Promise.resolve().then(() => {
+    const invocation = mediaTools.exiftool(args);
+    return run(invocation.command, invocation.args);
+  });
+}
+
+function runFfprobe(args) {
+  return Promise.resolve().then(() => run(mediaTools.ffprobe(), args));
 }
 
 function parseTelemetry(text) {
@@ -97,8 +108,7 @@ function makeHorizonTrack({ model, imu, captureTimes }, playbackTimes) {
 async function createInsvHorizonTrack(pair) {
   const file = pair.paths[0];
   const [metadata, frames] = await Promise.all([
-    run('perl', [
-      exiftoolPath,
+    runExiftool([
       '-m',
       '-ee',
       '-G3:1',
@@ -111,7 +121,7 @@ async function createInsvHorizonTrack(pair) {
       '-VideoTimeStamp',
       file,
     ]),
-    run('ffprobe', [
+    runFfprobe([
       '-v',
       'error',
       '-select_streams',
@@ -132,4 +142,4 @@ async function createInsvHorizonTrack(pair) {
   );
 }
 
-module.exports = { createInsvHorizonTrack, parseTelemetry, makeHorizonTrack, run, lowerBound };
+module.exports = { createInsvHorizonTrack, parseTelemetry, makeHorizonTrack, run, runExiftool, runFfprobe, lowerBound };

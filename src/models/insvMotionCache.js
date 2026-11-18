@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { assertCurrentPair } = require('./insvPair');
+const { openFileNoFollow } = require('./safeOpen');
 const { prepareInsvMotion } = require('./insvMotion');
 
 // Increment when the gyro, horizon, or timestamp algorithms change.
@@ -33,7 +34,7 @@ function isValidMotion(motion) {
 async function readMotionCache(file, key) {
   let handle;
   try {
-    handle = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    handle = await openFileNoFollow(file);
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > MAX_CACHE_BYTES) throw new Error('Invalid INSV stabilization cache file.');
     const record = JSON.parse(await handle.readFile('utf8'));

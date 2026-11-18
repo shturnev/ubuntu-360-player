@@ -1,35 +1,30 @@
-const { execFile } = require('child_process');
-const { constants } = require('os');
-const { promisify } = require('util');
+const fs = require('fs');
 
-const execFileAsync = promisify(execFile);
+// Hard links are unavailable on some filesystems (FAT/exFAT, some network shares).
+const LINK_UNSUPPORTED = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EINVAL']);
 
-// Node does not expose Linux renameat2(RENAME_NOREPLACE).
-const renameScript = `
-import ctypes
-import os
-import sys
-
-libc = ctypes.CDLL(None, use_errno=True)
-rename = libc.renameat2
-rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-rename.restype = ctypes.c_int
-if rename(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 1) != 0:
-    error = ctypes.get_errno()
-    print(os.strerror(error), file=sys.stderr)
-    sys.exit(error if 0 < error < 256 else 1)
-`;
-
+/**
+ * Moves source to target and fails with EEXIST if target exists.
+ * link() is atomic and never replaces, on Linux and on NTFS alike.
+ * Fallback: exclusive copy (COPYFILE_EXCL), then removal of the source.
+ */
 async function renameNoReplace(source, target) {
   try {
-    await execFileAsync('python3', ['-I', '-c', renameScript, source, target]);
+    await fs.promises.link(source, target);
   } catch (error) {
-    if (error.code === constants.errno.EEXIST) {
-      error.code = 'EEXIST';
-      throw error;
+    if (error.code === 'EEXIST') throw error;
+    if (!LINK_UNSUPPORTED.has(error.code)) {
+      throw new Error(`Unable to publish media without overwriting: ${error.message}`);
     }
-    throw new Error(`Unable to publish media without overwriting: ${error.stderr?.trim() || error.message}`);
+    try {
+      await fs.promises.copyFile(source, target, fs.constants.COPYFILE_EXCL);
+    } catch (copyError) {
+      if (copyError.code === 'EEXIST') throw copyError;
+      await fs.promises.unlink(target).catch(() => {});
+      throw new Error(`Unable to publish media without overwriting: ${copyError.message}`);
+    }
   }
+  await fs.promises.unlink(source);
 }
 
 module.exports = renameNoReplace;

@@ -5,9 +5,13 @@ const { execFileSync, spawnSync } = require('child_process');
 const { Media } = require('../../src/models/Media');
 const { validateInsvPair } = require('../../src/models/insvPair');
 
-const encoders = spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' });
+const mediaTools = require('../../src/models/mediaTools');
+
+const ffmpegPath = mediaTools.ffmpeg();
+const ffprobePath = mediaTools.ffprobe();
+const encoders = spawnSync(ffmpegPath, ['-hide_banner', '-encoders'], { encoding: 'utf8' });
 const hasFfmpeg = encoders.status === 0 && /\blibx264\b/.test(encoders.stdout);
-const hasFfprobe = spawnSync('ffprobe', ['-version'], { stdio: 'ignore' }).status === 0;
+const hasFfprobe = spawnSync(ffprobePath, ['-version'], { stdio: 'ignore' }).status === 0;
 const testWithFfmpeg = hasFfmpeg && hasFfprobe ? test : test.skip;
 
 testWithFfmpeg(
@@ -18,7 +22,7 @@ testWithFfmpeg(
     const matching = path.join(directory, 'matching.mp4');
     const shifted = path.join(directory, 'shifted.mp4');
     try {
-      execFileSync('ffmpeg', [
+      execFileSync(ffmpegPath, [
         '-v',
         'error',
         '-f',
@@ -34,7 +38,19 @@ testWithFfmpeg(
         base,
       ]);
       fs.copyFileSync(base, matching);
-      execFileSync('ffmpeg', ['-v', 'error', '-itsoffset', '0.02', '-i', base, '-map', '0:v:0', '-c', 'copy', shifted]);
+      execFileSync(ffmpegPath, [
+        '-v',
+        'error',
+        '-itsoffset',
+        '0.02',
+        '-i',
+        base,
+        '-map',
+        '0:v:0',
+        '-c',
+        'copy',
+        shifted,
+      ]);
 
       const originalTime = await Media.verifyInsvVideo(base, 1);
       const shiftedTime = await Media.verifyInsvVideo(shifted, 1);

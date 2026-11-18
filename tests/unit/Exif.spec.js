@@ -13,7 +13,7 @@ jest.mock('electron-updater', () => ({ autoUpdater: { on: jest.fn() } }));
 const { dialog } = require('electron');
 const { Media } = require('../../src/models/Media');
 const { MainModelClass } = require('../../src/models/MainModelClass');
-const exiftool = require('exiftool-vendored.pl');
+const mediaTools = require('../../src/models/mediaTools');
 
 const jpeg = Buffer.from(
   [
@@ -31,7 +31,10 @@ const png = Buffer.from(
   'base64'
 );
 
-const tool = (...args) => execFileSync('perl', [exiftool, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+const tool = (...args) => {
+  const invocation = mediaTools.exiftool(args);
+  return execFileSync(invocation.command, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'] });
+};
 const exif = (file) => tool('-b', '-EXIF', file);
 
 function jpegWithUnknownMakerNotes() {

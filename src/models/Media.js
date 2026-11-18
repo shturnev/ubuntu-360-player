@@ -5,7 +5,18 @@ const { execFile, spawn } = require('child_process');
 const gm = require('gm');
 const exifr = require('exifr');
 const { getStorageRoot } = require('../config/env');
-const exiftoolPath = require('exiftool-vendored.pl').replace(/\.asar([/\\])/, '.asar.unpacked$1');
+const mediaTools = require('./mediaTools');
+const mediaCache = require('./mediaCache');
+function execExiftool(args, ...rest) {
+  let invocation;
+  try {
+    invocation = mediaTools.exiftool(args);
+  } catch (error) {
+    rest[rest.length - 1](error, '', '');
+    return undefined;
+  }
+  return execFile(invocation.command, invocation.args, ...rest);
+}
 const exifQueue = [];
 let activeExifJobs = 0;
 
@@ -21,8 +32,7 @@ const sendMediaResult = (win, result, onResult) => {
 class Media {
   static saveImage(filePath, win, onResult) {
     const newFileName = getNewFileName(filePath);
-    createLink(filePath, newFileName);
-
+    createLink(filePath, newFileName, 'image');
     const thumpName = newFileName;
     const thumpPath = path.join(getStorageRoot(), 'static', 'small', thumpName);
     const res = {
@@ -38,15 +48,12 @@ class Media {
       sendMediaResult(win, res, onResult);
       return res;
     } catch (e) {
-      gm(filePath)
-        .resize(450)
-        .autoOrient()
-        .write(thumpPath, (err) => {
-          if (err) {
-            res.error = err;
-          }
-          sendMediaResult(win, res, onResult);
-        });
+      writeThumbnail(filePath, thumpPath, (err) => {
+        if (err) {
+          res.error = err;
+        }
+        sendMediaResult(win, res, onResult);
+      });
       return res;
     }
   }
@@ -153,7 +160,7 @@ class Media {
 
   static saveVideo(filePath, win, onResult) {
     const newFileName = getPreferredVideoName(filePath);
-    createLink(filePath, newFileName);
+    createLink(filePath, newFileName, 'video');
 
     const thumpName = path.parse(newFileName).name + '.jpg';
     const thumpPath = path.join(getStorageRoot(), 'static', 'small', thumpName);
@@ -170,8 +177,16 @@ class Media {
       sendMediaResult(win, res, onResult);
       return res;
     } catch (e) {
+      let ffmpegPath;
+      try {
+        ffmpegPath = mediaTools.ffmpeg();
+      } catch (toolError) {
+        res.error = toolError;
+        sendMediaResult(win, res, onResult);
+        return res;
+      }
       execFile(
-        'ffmpeg',
+        ffmpegPath,
         ['-i', filePath, '-s', '450x225', '-vframes', '1', thumpPath, '-y'],
         (error, stdout, stderr) => {
           if (error) {
@@ -190,7 +205,7 @@ class Media {
   static probeVideo(filePath) {
     return new Promise((resolve, reject) => {
       execFile(
-        'ffprobe',
+        mediaTools.ffprobe(),
         ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', filePath],
         (error, stdout) => {
           if (error) {
@@ -212,7 +227,7 @@ class Media {
   static verifyInsvVideo(filePath, sampleTime) {
     return new Promise((resolve, reject) => {
       execFile(
-        'ffmpeg',
+        mediaTools.ffmpeg(),
         [
           '-nostdin',
           '-v',
@@ -282,10 +297,8 @@ class Media {
       const [video, exif] = await Promise.all([
         Media.probeVideoMetadata(file),
         new Promise((resolve, reject) => {
-          execFile(
-            'perl',
+          execExiftool(
             [
-              exiftoolPath,
               '-m',
               '-ee',
               '-json',
@@ -339,7 +352,7 @@ class Media {
   static probeVideoMetadata(filePath) {
     return new Promise((resolve, reject) => {
       execFile(
-        'ffprobe',
+        mediaTools.ffprobe(),
         ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', filePath],
         (error, stdout) => {
           if (error) return reject(error);
@@ -423,7 +436,7 @@ class Media {
             });
           };
 
-          const child = spawn('ffmpeg', ffmpegArgs);
+          const child = spawn(mediaTools.ffmpeg(), ffmpegArgs);
           let outputText = '';
 
           const finalizeFailure = (message) => {
@@ -558,9 +571,8 @@ function runExifQueue() {
 
 function copyExif(sourcePath, destinationPath) {
   return new Promise((resolve, reject) => {
-    execFile(
-      'perl',
-      [exiftoolPath, '-overwrite_original', '-EXIF:all=', '-TagsFromFile', sourcePath, '-EXIF', destinationPath],
+    execExiftool(
+      ['-overwrite_original', '-EXIF:all=', '-TagsFromFile', sourcePath, '-EXIF', destinationPath],
       (error, _stdout, stderr) => {
         const warnings = String(stderr || '')
           .split('\n')
@@ -588,8 +600,8 @@ function copyExif(sourcePath, destinationPath) {
           );
           reject(
             new Error(
-              error?.code === 'ENOENT'
-                ? 'Unable to preserve EXIF metadata: Perl is not installed or not available in PATH.'
+              error?.code === 'ENOENT' || error?.code === 'TOOL_MISSING'
+                ? `Unable to preserve EXIF metadata: ${mediaTools.missingToolMessage('exiftool')}`
                 : 'Unable to preserve EXIF metadata.'
             )
           );
@@ -749,14 +761,16 @@ function formatBitrate(value) {
   return bits >= 1000000 ? `${(bits / 1000000).toFixed(1)} Mbps` : `${Math.round(bits / 1000)} kbps`;
 }
 
-function createLink(origPath, newFileName) {
+function createLink(origPath, newFileName, kind) {
   const linksDir = getBigDir();
   const linkPath = path.join(linksDir, newFileName);
 
   fs.mkdirSync(linksDir, { recursive: true });
 
   if (newFileName !== getNewFileName(origPath)) {
-    const rawLinkPath = path.join(linksDir, getNewFileName(origPath));
+    const rawName = getNewFileName(origPath);
+    const rawLinkPath = path.join(linksDir, rawName);
+    mediaCache.unregisterSource(rawName);
     if (fs.existsSync(rawLinkPath)) {
       try {
         fs.unlinkSync(rawLinkPath);
@@ -771,7 +785,7 @@ function createLink(origPath, newFileName) {
     fs.statSync(linkPath);
     return;
   } catch (e) {
-    fs.symlinkSync(origPath, linkPath);
+    mediaCache.linkOriginal(origPath, linkPath, kind);
   }
 }
 
@@ -784,7 +798,7 @@ async function convertInsta360Image(filePath, outputPath) {
     `roll=${orientation.roll}`,
   ].join(':');
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', [
+    const child = spawn(mediaTools.ffmpeg(), [
       '-y',
       '-v',
       'error',
@@ -840,7 +854,7 @@ function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
 
   const isJpeg = ['.jpg', '.jpeg'].includes(path.extname(outputPath).toLowerCase());
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', [
+    const child = spawn(mediaTools.ffmpeg(), [
       '-y',
       '-v',
       'error',
@@ -1017,23 +1031,31 @@ function imuSnapshotToV360Orientation([accelerationX, accelerationY, acceleratio
   };
 }
 
+function writeThumbnail(filePath, thumpPath, callback) {
+  if (!mediaTools.bundled) {
+    gm(filePath).resize(450).autoOrient().write(thumpPath, callback);
+    return;
+  }
+  // Windows has no GraphicsMagick: sharp is bundled instead (resize to width 450, honor EXIF orientation).
+  Promise.resolve()
+    .then(() => require('sharp')(filePath).rotate().resize({ width: 450 }).toFile(thumpPath))
+    .then(() => callback(null), callback);
+}
+
 function createImageThumbnail(filePath, thumpPath) {
   return new Promise((resolve, reject) => {
-    gm(filePath)
-      .resize(450)
-      .autoOrient()
-      .write(thumpPath, (error) => {
-        if (error) {
-          removeFileIfPresent(thumpPath);
-          reject(error);
-          return;
-        }
-        if (!isUsableFile(thumpPath)) {
-          reject(new Error('Unable to create the Insta360 photo thumbnail.'));
-          return;
-        }
-        resolve();
-      });
+    writeThumbnail(filePath, thumpPath, (error) => {
+      if (error) {
+        removeFileIfPresent(thumpPath);
+        reject(error);
+        return;
+      }
+      if (!isUsableFile(thumpPath)) {
+        reject(new Error('Unable to create the Insta360 photo thumbnail.'));
+        return;
+      }
+      resolve();
+    });
   });
 }
 

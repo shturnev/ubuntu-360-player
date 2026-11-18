@@ -1,4 +1,4 @@
-name: Release Linux packages
+name: Release packages
 
 on:
   workflow_call:
@@ -15,7 +15,22 @@ permissions:
   contents: write
 
 jobs:
+  # Created once so the platform jobs never race to create the same release.
+  create-release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Create GitHub Release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 ||
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
+
   release:
+    needs: create-release
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -61,10 +76,67 @@ jobs:
           test -n "$(find release-assets -maxdepth 1 -name '*.AppImage' -print -quit)"
           test -f release-assets/latest-linux.yml
 
-      - name: Create or update GitHub Release
+      - name: Upload Linux assets
         env:
           GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+
+  release-windows:
+    needs: create-release
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify tag matches package version
+        shell: bash
         run: |
-          gh release view "$RELEASE_TAG" >/dev/null 2>&1 ||
-            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          test -n "$RELEASE_TAG"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test and check formatting
+        run: |
+          npm test
+          npm run lint
+          npm run format:check
+
+      - name: Smoke-test bundled media tools
+        run: node electron/smoke-tools.js
+
+      - name: Build Windows installer
+        run: npm run electron:build -- --win --publish never
+
+      - name: Smoke-test packaged app tools
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist_electron/win-unpacked/*.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          & $exe.FullName "$($exe.DirectoryName)/resources/app.asar/electron/smoke-tools.js"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged smoke test failed" }
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          mkdir release-assets
+          cp dist_electron/*-setup.exe dist_electron/*-setup.exe.blockmap dist_electron/latest.yml release-assets/
+          test -n "$(find release-assets -maxdepth 1 -name '*-setup.exe' -print -quit)"
+          test -f release-assets/latest.yml
+
+      - name: Upload Windows assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber

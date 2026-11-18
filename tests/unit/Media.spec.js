@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { execFile, exec, spawn } = require('child_process');
 
 jest.mock('exifr', () => ({ parse: jest.fn() }));
+jest.mock('../../src/models/mediaTools', () => jest.requireActual('./linuxTools'));
 
 jest.mock('gm', () => {
   const gmMock = jest.fn(() => ({

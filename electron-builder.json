@@ -15,14 +15,13 @@
     "project.config.js",
     "package.json"
   ],
-  "asarUnpack": ["node_modules/exiftool-vendored.pl/**"],
-  "fileAssociations": [
-    {
-      "ext": "insp",
-      "name": "Insta360 photo",
-      "description": "Insta360 photo",
-      "mimeType": "image/x-360-media-viewer-insp"
-    }
+  "asarUnpack": [
+    "node_modules/exiftool-vendored.pl/**",
+    "node_modules/exiftool-vendored.exe/**",
+    "node_modules/ffmpeg-static/**",
+    "node_modules/ffprobe-static/**",
+    "node_modules/sharp/**",
+    "node_modules/@img/**"
   ],
   "linux": {
     "target": ["deb", "AppImage"],
@@ -31,10 +30,19 @@
     "mimeTypes": ["inode/directory", "image/jpeg", "image/png", "video/mp4"],
     "syncDesktopName": true,
     "synopsis": "360-degree media viewer for Linux.",
-    "description": "Browse and view 360-degree photos and videos on Linux."
+    "description": "Browse and view 360-degree photos and videos on Linux.",
+    "files": ["!node_modules/{ffmpeg-static,ffprobe-static,exiftool-vendored.exe,sharp,@img}/**"],
+    "fileAssociations": [
+      {
+        "ext": "insp",
+        "name": "Insta360 photo",
+        "description": "Insta360 photo",
+        "mimeType": "image/x-360-media-viewer-insp"
+      }
+    ]
   },
   "deb": {
-    "depends": ["ffmpeg", "graphicsmagick", "perl", "python3"],
+    "depends": ["ffmpeg", "graphicsmagick", "perl"],
     "mimeTypes": []
   },
   "appImage": {
@@ -47,5 +55,28 @@
       "owner": "shturnev",
       "repo": "ubuntu-360-player"
     }
-  ]
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build_resources/icon/png/icon.ico",
+    "artifactName": "${name}-${version}-setup.${ext}",
+    "files": [
+      "!node_modules/ffprobe-static/bin/{darwin,linux}/**",
+      "!node_modules/ffprobe-static/bin/win32/ia32/**",
+      "!node_modules/exiftool-vendored.pl/**"
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowElevation": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "include": "build_resources/installer.nsh"
+  }
 }
