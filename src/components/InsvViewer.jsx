@@ -47,6 +47,7 @@ const InsvViewer = forwardRef(function InsvViewer(
   const firstRef = useRef(null);
   const secondRef = useRef(null);
   const playbackRef = useRef(null);
+  const autoPlayRef = useRef(true);
   const drawRef = useRef(() => {});
   const camera = useRef({ yaw: 0, pitch: 0, fov: 1.2, drag: null });
   const flatRef = useRef(flatProjection);
@@ -69,7 +70,10 @@ const InsvViewer = forwardRef(function InsvViewer(
   }, [flatProjection]);
 
   useImperativeHandle(ref, () => ({
-    pause: () => playbackRef.current?.pause(),
+    pause: () => {
+      autoPlayRef.current = false;
+      playbackRef.current?.pause();
+    },
     togglePlayback: () => {
       if (!correctionReadyRef.current) return;
       if (firstRef.current?.paused) void playbackRef.current?.play();
@@ -129,6 +133,7 @@ const InsvViewer = forwardRef(function InsvViewer(
     setProgress({ time: 0, duration: 0 });
     horizonRef.current = [];
     correctionReadyRef.current = false;
+    autoPlayRef.current = true;
     captureReadyRef.current = false;
     onCaptureReadyChange?.(false);
     frameTimeRef.current = 0;
@@ -301,6 +306,9 @@ const InsvViewer = forwardRef(function InsvViewer(
           if (failed) return;
           correctionReadyRef.current = true;
           setCorrectionLoading(false);
+          if (autoPlayRef.current) {
+            Promise.resolve(playback.play()).catch(fail);
+          }
         } catch (error) {
           if (!disposed) {
             setCorrectionLoading(false);

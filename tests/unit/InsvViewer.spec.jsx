@@ -101,6 +101,47 @@ describe('INSV viewer', () => {
     expect(gl.deleteProgram).toHaveBeenCalled();
   });
 
+  test('automatically starts each synchronized pair after loading its correction', async () => {
+    const firstSources = ['http://localhost/first/0', 'http://localhost/first/1'];
+    const { rerender } = render(<InsvViewer sources={firstSources} frameRate={30} />);
+    await waitFor(() => expect(controller.play).toHaveBeenCalledTimes(1));
+    const firstController = controller;
+    expect([...document.querySelectorAll('video')].map((video) => video.src)).toEqual(firstSources);
+
+    rerender(<InsvViewer sources={firstSources} frameRate={30} flatProjection />);
+    expect(firstController.play).toHaveBeenCalledTimes(1);
+
+    const secondController = { play: jest.fn(), pause: jest.fn(), seek: jest.fn(), destroy: jest.fn() };
+    createInsvPlayback.mockReturnValueOnce(secondController);
+    rerender(<InsvViewer sources={['http://localhost/second/0', 'http://localhost/second/1']} frameRate={30} />);
+    await waitFor(() => expect(secondController.play).toHaveBeenCalledTimes(1));
+    expect(firstController.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not autoplay after being paused while the correction loads', async () => {
+    let resolve;
+    global.fetch = jest.fn(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        })
+    );
+    const ref = { current: null };
+    render(<InsvViewer ref={ref} sources={['http://localhost/00', 'http://localhost/10']} frameRate={30} />);
+    ref.current.pause();
+    await act(async () => resolve({ ok: true, json: async () => [{ time: 0, rotation: [0, 0, 0, 1] }] }));
+    expect(createInsvPlayback).toHaveBeenCalledTimes(1);
+    expect(controller.play).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeEnabled();
+  });
+
+  test('reports an automatic pair playback failure', async () => {
+    controller.play.mockRejectedValue(new Error('Unable to start pair.'));
+    render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} frameRate={30} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to start pair.');
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeDisabled();
+  });
+
   test('controls both streams through the playback controller', async () => {
     render(<InsvViewer sources={['http://localhost/00', 'http://localhost/10']} />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Play video' })).toBeEnabled());

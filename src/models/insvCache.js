@@ -6,7 +6,7 @@ const { assertCurrentPair } = require('./insvPair');
 const { projectInsvThumbnail } = require('./insvThumbnailProjection');
 const geometry = require('../insvGeometry.json');
 
-const THUMBNAIL_VERSION = `insv-projection-450x225-v4-${JSON.stringify(geometry)}`;
+const THUMBNAIL_VERSION = `insv-projection-450x225-v5-${JSON.stringify(geometry)}`;
 const SOURCE_SIZE = 720;
 const WIDTH = 450;
 const HEIGHT = 225;

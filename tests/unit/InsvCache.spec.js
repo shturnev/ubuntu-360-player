@@ -58,6 +58,32 @@ describe('INSV thumbnail cache', () => {
     expect(pixel(4)[2]).toBeGreaterThan(120);
   });
 
+  test.each([
+    ['first lens', [0, 1, 0, 0]],
+    ['second lens', [0, 0, 0, 1]],
+  ])('preserves horizontal orientation on the %s', (_label, rotation) => {
+    const size = 64;
+    const gradient = Buffer.alloc(size * size * 4);
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) gradient[(y * size + x) * 4] = x * 4;
+    }
+    const image = projectInsvThumbnail([gradient, gradient], size, 360, 180, rotation);
+    const red = (x) => image[(90 * 360 + x) * 4];
+    expect(red(160)).toBeGreaterThan(red(200));
+  });
+
+  test('applies the panorama orientation before motion correction', () => {
+    const size = 64;
+    const gradient = Buffer.alloc(size * size * 4);
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) gradient[(y * size + x) * 4] = y * 4;
+    }
+    const half = Math.SQRT1_2;
+    const image = projectInsvThumbnail([gradient, gradient], size, 360, 180, [0, 0, half, half]);
+    const red = (x) => image[(90 * 360 + x) * 4];
+    expect(red(160)).toBeGreaterThan(red(200));
+  });
+
   test('rotates thumbnail directions like the viewer and keys the cache by correction', async () => {
     const first = Buffer.from(Array.from({ length: 16 }, () => [255, 0, 0, 255]).flat());
     const second = Buffer.from(Array.from({ length: 16 }, () => [0, 0, 255, 255]).flat());

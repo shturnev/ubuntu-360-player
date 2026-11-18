@@ -31,7 +31,8 @@ describe('PanoramaViewer', () => {
       deleteTexture: jest.fn(),
       uniform1i: jest.fn(),
       getUniformLocation: jest.fn(
-        (program, name) => ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5 })[name] ?? 1
+        (program, name) =>
+          ({ panorama: 1, yaw: 2, pitch: 3, fieldOfView: 4, aspectRatio: 5, flatProjection: 6 })[name] ?? 1
       ),
       uniform1f: jest.fn(),
       viewport: jest.fn(),
@@ -51,6 +52,7 @@ describe('PanoramaViewer', () => {
 
   beforeEach(() => {
     makeWebGL();
+    jest.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => new Promise(() => {}));
     Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
       value: jest.fn(),
       configurable: true,
@@ -97,7 +99,9 @@ describe('PanoramaViewer', () => {
       return queuedRaf.length;
     });
 
-    render(<PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />);
+    const { rerender } = render(
+      <PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />
+    );
 
     const image = document.querySelector('.panorama-source');
     const canvas = document.querySelector('.panorama-canvas');
@@ -116,6 +120,22 @@ describe('PanoramaViewer', () => {
 
     expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
     expect(gl.drawArrays).toHaveBeenCalled();
+
+    rerender(
+      <PanoramaViewer
+        source="http://localhost:3000/big/photo-1000.jpg"
+        type="image"
+        alt="photo-1000.jpg"
+        flatProjection
+      />
+    );
+    queuedRaf.splice(0).forEach((callback) => callback());
+    expect(gl.uniform1i).toHaveBeenLastCalledWith(6, 1);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
+    rerender(<PanoramaViewer source="http://localhost:3000/big/photo-1000.jpg" type="image" alt="photo-1000.jpg" />);
+    queuedRaf.splice(0).forEach((callback) => callback());
+    expect(gl.uniform1i).toHaveBeenLastCalledWith(6, 0);
+    expect(gl.texImage2D).toHaveBeenCalledTimes(initialTextureUploads);
 
     gl.drawArrays.mockClear();
     Object.defineProperty(canvas, 'clientWidth', { value: 1200, configurable: true });
@@ -161,6 +181,88 @@ describe('PanoramaViewer', () => {
     expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
     expect(screen.queryByText('Press Play video to start 360° playback.')).not.toBeInTheDocument();
+  });
+
+  test('automatically starts each opened panorama video without restarting on projection changes', async () => {
+    const play = HTMLMediaElement.prototype.play.mockResolvedValue();
+    const onVideoPlaybackSuccess = jest.fn();
+    let rerender;
+    await act(async () => {
+      ({ rerender } = render(
+        <PanoramaViewer
+          source="http://localhost/one.mp4"
+          type="video"
+          onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+        />
+      ));
+    });
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
+
+    await act(async () => {
+      rerender(
+        <PanoramaViewer
+          source="http://localhost/two.mp4"
+          type="video"
+          onVideoPlaybackSuccess={onVideoPlaybackSuccess}
+        />
+      );
+    });
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(onVideoPlaybackSuccess).toHaveBeenCalledTimes(2);
+
+    const video = document.querySelector('.panorama-source');
+    Object.defineProperty(video, 'currentTime', { value: 12, writable: true, configurable: true });
+    Object.defineProperty(video, 'paused', { value: false, writable: true, configurable: true });
+    video.pause.mockClear();
+    rerender(<PanoramaViewer source="http://localhost/two.mp4" type="video" flatProjection />);
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(video.pause).not.toHaveBeenCalled();
+    expect(video).toHaveAttribute('src', 'http://localhost/two.mp4');
+    expect(video.currentTime).toBe(12);
+    expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
+
+    video.paused = true;
+    fireEvent.pause(video);
+    rerender(<PanoramaViewer source="http://localhost/two.mp4" type="video" />);
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(video.pause).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(12);
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeInTheDocument();
+  });
+
+  test('ignores a previous video autoplay failure after navigating to another video', async () => {
+    let rejectPrevious;
+    const play = HTMLMediaElement.prototype.play
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectPrevious = reject)))
+      .mockResolvedValue();
+    const onVideoPlaybackFailure = jest.fn();
+    const { rerender } = render(
+      <PanoramaViewer source="http://localhost/one.mp4" type="video" onVideoPlaybackFailure={onVideoPlaybackFailure} />
+    );
+    rerender(
+      <PanoramaViewer source="http://localhost/two.mp4" type="video" onVideoPlaybackFailure={onVideoPlaybackFailure} />
+    );
+    await act(async () => rejectPrevious(new Error('Previous playback cancelled')));
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(onVideoPlaybackFailure).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Pause video' })).toBeInTheDocument();
+  });
+
+  test('reports an automatic panorama playback failure', async () => {
+    HTMLMediaElement.prototype.play.mockRejectedValue(new Error('decode failed'));
+    const onVideoPlaybackFailure = jest.fn();
+    await act(async () => {
+      render(
+        <PanoramaViewer
+          source="http://localhost/broken.mp4"
+          type="video"
+          onVideoPlaybackFailure={onVideoPlaybackFailure}
+        />
+      );
+    });
+    expect(onVideoPlaybackFailure).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Unable to play this video');
   });
 
   test('toggles flat video playback with Space without interfering with text inputs', async () => {

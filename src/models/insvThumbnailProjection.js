@@ -43,7 +43,8 @@ function projectInsvThumbnail(images, sourceSize, width, height, rotation = [0, 
     const cosLatitude = Math.cos(latitude);
     for (let x = 0; x < width; x += 1) {
       const longitude = ((x + 0.5) / width - 0.5) * 2 * Math.PI;
-      let dx = -Math.sin(longitude) * cosLatitude;
+      // Match the viewer's camera coordinates before applying gyro correction.
+      let dx = Math.sin(longitude) * cosLatitude;
       let dy = -Math.sin(latitude);
       let dz = -Math.cos(longitude) * cosLatitude;
       const tx = 2 * (qy * dz - qz * dy);
