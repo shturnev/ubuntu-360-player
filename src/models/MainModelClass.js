@@ -964,7 +964,8 @@ class MainModelClass {
       }
 
       try {
-        await shell.trashItem(item.origPath);
+        // Windows trashItem fails with "Operation was aborted" on forward-slash paths
+        await shell.trashItem(path.resolve(item.origPath));
       } catch (error) {
         if (error?.code !== 'ENOENT' && Helper.isFileExists(item.origPath)) {
           this.win?.webContents?.send('delete-error', {
