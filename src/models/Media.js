@@ -7,6 +7,7 @@ const exifr = require('exifr');
 const { getStorageRoot } = require('../config/env');
 const mediaTools = require('./mediaTools');
 const mediaCache = require('./mediaCache');
+const { renameWithRetry, renameSyncWithRetry } = require('./fsRetry');
 function execExiftool(args, ...rest) {
   let invocation;
   try {
@@ -150,7 +151,7 @@ class Media {
         ) {
           throw new Error('The cached media file changed during import.');
         }
-        await fs.promises.rename(tempPath, bigPath);
+        await renameWithRetry(tempPath, bigPath);
         created = false;
       } finally {
         if (created) await fs.promises.unlink(tempPath);
@@ -897,10 +898,10 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
     for (const entry of entries) {
       entry.hadDestination = fs.existsSync(entry.destination);
       if (entry.hadDestination) {
-        fs.renameSync(entry.destination, entry.backup);
+        renameSyncWithRetry(entry.destination, entry.backup);
         entry.backupCreated = true;
       }
-      fs.renameSync(entry.replacement, entry.destination);
+      renameSyncWithRetry(entry.replacement, entry.destination);
       entry.replaced = true;
     }
   } catch (error) {
@@ -909,7 +910,7 @@ function replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffi
         removeFileIfPresent(entry.destination);
       }
       if (entry.backupCreated) {
-        fs.renameSync(entry.backup, entry.destination);
+        renameSyncWithRetry(entry.backup, entry.destination);
       }
     }
     throw error;

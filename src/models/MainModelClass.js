@@ -14,6 +14,7 @@ const mediaCache = require('./mediaCache');
 const { isSamePath } = require('./pathCompare');
 const { openFileNoFollow } = require('./safeOpen');
 const { exportFileName } = require('./exportName');
+const { renameWithRetry } = require('./fsRetry');
 const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFormats');
 const { validateInsvPair, assertCurrentPair } = require('./insvPair');
 const { InsvSourceServer } = require('./insvSourceServer');
@@ -452,7 +453,7 @@ class MainModelClass {
           throw new Error('The destination file has changed.');
         }
         this.validateExportMedia(origPath, record);
-        await fs.promises.rename(tempPath, filePath);
+        await renameWithRetry(tempPath, filePath);
         tempPath = undefined;
       }
     } finally {

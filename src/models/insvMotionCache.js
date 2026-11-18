@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { assertCurrentPair } = require('./insvPair');
 const { openFileNoFollow } = require('./safeOpen');
+const { renameSyncWithRetry } = require('./fsRetry');
 const { prepareInsvMotion } = require('./insvMotion');
 
 // Increment when the gyro, horizon, or timestamp algorithms change.
@@ -108,7 +109,7 @@ async function getCachedInsvMotion(pair, cacheDir, { isCurrent = () => true, onC
     await assertCurrentPair(pair);
     if (!isCurrent()) throw new Error('INSV import was cancelled.');
     try {
-      fs.renameSync(temporary, target);
+      renameSyncWithRetry(temporary, target);
     } catch (error) {
       throw new Error('Unable to write the INSV stabilization cache. Check disk space and permissions.', {
         cause: error,
