@@ -132,6 +132,40 @@ describe('MainModelClass', () => {
     expect(send).toHaveBeenCalledWith('delete-error', expect.objectContaining({ message: expect.any(String) }));
   });
 
+  test('deleteSelected rejects cache names that escape the cache directories', async () => {
+    const originalFile = path.join(tempDir, 'original.png');
+    fs.writeFileSync(originalFile, 'image');
+    mainModelClass.authorizedMedia.set(originalFile, 'image');
+    const send = jest.fn();
+    mainModelClass.win = { webContents: { send } };
+    shell.trashItem.mockClear();
+
+    await mainModelClass.deleteSelected([
+      { thumpName: '../../victim.png', bigName: 'big.png', origPath: originalFile },
+      { thumpName: 'thumb.png', bigName: '..', origPath: originalFile },
+    ]);
+
+    expect(shell.trashItem).not.toHaveBeenCalled();
+    expect(mainModelClass.authorizedMedia.has(originalFile)).toBe(true);
+    expect(send).toHaveBeenCalledWith('delete-error', { message: 'Invalid cache file name.' });
+  });
+
+  test('deleteSelected keeps the item when trashing reports ENOENT but the file still exists', async () => {
+    const originalFile = path.join(tempDir, 'original.png');
+    fs.writeFileSync(originalFile, 'image');
+    mainModelClass.authorizedMedia.set(originalFile, 'image');
+    const send = jest.fn();
+    mainModelClass.win = { webContents: { send } };
+    shell.trashItem.mockReset().mockRejectedValue(Object.assign(new Error('no backend'), { code: 'ENOENT' }));
+
+    await mainModelClass.deleteSelected([{ thumpName: 'thumb.png', bigName: 'big.png', origPath: originalFile }]);
+    shell.trashItem.mockReset().mockImplementation(async () => {});
+
+    expect(mainModelClass.authorizedMedia.has(originalFile)).toBe(true);
+    expect(send).not.toHaveBeenCalledWith('file-deleted', expect.anything());
+    expect(send).toHaveBeenCalledWith('delete-error', expect.anything());
+  });
+
   test('saves orientation correction only for an authorized image', async () => {
     const originalFile = path.join(tempDir, 'panorama.jpg');
     const orientation = { yaw: 15, pitch: -8, roll: 4 };

@@ -965,6 +965,13 @@ class MainModelClass {
         continue;
       }
 
+      const validName = (name) =>
+        typeof name === 'string' && name !== '' && name === path.basename(name) && name !== '..';
+      if (!validName(item.thumpName) || !validName(item.bigName)) {
+        this.win?.webContents?.send('delete-error', { message: 'Invalid cache file name.' });
+        continue;
+      }
+
       try {
         // Windows trashItem fails with "Operation was aborted" on forward-slash paths
         const trashPath = path.resolve(item.origPath);
@@ -973,12 +980,13 @@ class MainModelClass {
             await shell.trashItem(trashPath);
             break;
           } catch (error) {
-            if (attempt >= 2 || error?.code === 'ENOENT' || !Helper.isFileExists(trashPath)) throw error;
+            if (attempt >= 2 || !Helper.isFileExists(trashPath)) throw error;
             await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
           }
         }
       } catch (error) {
-        if (error?.code !== 'ENOENT' && Helper.isFileExists(item.origPath)) {
+        // Only a file that is really gone counts as deleted; ENOENT from a broken trash backend does not.
+        if (Helper.isFileExists(item.origPath)) {
           this.win?.webContents?.send('delete-error', {
             message: `Unable to move ${path.basename(item.origPath)} to the trash: ${error.message}`,
           });
