@@ -1,5 +1,6 @@
 const fs = require('fs');
 const { lowerBound, parseTelemetry, runExiftool, runFfprobe } = require('./insvHorizon');
+const { openFileNoFollow } = require('./safeOpen');
 
 function readVarint(data, position) {
   let value = 0n;
@@ -54,7 +55,7 @@ function parseCameraTiming(data) {
 }
 
 async function readCameraTiming(file) {
-  const handle = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  const handle = await openFileNoFollow(file);
   try {
     const size = (await handle.stat()).size;
     const read = async (position, length) => {
