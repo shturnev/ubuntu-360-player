@@ -218,6 +218,7 @@ class Media {
           '-v',
           'info',
           '-xerror',
+          '-copyts',
           '-abort_on',
           'empty_output',
           '-threads',

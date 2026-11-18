@@ -91,7 +91,7 @@ describe('Media', () => {
     await expect(Media.verifyInsvVideo(file, 1)).resolves.toBe(0.001);
     expect(execFile).toHaveBeenCalledWith(
       'ffmpeg',
-      expect.arrayContaining(['-xerror', '-an', '-i', file, '-map', '0:v:0']),
+      expect.arrayContaining(['-xerror', '-copyts', '-an', '-i', file, '-map', '0:v:0']),
       expect.objectContaining({ timeout: 30000 }),
       expect.any(Function)
     );
