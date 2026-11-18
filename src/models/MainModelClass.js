@@ -13,6 +13,7 @@ const renameNoReplace = require('./renameNoReplace');
 const mediaCache = require('./mediaCache');
 const { isSamePath } = require('./pathCompare');
 const { openFileNoFollow } = require('./safeOpen');
+const { exportFileName } = require('./exportName');
 const { extensions, isSupportedMediaPath, groupInsvFiles } = require('./mediaFormats');
 const { validateInsvPair, assertCurrentPair } = require('./insvPair');
 const { InsvSourceServer } = require('./insvSourceServer');
@@ -286,7 +287,7 @@ class MainModelClass {
       const record = typeof origPath === 'string' && this.exportMedia.get(origPath);
       const initialStat = this.validateExportMedia(origPath, record);
       const extension = path.extname(record.bigName);
-      const defaultPath = `${path.parse(origPath).name}${extension}`;
+      const defaultPath = exportFileName(origPath, extension);
       const result = await dialog.showSaveDialog(this.win, {
         title: 'Save media',
         defaultPath,
@@ -339,7 +340,7 @@ class MainModelClass {
       for (const entry of entries) {
         try {
           if (entry.error) throw entry.error;
-          const name = `${path.parse(entry.origPath).name}${path.extname(entry.record.bigName)}`;
+          const name = exportFileName(entry.origPath, path.extname(entry.record.bigName));
           await this.copyExportMedia(
             entry.origPath,
             entry.record,
