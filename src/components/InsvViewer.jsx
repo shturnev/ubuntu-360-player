@@ -33,6 +33,7 @@ function closestHorizonRotation(frames, time) {
 const InsvViewer = forwardRef(function InsvViewer(
   {
     sources,
+    frameRate,
     flatProjection = false,
     motionMode = 'gyro',
     motionWarning,
@@ -211,6 +212,7 @@ const InsvViewer = forwardRef(function InsvViewer(
       const startPlayback = () => {
         playback = createInsvPlayback({
           videos,
+          frameRate,
           onFrame: (times) => {
             if (failed || disposed || (times[0] === uploaded[0] && times[1] === uploaded[1])) return;
             if (videos.some((video) => video.readyState < 2 || !video.videoWidth || !video.videoHeight)) return;
@@ -333,7 +335,7 @@ const InsvViewer = forwardRef(function InsvViewer(
       if (vertex) gl.deleteShader(vertex);
       if (fragment) gl.deleteShader(fragment);
     };
-  }, [firstSource, secondSource, motionMode, onCaptureReadyChange]);
+  }, [firstSource, secondSource, frameRate, motionMode, onCaptureReadyChange]);
 
   const handlePointerMove = (event) => {
     const drag = camera.current.drag;

@@ -71,8 +71,9 @@ describe('INSV viewer', () => {
 
   test('uploads and renders both frames together and cleans up on unmount', async () => {
     const sources = ['http://localhost/00', 'http://localhost/10'];
-    const { unmount, rerender } = render(<InsvViewer sources={sources} />);
+    const { unmount, rerender } = render(<InsvViewer sources={sources} frameRate={30} />);
     await waitFor(() => expect(createInsvPlayback).toHaveBeenCalled());
+    expect(createInsvPlayback).toHaveBeenCalledWith(expect.objectContaining({ frameRate: 30 }));
     const videos = document.querySelectorAll('video');
     videos.forEach((video) => {
       Object.defineProperty(video, 'readyState', { value: 2, configurable: true });
@@ -84,9 +85,9 @@ describe('INSV viewer', () => {
     expect(gl.texImage2D.mock.calls.map((call) => call[5])).toEqual([...videos]);
     expect(gl.drawArrays).toHaveBeenCalledTimes(1);
     expect(gl.uniform1i).toHaveBeenCalledWith('flatProjection', 0);
-    rerender(<InsvViewer sources={sources} flatProjection />);
+    rerender(<InsvViewer sources={sources} frameRate={30} flatProjection />);
     expect(gl.uniform1i).toHaveBeenLastCalledWith('flatProjection', 1);
-    rerender(<InsvViewer sources={sources} />);
+    rerender(<InsvViewer sources={sources} frameRate={30} />);
     expect(gl.uniform1i).toHaveBeenLastCalledWith('flatProjection', 0);
     act(() => handlers.onFrame([1.03, 1]));
     expect(gl.texImage2D).toHaveBeenCalledTimes(4);
@@ -214,7 +215,7 @@ describe('INSV viewer', () => {
   });
 
   test('overlay uses both lenses in flat mode and blocks unsupported pair actions', async () => {
-    const item = { type: 'video', insv: true, bigName: 'pair', origPath: '/video/00.insv' };
+    const item = { type: 'video', insv: true, bigName: 'pair', origPath: '/video/00.insv', frameRate: 30 };
     const onDelete = jest.fn();
     const onOpenMetadata = jest.fn();
     render(
@@ -232,6 +233,7 @@ describe('INSV viewer', () => {
     expect(screen.getByRole('button', { name: 'Info' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Adjust panorama orientation' })).not.toBeInTheDocument();
     await waitFor(() => expect(createInsvPlayback).toHaveBeenCalled());
+    expect(createInsvPlayback).toHaveBeenCalledWith(expect.objectContaining({ frameRate: 30 }));
     fireEvent.keyDown(document, { key: ' ' });
     expect(controller.play).toHaveBeenCalled();
     fireEvent.keyDown(document, { key: 'i' });

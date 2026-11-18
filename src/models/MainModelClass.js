@@ -722,6 +722,7 @@ class MainModelClass {
                 thumpName,
                 bigName: thumpName,
                 insvToken,
+                frameRate: pair.video.fps,
                 motionMode: motion.mode,
                 motionWarning: motion.warning,
               };

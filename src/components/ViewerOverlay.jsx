@@ -502,6 +502,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
           <InsvViewer
             ref={panoramaRef}
             sources={insvSources}
+            frameRate={showingItem.frameRate}
             flatProjection={flatView}
             motionMode={showingItem.motionMode}
             motionWarning={showingItem.motionWarning}

@@ -1,8 +1,8 @@
-const FRAME_TOLERANCE_SECONDS = 0.08;
 const DRIFT_GRACE_MS = 500;
 const WAIT_TIMEOUT_MS = 8000;
+const MAX_CLOCK_DRIFT_SECONDS = 0.25;
 
-export function createInsvPlayback({ videos, onFrame, onState, onError }) {
+export function createInsvPlayback({ videos, frameRate, onFrame, onState, onError }) {
   if (
     !Array.isArray(videos) ||
     videos.length !== 2 ||
@@ -10,8 +10,10 @@ export function createInsvPlayback({ videos, onFrame, onState, onError }) {
   ) {
     throw new Error('Synchronized INSV playback requires two video decoders with frame timestamp support.');
   }
+  if (!Number.isFinite(frameRate) || frameRate <= 0) throw new Error('The INSV frame rate is unavailable.');
 
   const [master, follower] = videos;
+  const frameTolerance = 0.5 / frameRate;
   follower.muted = true;
   const listeners = [];
   const callbacks = [null, null];
@@ -35,7 +37,10 @@ export function createInsvPlayback({ videos, onFrame, onState, onError }) {
   const cancelSeeks = () => {
     for (const cancel of pendingSeeks) cancel();
   };
-  const pauseBoth = () => videos.forEach((video) => video.pause());
+  const pauseBoth = () => {
+    videos.forEach((video) => video.pause());
+    follower.playbackRate = 1;
+  };
   const reportFailure = (message) => {
     if (destroyed || failed) return;
     failed = true;
@@ -138,15 +143,22 @@ export function createInsvPlayback({ videos, onFrame, onState, onError }) {
 
   const publishFrames = () => {
     if (waiting || seeking || frames[0] === null || frames[1] === null) return;
-    if (Math.abs(frames[0] - frames[1]) <= FRAME_TOLERANCE_SECONDS) {
-      driftSince = null;
+    if (wanted) {
+      const drift = follower.currentTime - master.currentTime;
+      if (Number.isFinite(drift)) {
+        follower.playbackRate = Math.max(0.8, Math.min(1.2, 1 - drift * 2));
+        if (Math.abs(drift) <= MAX_CLOCK_DRIFT_SECONDS) driftSince = null;
+        else if (driftSince === null) driftSince = performance.now();
+        else if (performance.now() - driftSince >= DRIFT_GRACE_MS) {
+          driftSince = null;
+          recover();
+          return;
+        }
+      }
+    }
+    if (Math.abs(frames[0] - frames[1]) <= frameTolerance) {
       if (wanted) armWait('The INSV pair stopped producing synchronized frames.');
       onFrame?.([...frames]);
-    } else if (wanted && driftSince === null) {
-      driftSince = performance.now();
-    } else if (wanted && performance.now() - driftSince >= DRIFT_GRACE_MS) {
-      driftSince = null;
-      recover();
     }
   };
 
@@ -157,7 +169,7 @@ export function createInsvPlayback({ videos, onFrame, onState, onError }) {
       if (
         !waiting &&
         Number.isFinite(metadata.mediaTime) &&
-        (!seeking || Math.abs(metadata.mediaTime - seekTarget) <= FRAME_TOLERANCE_SECONDS)
+        (!seeking || Math.abs(metadata.mediaTime - seekTarget) <= frameTolerance)
       ) {
         frames[index] = metadata.mediaTime;
         publishFrames();

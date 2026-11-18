@@ -186,6 +186,7 @@ describe('MainModelClass', () => {
     expect(mainModelClass.authorizedMedia.get(item.origPath)).toBe('insv');
     expect(mainModelClass.exportMedia.has(item.origPath)).toBe(false);
     expect(mainModelClass.insvSources.records.has(item.insvToken)).toBe(true);
+    expect(item.frameRate).toBeCloseTo(30000 / 1001);
     expect(item.motionMode).toBe('gyro');
     expect(mainModelClass.insvSources.horizonTracks.get(item.insvToken)).toEqual([{ time: 0, rotation: [0, 1, 0, 0] }]);
     expect(createInsvThumbnail).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), [0, 1, 0, 0]);

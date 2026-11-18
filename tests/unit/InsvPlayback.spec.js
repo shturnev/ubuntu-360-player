@@ -8,6 +8,7 @@ class FakeVideo extends EventTarget {
     this.readyState = 4;
     this.duration = 30;
     this.seeking = false;
+    this.playbackRate = 1;
     this.time = 0;
     this.nextId = 0;
     this.callbacks = new Map();
@@ -64,7 +65,7 @@ describe('INSV paired playback', () => {
     onFrame = jest.fn();
     onState = jest.fn();
     onError = jest.fn();
-    playback = createInsvPlayback({ videos, onFrame, onState, onError });
+    playback = createInsvPlayback({ videos, frameRate: 30, onFrame, onState, onError });
   });
 
   afterEach(() => {
@@ -86,7 +87,39 @@ describe('INSV paired playback', () => {
     videos[1].frame(1.2);
     expect(onFrame).not.toHaveBeenCalled();
     videos[1].frame(1.03);
-    expect(onFrame).toHaveBeenCalledWith([1, 1.03]);
+    expect(onFrame).not.toHaveBeenCalled();
+    videos[0].frame(1.03);
+    expect(onFrame).toHaveBeenCalledWith([1.03, 1.03]);
+  });
+
+  test('adjusts only the follower clock and restores its rate after pause', async () => {
+    await playback.play();
+    videos[0].time = 1;
+    videos[1].time = 1.06;
+    videos[0].frame(1);
+    videos[1].frame(1.06);
+    expect(videos[1].playbackRate).toBeCloseTo(0.88);
+    expect(onFrame).not.toHaveBeenCalled();
+    videos[1].time = 1;
+    videos[1].frame(1);
+    expect(videos[1].playbackRate).toBe(1);
+    expect(onFrame).toHaveBeenCalledWith([1, 1]);
+    videos[1].time = 0.95;
+    videos[1].frame(1.033);
+    expect(videos[1].playbackRate).toBeCloseTo(1.1);
+    playback.pause();
+    expect(videos[1].playbackRate).toBe(1);
+  });
+
+  test('uses the source frame rate to reject a one-frame mismatch at 60 fps', async () => {
+    playback.destroy();
+    playback = createInsvPlayback({ videos, frameRate: 60, onFrame, onState, onError });
+    await playback.play();
+    videos[0].frame(1);
+    videos[1].frame(1 + 1 / 60);
+    expect(onFrame).not.toHaveBeenCalled();
+    videos[0].frame(1 + 1 / 60);
+    expect(onFrame).toHaveBeenCalledWith([1 + 1 / 60, 1 + 1 / 60]);
   });
 
   test('seeks both lenses and resumes them together', async () => {
@@ -178,5 +211,10 @@ describe('INSV paired playback', () => {
 
   test('rejects environments without timestamped video frames', () => {
     expect(() => createInsvPlayback({ videos: [{}, {}] })).toThrow(/timestamp/);
+  });
+
+  test('rejects missing or invalid source frame rates', () => {
+    expect(() => createInsvPlayback({ videos })).toThrow(/frame rate/);
+    expect(() => createInsvPlayback({ videos, frameRate: Infinity })).toThrow(/frame rate/);
   });
 });
