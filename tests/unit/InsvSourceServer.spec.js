@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 const http = require('http');
 const express = require('express');
@@ -28,7 +28,7 @@ describe('INSV source server', () => {
     });
 
   beforeEach(async () => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'insv-server-'));
+    directory = fs.mkdtempSync(path.join(getTempDir(), 'insv-server-'));
     files = [path.join(directory, '00.insv'), path.join(directory, '10.insv')];
     fs.writeFileSync(files[0], 'first-lens');
     fs.writeFileSync(files[1], 'second-lens');

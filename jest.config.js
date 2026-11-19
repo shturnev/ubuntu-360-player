@@ -1,8 +1,3 @@
-if (process.platform === 'win32') {
-  // Windows may expose the temporary directory through an 8.3 alias.
-  process.env.TEMP = require('fs').realpathSync(require('os').tmpdir());
-}
-
 module.exports = {
   testEnvironment: 'jsdom',
   transform: {

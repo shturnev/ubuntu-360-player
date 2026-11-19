@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 const { Writable } = require('stream');
 
@@ -39,7 +39,7 @@ describe('MainModelClass', () => {
   ]).buffer;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sht-vr-main-'));
+    tempDir = fs.mkdtempSync(path.join(getTempDir(), 'sht-vr-main-'));
     const staticDir = path.join(tempDir, '.sht-vr-player', 'static');
     fs.mkdirSync(path.join(staticDir, 'small'), { recursive: true });
     fs.mkdirSync(path.join(staticDir, 'big'), { recursive: true });

@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 
 jest.mock('../../src/models/insvMotion', () => ({ prepareInsvMotion: jest.fn() }));
@@ -28,7 +28,7 @@ describe('INSV stabilization cache', () => {
   });
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'insv-motion-cache-'));
+    directory = fs.mkdtempSync(path.join(getTempDir(), 'insv-motion-cache-'));
     cacheDir = path.join(directory, 'cache');
     files = [path.join(directory, '00.insv'), path.join(directory, '10.insv')];
     files.forEach((file) => fs.writeFileSync(file, 'original'));

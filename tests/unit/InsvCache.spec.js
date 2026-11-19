@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 const { execFile } = require('child_process');
 const { createInsvThumbnail } = require('../../src/models/insvCache');
@@ -24,7 +24,7 @@ describe('INSV thumbnail cache', () => {
   });
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'insv-cache-'));
+    directory = fs.mkdtempSync(path.join(getTempDir(), 'insv-cache-'));
     cache = path.join(directory, 'small');
     files = [path.join(directory, '00.insv'), path.join(directory, '10.insv')];
     files.forEach((file) => fs.writeFileSync(file, 'original'));
