@@ -18,6 +18,17 @@
   border: 1px solid $border-soft;
 }
 
+.viewer-import-status {
+  position: absolute;
+  top: 3.5rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 10;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: $bg-surface-strong;
+}
+
 .viewer-panel:fullscreen {
   box-sizing: border-box;
   display: flex;

@@ -3,10 +3,11 @@ jest.mock('electron', () => {
   return {
     contextBridge: { exposeInMainWorld: jest.fn() },
     ipcRenderer: Object.assign(new MockEventEmitter(), { invoke: jest.fn() }),
+    webUtils: { getPathForFile: jest.fn() },
   };
 });
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 require('../../electron/preload');
 
 describe('preload IPC listener lifecycle', () => {
@@ -15,6 +16,7 @@ describe('preload IPC listener lifecycle', () => {
   beforeEach(() => {
     api = contextBridge.exposeInMainWorld.mock.calls[0][1];
     ipcRenderer.removeAllListeners();
+    webUtils.getPathForFile.mockReset();
   });
 
   test('removing and re-registering a listener leaves only one callback', () => {
@@ -65,6 +67,48 @@ describe('preload IPC listener lifecycle', () => {
     await expect(api.savePanoramaScreenshot({ data })).resolves.toEqual({ success: true });
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-panorama-screenshot', { data });
+  });
+
+  test.each([['photo.jpg'], ['photo.jpg', 'clip.mp4']])(
+    'resolves native dropped files through webUtils: %j',
+    async (...names) => {
+      const files = names.map((name) => new File(['media'], name));
+      const paths = names.map((name) => `C:\\media\\${name}`);
+      files.forEach((file) => {
+        Object.defineProperty(file, 'path', {
+          get() {
+            throw new Error('File.path must not be used');
+          },
+        });
+      });
+      webUtils.getPathForFile.mockImplementation((file) => paths[files.indexOf(file)]);
+      ipcRenderer.invoke.mockClear().mockResolvedValue({ success: true });
+
+      await expect(api.importDroppedFiles(files)).resolves.toEqual({ success: true });
+
+      expect(webUtils.getPathForFile.mock.calls).toEqual(files.map((file) => [file]));
+      expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1);
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith('import-dropped-files', paths);
+    }
+  );
+
+  test.each([undefined, [], [new File(['data'], 'virtual.jpg')], [{}]])(
+    'reports invalid or non-native dropped files without sending paths: %j',
+    async (files) => {
+      ipcRenderer.invoke.mockClear();
+      webUtils.getPathForFile.mockImplementation((file) => {
+        if (!(file instanceof File)) throw new TypeError('Expected a File');
+        return '';
+      });
+      await expect(api.importDroppedFiles(files)).rejects.toThrow();
+      expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    }
+  );
+
+  test('does not expose the dropped-file IPC through the generic send allowlist', () => {
+    ipcRenderer.send = jest.fn();
+    api.send('import-dropped-files', ['C:\\media\\photo.jpg']);
+    expect(ipcRenderer.send).not.toHaveBeenCalled();
   });
 
   test('uses the dedicated media export channel', async () => {

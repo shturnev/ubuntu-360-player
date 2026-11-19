@@ -6,6 +6,20 @@
   padding: 1rem 1.25rem 2rem;
 }
 
+.file-drop-overlay {
+  position: fixed;
+  inset: 0.75rem;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 3px dashed $text-secondary;
+  border-radius: 20px;
+  background: rgba(2, 6, 23, 0.85);
+  color: $text-secondary;
+  font-size: 1.5rem;
+}
+
 .settings-overlay {
   position: fixed;
   inset: 0;
