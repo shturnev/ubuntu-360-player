@@ -19,12 +19,12 @@
 }
 
 .settings-dialog {
-  width: min(27rem, 100%);
-  background: rgba(15, 23, 42, 0.96);
+  width: min(58.75rem, 100%);
+  overflow: hidden;
+  background: #0e182b;
   border: 1px solid $border-soft;
-  border-radius: 16px;
+  border-radius: 20px;
   box-shadow: 0 16px 40px rgba(2, 6, 23, 0.45);
-  padding: 1rem;
 }
 
 .path-label {

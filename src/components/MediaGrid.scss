@@ -52,6 +52,7 @@
 }
 
 .insv-badge,
+.insp-badge,
 .insv-warning {
   position: absolute;
   left: 8px;
@@ -62,7 +63,8 @@
   font-size: 0.7rem;
 }
 
-.insv-badge {
+.insv-badge,
+.insp-badge {
   top: 8px;
   font-weight: bold;
 }

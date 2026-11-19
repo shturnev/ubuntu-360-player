@@ -32,6 +32,7 @@ function MediaGrid({ items, serverUrl, maxSizePx, canSelect, onToggleSelection, 
           >
             {item.type === 'video' && <span className="video-badge">▶</span>}
             {item.insv && <span className="insv-badge">INSV</span>}
+            {item.insp && <span className="insp-badge">INSP</span>}
             {item.motionWarning && (
               <span className="insv-warning">{item.motionMode === 'horizon' ? 'Horizon only' : 'Not stabilized'}</span>
             )}
