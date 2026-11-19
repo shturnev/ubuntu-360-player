@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.9.4] - 2026-11-19
+### Changed
+- Limit memory peaks during INSP imports ([#100](https://github.com/shturnev/ubuntu-360-player/pull/100))
+
 ## [3.9.3] - 2026-11-19
 ### Changed
 - docs: license note in every release, Zeranoe wording ([#98](https://github.com/shturnev/ubuntu-360-player/pull/98))
