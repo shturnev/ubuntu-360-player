@@ -572,18 +572,28 @@ describe('MainModelClass', () => {
     fs.writeFileSync(secondFile, 'second image');
 
     const callbacks = new Map();
+    const callbackWaiters = new Map();
     jest.spyOn(Media, 'saveImage').mockImplementation((filePath, _win, onResult) => {
       callbacks.set(filePath, onResult);
+      callbackWaiters.get(filePath)(onResult);
     });
+    const waitForCallback = (filePath) =>
+      new Promise((resolve) => {
+        callbackWaiters.set(filePath, resolve);
+      });
 
-    mainModelClass.readDir(firstDirectory);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    mainModelClass.readDir(secondDirectory);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const firstReady = waitForCallback(firstFile);
+    const firstImport = mainModelClass.readDir(firstDirectory);
+    await firstReady;
+    const secondReady = waitForCallback(secondFile);
+    const secondImport = mainModelClass.readDir(secondDirectory);
+    await secondReady;
 
     callbacks.get(firstFile)({ error: new Error('first import failed') });
 
     expect(mainModelClass.authorizedMedia.get(secondFile)).toBe('image');
+    callbacks.get(secondFile)({ origPath: secondFile });
+    await Promise.all([firstImport, secondImport]);
   });
 
   test('deleteCache removes the cache directory and only reports completion on success', async () => {
