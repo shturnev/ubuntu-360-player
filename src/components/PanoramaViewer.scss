@@ -375,7 +375,8 @@
   flex-shrink: 0;
 }
 
-.orientation-correction {
+.orientation-correction,
+.lens-correction {
   position: absolute;
   right: 1rem;
   bottom: 4.8rem;
@@ -386,6 +387,39 @@
   border-radius: 10px;
   background: $bg-surface-strong;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.lens-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.lens-control input {
+  width: 6rem;
+  padding: 0.45rem;
+  color: $text-primary;
+  background: $bg-deep;
+  border: 1px solid $border-strong;
+  border-radius: 8px;
+}
+
+.lens-correction-help {
+  color: $text-muted;
+  font-size: 0.78rem;
+}
+
+.lens-correction-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lens-correction-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.55rem 0.35rem;
+  font-size: 0.85rem;
 }
 
 .orientation-correction-header {

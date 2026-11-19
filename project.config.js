@@ -7,6 +7,8 @@ const { version } = require('./package.json');
 const baseConfig = {
   version,
   checkUpdates: true,
+  inspLensFov: 199,
+  insvLensFov: 183.3,
 };
 
 module.exports = baseConfig;

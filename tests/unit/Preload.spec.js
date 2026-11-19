@@ -73,6 +73,37 @@ describe('preload IPC listener lifecycle', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-current-media', { origPath: '/media/photo.jpg' });
   });
 
+  test('uses the dedicated INSV lens settings channel', async () => {
+    ipcRenderer.invoke.mockResolvedValue({ success: true, insvLensFov: 200 });
+    await expect(api.saveInsvLensFov(200)).resolves.toEqual({ success: true, insvLensFov: 200 });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-insv-lens-fov', 200);
+  });
+
+  test('uses dedicated INSV correction and cancellation channels', async () => {
+    const request = { origPath: '/video/00.INSV', requestId: 1, value: 200 };
+    ipcRenderer.invoke.mockResolvedValue({ success: true });
+    ipcRenderer.send = jest.fn();
+    await api.saveInsvLensCorrection(request);
+    api.cancelInsvLensCorrection({ origPath: request.origPath, requestId: request.requestId });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-insv-lens-correction', request);
+    expect(ipcRenderer.send).toHaveBeenCalledWith('cancel-insv-lens-correction', {
+      origPath: request.origPath,
+      requestId: request.requestId,
+    });
+  });
+
+  test('uses dedicated INSP settings, correction and cancellation channels', async () => {
+    const request = { origPath: '/images/photo.INSP', requestId: 1, value: 205 };
+    ipcRenderer.invoke.mockResolvedValue({ success: true });
+    ipcRenderer.send = jest.fn();
+    await api.saveInspLensFov(205);
+    await api.saveInspLensCorrection(request);
+    api.cancelInspLensCorrection(request);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-insp-lens-fov', 205);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('save-insp-lens-correction', request);
+    expect(ipcRenderer.send).toHaveBeenCalledWith('cancel-insp-lens-correction', request);
+  });
+
   test('uses only the dedicated selection export invoke channel', async () => {
     ipcRenderer.invoke.mockClear().mockResolvedValue({ success: true, saved: 1, errors: [] });
     ipcRenderer.send = jest.fn();

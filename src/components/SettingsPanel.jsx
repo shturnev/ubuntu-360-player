@@ -1,5 +1,7 @@
 import './SettingsPanel.scss';
+import { useEffect, useState } from 'react';
 import ShortcutList from './ShortcutList.jsx';
+import lensFov from '../lensFov.json';
 
 const donateUrl = 'https://www.privat24.ua/send/krdrh';
 const changeLogUrl = 'https://github.com/shturnev/ubuntu-360-player/releases';
@@ -37,7 +39,80 @@ const CloseIcon = () => (
   </svg>
 );
 
-function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting, onOpenExternal, onClose }) {
+function LensFovSetting({ format, fieldOfView, onSave }) {
+  const [lensValue, setLensValue] = useState(String(fieldOfView ?? ''));
+  const [lensStatus, setLensStatus] = useState('');
+  const [savingLens, setSavingLens] = useState(false);
+
+  useEffect(() => {
+    setLensValue(String(fieldOfView ?? ''));
+  }, [fieldOfView]);
+
+  const saveLensFov = async (event) => {
+    event.preventDefault();
+    const value = Number(lensValue);
+    if (
+      lensValue.trim() === '' ||
+      !Number.isFinite(value) ||
+      value < lensFov.minimum ||
+      value > lensFov.maximum ||
+      Math.abs(value * 10 - Math.round(value * 10)) > 1e-8
+    ) {
+      setLensStatus('Enter a value between 180 and 220 degrees in 0.1 degree steps.');
+      return;
+    }
+    setSavingLens(true);
+    setLensStatus('');
+    try {
+      await onSave(value);
+      setLensStatus(`Saved. Applies to subsequent ${format} imports.`);
+    } catch (error) {
+      setLensStatus(error?.message || `Unable to save the ${format} lens FOV.`);
+    } finally {
+      setSavingLens(false);
+    }
+  };
+
+  return (
+    <form className="lens-fov-box" onSubmit={saveLensFov}>
+      <label htmlFor={`${format.toLowerCase()}-lens-fov`}>{format} lens field of view (degrees)</label>
+      <p>
+        One value for both axes. The 180–220° range (step 0.1°) keeps each lens at least hemispherical and avoids
+        extreme extrapolation. This is not factory calibration.
+      </p>
+      <input
+        id={`${format.toLowerCase()}-lens-fov`}
+        type="number"
+        min={lensFov.minimum}
+        max={lensFov.maximum}
+        step={lensFov.step}
+        value={lensValue}
+        onChange={(event) => {
+          setLensValue(event.target.value);
+          setLensStatus('');
+        }}
+        disabled={savingLens}
+      />
+      <button type="submit" className="ghost-button" disabled={savingLens}>
+        {savingLens ? 'Saving…' : `Save ${format} lens FOV`}
+      </button>
+      {lensStatus && <p role="status">{lensStatus}</p>}
+    </form>
+  );
+}
+
+function SettingsPanel({
+  cacheSize,
+  checkUpdates,
+  inspLensFov,
+  onSaveInspLensFov,
+  insvLensFov,
+  onSaveInsvLensFov,
+  onDeleteCache,
+  onUpdateSetting,
+  onOpenExternal,
+  onClose,
+}) {
   return (
     <div className="settings-panel">
       <div className="settings-header">
@@ -54,18 +129,18 @@ function SettingsPanel({ cacheSize, checkUpdates, onDeleteCache, onUpdateSetting
           </button>
         )}
       </div>
-
       <button type="button" className="ghost-button full" onClick={onDeleteCache}>
         <span className="button-icon">
           <TrashIcon />
         </span>
         <span>Clear data cache ({cacheSize} MB)</span>
       </button>
-
       <label className="toggle-row">
         <span>Check for updates</span>
         <input type="checkbox" checked={Boolean(checkUpdates)} onChange={onUpdateSetting} />
       </label>
+      <LensFovSetting format="INSP" fieldOfView={inspLensFov} onSave={onSaveInspLensFov} />
+      <LensFovSetting format="INSV" fieldOfView={insvLensFov} onSave={onSaveInsvLensFov} />
 
       <section className="shortcuts-box" aria-labelledby="shortcuts-title">
         <strong id="shortcuts-title">Keyboard shortcuts</strong>

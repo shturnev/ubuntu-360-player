@@ -21,6 +21,10 @@ const { InsvSourceServer } = require('./insvSourceServer');
 const { createInsvThumbnail } = require('./insvCache');
 const { closestInsvRotation } = require('./insvMotion');
 const { getCachedInsvMotion } = require('./insvMotionCache');
+const { isValidLensFov } = require('./lensFov');
+const { LensOverrides, insvIdentity } = require('./lensOverrides');
+const { InspCorrections, inspIdentity, isValidRotation } = require('./inspCorrections');
+const { snapshotInsp, assertCurrentInsp } = require('./inspSource');
 const ConfigModel = require('./ConfigModel');
 const Updater = require('./Updater');
 
@@ -56,6 +60,14 @@ class MainModelClass {
     this.pendingMedia = new Map();
     this.insvSources = new InsvSourceServer();
     this.insvTokens = new Map();
+    this.insvQueue = Promise.resolve();
+    this.insvLensRequests = new Map();
+    this.insvLensBusy = false;
+    this.inspMedia = new Map();
+    this.inspRequests = new Map();
+    this.inspBusy = false;
+    this.inspPromptQueue = Promise.resolve();
+    this.importController = new AbortController();
   }
 
   init() {
@@ -159,9 +171,22 @@ class MainModelClass {
         });
       });
     });
-    ipcMain.on('delete-cache', (event, items) => this.deleteCache(event, items));
-    ipcMain.on('get-config', (event) => event.reply('config-data', this.config.getSettings()));
-    ipcMain.on('save-config', (event, data) => this.config.loadSettings(data));
+    ipcMain.on('delete-cache', (event, items) => void this.requestDeleteCache(event, items));
+    ipcMain.on('get-config', (event) => {
+      try {
+        event.reply('config-data', this.config.getSettings());
+      } catch (error) {
+        event.reply('show-error', { message: error.message || 'Unable to read settings.' });
+      }
+    });
+    ipcMain.on('save-config', (event, data) => {
+      try {
+        if (typeof data?.checkUpdates !== 'boolean') throw new Error('Invalid update settings.');
+        this.config.loadSettings({ ...this.config.getSettings(), checkUpdates: data.checkUpdates });
+      } catch (error) {
+        event.reply('show-error', { message: error.message || 'Unable to save settings.' });
+      }
+    });
 
     ipcMain.on('check-for-update', (event) => {
       const configData = this.config.getSettings();
@@ -191,12 +216,254 @@ class MainModelClass {
     this.exportMedia.clear();
     this.insvSources.clear();
     this.insvTokens.clear();
+    this.inspMedia.clear();
     if (win?.webContents && this.serverUrl) win.webContents.send('start-file-server', this.serverUrl);
   }
 
   cancelPendingMedia() {
+    this.importController.abort();
+    this.importController = new AbortController();
     for (const token of this.pendingMedia.values()) token.controller?.abort();
     this.pendingMedia.clear();
+    for (const request of this.insvLensRequests.values()) request.controller.abort();
+    this.insvLensRequests.clear();
+    for (const request of this.inspRequests.values()) request.controller.abort();
+    this.inspRequests.clear();
+  }
+
+  enqueueInsvJob(job) {
+    const operation = this.insvQueue.then(job);
+    this.insvQueue = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
+  }
+
+  cancelInsvLensCorrection(payload) {
+    const request = this.insvLensRequests.get(payload?.origPath);
+    if (request && request.id === payload?.requestId) {
+      request.controller.abort();
+      this.insvLensRequests.delete(payload.origPath);
+    }
+  }
+
+  async saveInsvLensCorrection(payload) {
+    const { origPath, requestId, value } = payload || {};
+    if (
+      typeof origPath !== 'string' ||
+      !Number.isSafeInteger(requestId) ||
+      requestId <= 0 ||
+      (value !== null && !isValidLensFov(value)) ||
+      this.authorizedMedia.get(origPath) !== 'insv'
+    ) {
+      return { success: false, message: 'This INSV pair or lens correction is invalid.' };
+    }
+    if (this.insvLensBusy) return { success: false, message: 'Another INSV lens correction is still processing.' };
+    const token = this.insvTokens.get(origPath);
+    const pair = this.insvSources.records.get(token);
+    const frames = this.insvSources.horizonTracks.get(token);
+    if (!pair || !frames || pair.paths[0] !== origPath) {
+      return { success: false, message: 'This INSV pair is no longer available.' };
+    }
+    const generation = this.directoryImportGeneration;
+    const request = { id: requestId, controller: new AbortController() };
+    this.insvLensRequests.set(origPath, request);
+    this.insvLensBusy = true;
+    const isCurrent = () =>
+      this.insvLensRequests.get(origPath) === request &&
+      this.directoryImportGeneration === generation &&
+      this.authorizedMedia.get(origPath) === 'insv' &&
+      this.insvTokens.get(origPath) === token &&
+      this.insvSources.records.get(token) === pair;
+    try {
+      const fieldOfView = value === null ? this.config.getSettings().insvLensFov : value;
+      return await this.enqueueInsvJob(async () => {
+        if (!isCurrent()) throw new Error('The INSV lens correction was cancelled.');
+        await assertCurrentPair(pair);
+        const rotation = closestInsvRotation(frames, pair.sampleTime);
+        const thumpName = await createInsvThumbnail(pair, path.join(this.static_dir, 'small'), rotation, fieldOfView, {
+          signal: request.controller.signal,
+        });
+        await assertCurrentPair(pair);
+        if (!isCurrent()) throw new Error('The INSV lens correction was cancelled.');
+        new LensOverrides(path.join(this.homedir, 'lens-overrides.json')).set(insvIdentity(pair), value);
+        return { success: true, thumpName, lensFieldOfView: fieldOfView, lensFovOverride: value !== null };
+      });
+    } catch (error) {
+      return { success: false, message: error?.message || 'Unable to save the INSV lens correction.' };
+    } finally {
+      if (this.insvLensRequests.get(origPath) === request) this.insvLensRequests.delete(origPath);
+      this.insvLensBusy = false;
+    }
+  }
+
+  saveInsvLensFov(value) {
+    if (!isValidLensFov(value)) {
+      return { success: false, message: 'INSV lens FOV must be 180–220 degrees in 0.1 degree steps.' };
+    }
+    try {
+      const settings = { ...this.config.getSettings(), insvLensFov: value };
+      this.config.loadSettings(settings);
+      return { success: true, insvLensFov: value };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Unable to save the INSV lens FOV.' };
+    }
+  }
+
+  saveInspLensFov(value) {
+    if (!isValidLensFov(value)) {
+      return { success: false, message: 'INSP lens FOV must be 180–220 degrees in 0.1 degree steps.' };
+    }
+    try {
+      this.config.loadSettings({ ...this.config.getSettings(), inspLensFov: value });
+      return { success: true, inspLensFov: value };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Unable to save the INSP lens FOV.' };
+    }
+  }
+
+  inspCorrections() {
+    return new InspCorrections(path.join(this.homedir, 'insp-corrections.json'));
+  }
+
+  confirmLegacyInsp(isCurrent) {
+    const operation = this.inspPromptQueue.then(async () => {
+      if (!isCurrent()) throw new Error('The INSP operation was cancelled.');
+      const { response } = await dialog.showMessageBox(this.win, {
+        type: 'warning',
+        buttons: ['Keep old image', 'Restitch'],
+        defaultId: 0,
+        cancelId: 0,
+        message: 'This photo has an older cached panorama.',
+        detail:
+          'It may contain an orientation correction that cannot be recovered, and may not reflect changes to the original. Restitching cannot preserve the old correction. The old cached image will not be deleted.',
+      });
+      if (!isCurrent()) throw new Error('The INSP operation was cancelled.');
+      return response === 1;
+    });
+    this.inspPromptQueue = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
+  }
+
+  cancelInspLensCorrection(payload) {
+    const request = this.inspRequests.get(payload?.origPath);
+    if (request && request.id === payload?.requestId) {
+      request.controller.abort();
+      this.inspRequests.delete(payload.origPath);
+    }
+  }
+
+  async updateInsp(origPath, requestId, makeCorrection) {
+    const current = this.inspMedia.get(origPath);
+    const previous = this.exportMedia.get(origPath);
+    if (!current || !previous || this.authorizedMedia.get(origPath) !== 'image') {
+      throw new Error('This INSP photo is no longer available.');
+    }
+    if (this.inspBusy) throw new Error('Another INSP correction is still processing.');
+    const generation = this.directoryImportGeneration;
+    const request = { id: requestId, controller: new AbortController() };
+    this.inspRequests.set(origPath, request);
+    this.inspBusy = true;
+    const isCurrent = () =>
+      !request.controller.signal.aborted &&
+      this.inspRequests.get(origPath) === request &&
+      this.inspMedia.get(origPath) === current &&
+      this.exportMedia.get(origPath) === previous &&
+      this.directoryImportGeneration === generation &&
+      this.authorizedMedia.get(origPath) === 'image';
+    try {
+      assertCurrentInsp(origPath, current.snapshot);
+      if (current.legacy && !(await this.confirmLegacyInsp(isCurrent))) {
+        throw new Error('Restitching was cancelled; the old image was kept.');
+      }
+      const { correction, fieldOfView } = makeCorrection(current);
+      const result = await Media.renderInsta360Image(origPath, {
+        snapshot: current.snapshot,
+        fieldOfView,
+        rotations: correction.rotations,
+        signal: request.controller.signal,
+        isCurrent,
+      });
+      assertCurrentInsp(origPath, current.snapshot);
+      if (!isCurrent()) throw new Error('The INSP correction was cancelled.');
+      this.recordExportMedia(origPath, result.bigName);
+      try {
+        this.inspCorrections().set(current.identity, correction);
+      } catch (error) {
+        this.exportMedia.set(origPath, previous);
+        throw error;
+      }
+      this.inspMedia.set(origPath, { ...current, correction, fieldOfView, legacy: false });
+      return { ...result, lensFieldOfView: fieldOfView, lensFovOverride: correction.override !== null };
+    } finally {
+      if (this.inspRequests.get(origPath) === request) this.inspRequests.delete(origPath);
+      this.inspBusy = false;
+    }
+  }
+
+  async saveInspLensCorrection(payload) {
+    const { origPath, requestId, value } = payload || {};
+    if (
+      typeof origPath !== 'string' ||
+      !Number.isSafeInteger(requestId) ||
+      requestId <= 0 ||
+      (value !== null && !isValidLensFov(value))
+    ) {
+      return { success: false, message: 'This INSP photo or lens correction is invalid.' };
+    }
+    try {
+      const result = await this.updateInsp(origPath, requestId, (current) => ({
+        correction: { ...current.correction, override: value },
+        fieldOfView: value === null ? this.config.getSettings().inspLensFov : value,
+      }));
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Unable to save the INSP lens correction.' };
+    }
+  }
+
+  async saveLegacyInspOrientation(origPath, requestId, orientation, current) {
+    if (this.inspBusy) throw new Error('Another INSP correction is still processing.');
+    const previous = this.exportMedia.get(origPath);
+    if (!previous) throw new Error('This INSP photo is not ready.');
+    const generation = this.directoryImportGeneration;
+    const request = { id: requestId, controller: new AbortController() };
+    this.inspRequests.set(origPath, request);
+    this.inspBusy = true;
+    const isCurrent = () => {
+      if (
+        request.controller.signal.aborted ||
+        this.inspRequests.get(origPath) !== request ||
+        this.inspMedia.get(origPath) !== current ||
+        this.exportMedia.get(origPath) !== previous ||
+        this.directoryImportGeneration !== generation ||
+        this.authorizedMedia.get(origPath) !== 'image'
+      )
+        return false;
+      assertCurrentInsp(origPath, current.snapshot);
+      return true;
+    };
+    try {
+      this.validateExportMedia(origPath, previous);
+      const result = await Media.saveInsta360OrientationCorrection(origPath, orientation, {
+        signal: request.controller.signal,
+        isCurrent: () => {
+          if (!isCurrent()) return false;
+          this.validateExportMedia(origPath, previous);
+          return true;
+        },
+      });
+      if (!isCurrent()) throw new Error('The INSP orientation correction was cancelled.');
+      this.recordExportMedia(origPath, result.bigName);
+      return result;
+    } finally {
+      if (this.inspRequests.get(origPath) === request) this.inspRequests.delete(origPath);
+      this.inspBusy = false;
+    }
   }
 
   recordExportMedia(origPath, bigName) {
@@ -253,6 +520,8 @@ class MainModelClass {
     if (!record || !this.authorizedMedia.has(origPath) || this.exportMedia.get(origPath) !== record) {
       throw new Error('This media file is no longer available in the current library.');
     }
+    const insp = this.inspMedia.get(origPath);
+    if (insp) assertCurrentInsp(origPath, insp.snapshot);
     if (record.direct) {
       const stat = fs.statSync(record.sourcePath);
       if (
@@ -531,6 +800,22 @@ class MainModelClass {
     }
 
     try {
+      const insp = this.inspMedia.get(origPath);
+      if (path.extname(origPath).toLowerCase() === '.insp' && !insp) {
+        throw new Error('This INSP photo is not ready.');
+      }
+      if (insp) {
+        if (!Number.isSafeInteger(payload.requestId) || payload.requestId <= 0 || !isValidRotation(orientation)) {
+          throw new Error('Invalid INSP orientation request.');
+        }
+        const result = insp.legacy
+          ? await this.saveLegacyInspOrientation(origPath, payload.requestId, orientation, insp)
+          : await this.updateInsp(origPath, payload.requestId, (current) => ({
+              correction: { ...current.correction, rotations: [...current.correction.rotations, orientation] },
+              fieldOfView: current.fieldOfView,
+            }));
+        return { success: true, ...result };
+      }
       const generation = this.directoryImportGeneration;
       const previous = this.exportMedia.get(origPath);
       const result = await Media.saveOrientationCorrection(origPath, orientation);
@@ -727,6 +1012,7 @@ class MainModelClass {
     this.exportMedia = new Map();
     this.insvSources.clear();
     this.insvTokens.clear();
+    this.inspMedia.clear();
     return new Promise((resolve) =>
       fs.readdir(pathDir, async (err, files) => {
         if (importGeneration !== this.directoryImportGeneration) {
@@ -767,7 +1053,47 @@ class MainModelClass {
     return this.prepareMedia(files, true, this.directoryImportGeneration);
   }
 
+  async prepareInsp(origPath, defaultFov, token, importGeneration) {
+    const snapshot = snapshotInsp(origPath);
+    const identity = inspIdentity(origPath, snapshot);
+    const stored = this.inspCorrections().get(identity);
+    const correction = stored || { override: null, rotations: [] };
+    const isCurrent = () =>
+      !token.controller.signal.aborted &&
+      importGeneration === this.directoryImportGeneration &&
+      this.pendingMedia.get(origPath) === token &&
+      this.authorizedMedia.get(origPath) === 'image';
+    let legacy = !stored && Media.hasLegacyInsta360Image(origPath, this.static_dir);
+    if (legacy && (await this.confirmLegacyInsp(isCurrent))) legacy = false;
+    if (!isCurrent()) throw new Error('The INSP import was cancelled.');
+    const fieldOfView = legacy ? 199 : correction.override === null ? defaultFov : correction.override;
+    let result;
+    if (legacy) {
+      result = await Media.saveInsta360Image(origPath, null, null, { signal: token.controller.signal });
+      if (result.error) throw result.error;
+    } else {
+      result = await Media.renderInsta360Image(origPath, {
+        snapshot,
+        fieldOfView,
+        rotations: correction.rotations,
+        signal: token.controller.signal,
+        isCurrent,
+      });
+    }
+    assertCurrentInsp(origPath, snapshot);
+    if (!isCurrent()) throw new Error('The INSP import was cancelled.');
+    token.inspState = { snapshot, identity, correction, fieldOfView, legacy, persistInitial: !legacy && !stored };
+    return {
+      ...result,
+      insp: true,
+      lensFieldOfView: fieldOfView,
+      lensFovOverride: correction.override !== null,
+      legacyInsp: legacy,
+    };
+  }
+
   async prepareMedia(files, append, importGeneration) {
+    const importSignal = this.importController.signal;
     Helper.checkDir(this.static_dir + '/small/');
     Helper.checkDir(this.static_dir + '/big/');
     const seen = new Set();
@@ -789,14 +1115,19 @@ class MainModelClass {
         work.push({ filePath, error: error.code ? 'Unable to access this media file.' : error.message });
       }
     }
+    const usesLensFov = work.some(
+      (item) => item.insvPair || path.extname(item.origPath || '').toLowerCase() === '.insp'
+    );
+    const settings = usesLensFov ? this.config.getSettings() : {};
+    const insvLensFov = settings.insvLensFov;
+    const inspLensFov = settings.inspLensFov;
     this.win?.webContents?.send(append ? 'start-read-files' : 'start-read-dir', work.length);
     if (!work.length && !append) this.win?.webContents?.send('open-dir', false);
     const exifSyncs = new Map();
-    let insvQueue = Promise.resolve();
     await Promise.all(
       work.map(({ filePath, origPath, error, insvPair }) => {
         if (insvPair) {
-          insvQueue = insvQueue.then(async () => {
+          return this.enqueueInsvJob(async () => {
             let result;
             try {
               if (importGeneration !== this.directoryImportGeneration) return;
@@ -808,6 +1139,10 @@ class MainModelClass {
               const pair = await validateInsvPair(insvPair, Media.probeVideo, Media.verifyInsvVideo);
               if (importGeneration !== this.directoryImportGeneration) return;
               if (this.authorizedMedia.has(pair.paths[0])) throw new Error('This INSV pair is already in the library.');
+              const override = new LensOverrides(path.join(this.homedir, 'lens-overrides.json')).get(
+                insvIdentity(pair)
+              );
+              const fieldOfView = override === undefined ? insvLensFov : override;
               const motion = await getCachedInsvMotion(pair, path.join(this.homedir, 'insv-motion'), {
                 isCurrent: () => importGeneration === this.directoryImportGeneration,
                 onCacheMiss: () => {
@@ -820,7 +1155,13 @@ class MainModelClass {
               });
               if (importGeneration !== this.directoryImportGeneration) return;
               const rotation = closestInsvRotation(motion.frames, pair.sampleTime);
-              const thumpName = await createInsvThumbnail(pair, path.join(this.static_dir, 'small'), rotation);
+              const thumpName = await createInsvThumbnail(
+                pair,
+                path.join(this.static_dir, 'small'),
+                rotation,
+                fieldOfView,
+                { signal: importSignal }
+              );
               await assertCurrentPair(pair);
               if (importGeneration !== this.directoryImportGeneration) return;
               const insvToken = this.insvSources.register(pair, motion.frames);
@@ -836,6 +1177,8 @@ class MainModelClass {
                 frameRate: pair.video.fps,
                 motionMode: motion.mode,
                 motionWarning: motion.warning,
+                lensFieldOfView: fieldOfView,
+                lensFovOverride: override !== undefined,
               };
             } catch (validationError) {
               result = {
@@ -855,7 +1198,6 @@ class MainModelClass {
               this.win?.webContents?.send('read-media-file', result);
             }
           });
-          return insvQueue;
         }
         return new Promise((resolve) => {
           if (error) {
@@ -889,10 +1231,15 @@ class MainModelClass {
             if (result && result.error) {
               this.authorizedMedia.delete(origPath);
               this.exportMedia.delete(origPath);
+              this.inspMedia.delete(origPath);
             } else if (result && result.bigName) {
               try {
                 const record = this.recordExportMedia(origPath, result.bigName);
-                if (type === 'image' && !fs.lstatSync(record.cachePath).isSymbolicLink()) {
+                if (
+                  type === 'image' &&
+                  (!token.inspState || token.inspState.legacy) &&
+                  !fs.lstatSync(record.cachePath).isSymbolicLink()
+                ) {
                   let sync = exifSyncs.get(record.cachePath);
                   if (!sync) {
                     sync = Media.syncCachedExif(origPath, record.cachePath, isCurrent);
@@ -911,6 +1258,14 @@ class MainModelClass {
                   }
                   this.recordExportMedia(origPath, result.bigName);
                 }
+                if (token.inspState) {
+                  assertCurrentInsp(origPath, token.inspState.snapshot);
+                  if (!isCurrent()) throw new Error('The INSP import was cancelled.');
+                  if (token.inspState.persistInitial) {
+                    this.inspCorrections().set(token.inspState.identity, token.inspState.correction);
+                  }
+                  this.inspMedia.set(origPath, token.inspState);
+                }
               } catch (error) {
                 if (!isCurrent()) {
                   if (importGeneration === this.directoryImportGeneration) {
@@ -928,6 +1283,7 @@ class MainModelClass {
                 };
                 this.authorizedMedia.delete(origPath);
                 this.exportMedia.delete(origPath);
+                this.inspMedia.delete(origPath);
               }
             }
             if (importGeneration === this.directoryImportGeneration && this.win && this.win.webContents) {
@@ -942,9 +1298,7 @@ class MainModelClass {
             if (type === 'video') {
               operation = Media.saveVideo(origPath, this.win, sendMediaResult);
             } else if (ext === 'insp') {
-              operation = Media.saveInsta360Image(origPath, this.win, sendMediaResult, {
-                signal: token.controller.signal,
-              });
+              operation = this.prepareInsp(origPath, inspLensFov, token, importGeneration).then(sendMediaResult);
             } else {
               operation = Media.saveImage(origPath, this.win, sendMediaResult);
             }
@@ -1004,6 +1358,9 @@ class MainModelClass {
 
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
+      this.inspRequests.get(item.origPath)?.controller.abort();
+      this.inspRequests.delete(item.origPath);
+      this.inspMedia.delete(item.origPath);
       this.pendingMedia.get(item.origPath)?.controller?.abort();
       this.pendingMedia.delete(item.origPath);
       mediaCache.unregisterSource(item.bigName);
@@ -1029,12 +1386,49 @@ class MainModelClass {
     for (const item of items) {
       if (typeof item?.origPath !== 'string') continue;
       const token = this.insvTokens.get(item.origPath);
+      this.insvLensRequests.get(item.origPath)?.controller.abort();
+      this.insvLensRequests.delete(item.origPath);
       if (token) this.insvSources.revoke(token);
       this.insvTokens.delete(item.origPath);
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
+      this.inspRequests.get(item.origPath)?.controller.abort();
+      this.inspRequests.delete(item.origPath);
+      this.inspMedia.delete(item.origPath);
       this.pendingMedia.get(item.origPath)?.controller?.abort();
       this.pendingMedia.delete(item.origPath);
+    }
+  }
+
+  async requestDeleteCache(event, items = []) {
+    try {
+      let names;
+      if (!Array.isArray(items) || !items.length) {
+        try {
+          names = fs.readdirSync(path.join(this.static_dir, 'big'));
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+          names = [];
+        }
+      } else {
+        names = items.map((item) => item?.bigName);
+      }
+      if (names.some((name) => typeof name === 'string' && /-insta360-v6\.jpg$/i.test(name))) {
+        const win = this.win;
+        const generation = this.directoryImportGeneration;
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'warning',
+          buttons: ['Cancel', 'Clear cache'],
+          defaultId: 0,
+          cancelId: 0,
+          message: 'Clearing the cache may remove older INSP orientation corrections.',
+          detail: 'Those corrections are stored only in the old cached images and cannot be restored.',
+        });
+        if (response !== 1 || this.win !== win || this.directoryImportGeneration !== generation) return;
+      }
+      this.deleteCache(event, items);
+    } catch (error) {
+      event.reply('delete-error', { message: error?.message || 'Unable to clear the data cache.' });
     }
   }
 
@@ -1045,6 +1439,7 @@ class MainModelClass {
     this.exportMedia.clear();
     this.insvSources.clear();
     this.insvTokens.clear();
+    this.inspMedia.clear();
     mediaCache.clearSources();
     const clearEverything = !Array.isArray(items) || !items.length;
     const motionDir = path.join(this.homedir, 'insv-motion');

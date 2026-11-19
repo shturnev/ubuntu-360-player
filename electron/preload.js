@@ -71,4 +71,22 @@ contextBridge.exposeInMainWorld('shtVR', {
   async saveOrientationCorrection(payload) {
     return ipcRenderer.invoke('save-orientation-correction', payload);
   },
+  async saveInsvLensFov(value) {
+    return ipcRenderer.invoke('save-insv-lens-fov', value);
+  },
+  async saveInspLensFov(value) {
+    return ipcRenderer.invoke('save-insp-lens-fov', value);
+  },
+  async saveInspLensCorrection(payload) {
+    return ipcRenderer.invoke('save-insp-lens-correction', payload);
+  },
+  cancelInspLensCorrection(payload) {
+    ipcRenderer.send('cancel-insp-lens-correction', payload);
+  },
+  async saveInsvLensCorrection(payload) {
+    return ipcRenderer.invoke('save-insv-lens-correction', payload);
+  },
+  cancelInsvLensCorrection(payload) {
+    ipcRenderer.send('cancel-insv-lens-correction', payload);
+  },
 });

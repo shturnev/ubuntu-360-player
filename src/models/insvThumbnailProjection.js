@@ -1,4 +1,5 @@
 const geometry = require('../insvGeometry.json');
+const { isValidLensFov } = require('./lensFov');
 
 function sample(image, size, u, v) {
   const x = Math.max(0, Math.min(size - 1, u * size - 0.5));
@@ -17,7 +18,14 @@ function sample(image, size, u, v) {
   });
 }
 
-function projectInsvThumbnail(images, sourceSize, width, height, rotation = [0, 0, 0, 1]) {
+function projectInsvThumbnail(
+  images,
+  sourceSize,
+  width,
+  height,
+  rotation = [0, 0, 0, 1],
+  fieldOfViewDegrees = geometry.fieldOfViewDegrees
+) {
   if (
     !Array.isArray(images) ||
     images.length !== 2 ||
@@ -31,12 +39,13 @@ function projectInsvThumbnail(images, sourceSize, width, height, rotation = [0, 
     !Array.isArray(rotation) ||
     rotation.length !== 4 ||
     rotation.some((value) => !Number.isFinite(value)) ||
-    Math.abs(Math.hypot(...rotation) - 1) > 0.001
+    Math.abs(Math.hypot(...rotation) - 1) > 0.001 ||
+    !isValidLensFov(fieldOfViewDegrees)
   ) {
     throw new Error('Invalid INSV thumbnail frames.');
   }
   const output = Buffer.alloc(width * height * 4);
-  const halfFov = (geometry.fieldOfViewDegrees * Math.PI) / 360;
+  const halfFov = (fieldOfViewDegrees * Math.PI) / 360;
   const [qx, qy, qz, qw] = rotation;
   for (let y = 0; y < height; y += 1) {
     const latitude = (0.5 - (y + 0.5) / height) * Math.PI;

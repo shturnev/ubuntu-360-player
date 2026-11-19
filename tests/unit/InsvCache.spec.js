@@ -85,6 +85,33 @@ describe('INSV thumbnail cache', () => {
     expect(red(160)).toBeGreaterThan(red(200));
   });
 
+  test('changes the sampling of both fisheye lenses and preserves the default projection', () => {
+    const size = 64;
+    const gradient = Buffer.alloc(size * size * 4);
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) gradient[(y * size + x) * 4] = x * 4;
+    }
+    const rotation = [0, 0, 0, 1];
+    const baseline = projectInsvThumbnail([gradient, gradient], size, 360, 180, rotation);
+    const explicit = projectInsvThumbnail([gradient, gradient], size, 360, 180, rotation, 183.3);
+    const wider = projectInsvThumbnail([gradient, gradient], size, 360, 180, rotation, 210);
+    expect(explicit).toEqual(baseline);
+    for (const x of [30, 150]) {
+      const offset = (90 * 360 + x) * 4;
+      expect(wider[offset]).not.toBe(baseline[offset]);
+    }
+  });
+
+  test('keys thumbnails by valid lens FOV and rejects invalid values before using cache', async () => {
+    const pair = makePair();
+    const identity = [0, 0, 0, 1];
+    const baseline = await createInsvThumbnail(pair, cache, identity, 183.3);
+    const adjusted = await createInsvThumbnail(pair, cache, identity, 200);
+    expect(adjusted).not.toBe(baseline);
+    await expect(createInsvThumbnail(pair, cache, identity, NaN)).rejects.toThrow(/field of view/i);
+    await expect(createInsvThumbnail(pair, cache, identity, 200.01)).rejects.toThrow(/field of view/i);
+  });
+
   test('rotates thumbnail directions like the viewer and keys the cache by correction', async () => {
     const first = Buffer.from(Array.from({ length: 16 }, () => [255, 0, 0, 255]).flat());
     const second = Buffer.from(Array.from({ length: 16 }, () => [0, 0, 255, 255]).flat());
@@ -132,6 +159,24 @@ describe('INSV thumbnail cache', () => {
     await expect(createInsvThumbnail(makePair(), cache)).rejects.toThrow(
       'Unable to create the INSV panorama thumbnail'
     );
+    expect(fs.readdirSync(cache)).toEqual([]);
+  });
+
+  test('aborts an in-progress decoder without writing a thumbnail', async () => {
+    let started;
+    const ready = new Promise((resolve) => {
+      started = resolve;
+    });
+    execFile.mockImplementation((_command, _args, options, callback) => {
+      options.signal.addEventListener('abort', () => callback(new Error('aborted')));
+      started();
+      return {};
+    });
+    const controller = new AbortController();
+    const result = createInsvThumbnail(makePair(), cache, [0, 0, 0, 1], 200, { signal: controller.signal });
+    await ready;
+    controller.abort();
+    await expect(result).rejects.toThrow(/cancelled/);
     expect(fs.readdirSync(cache)).toEqual([]);
   });
 

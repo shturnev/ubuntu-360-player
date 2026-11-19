@@ -324,11 +324,45 @@ async function initializeApplication() {
       }
     });
   });
-  ipcMain.handle('save-orientation-correction', async (_, payload) => {
-    if (!appModel) {
+  ipcMain.handle('save-orientation-correction', async (event, payload) => {
+    if (!appModel || !mainWindow || event.sender !== mainWindow.webContents) {
       return { success: false, message: 'Saving orientation corrections is unavailable.' };
     }
     return appModel.saveOrientationCorrection(payload);
+  });
+  ipcMain.handle('save-insv-lens-fov', async (event, value) => {
+    if (!appModel || !mainWindow || event.sender !== mainWindow.webContents) {
+      return { success: false, message: 'Saving INSV lens FOV is unavailable.' };
+    }
+    return appModel.saveInsvLensFov(value);
+  });
+  ipcMain.handle('save-insp-lens-fov', async (event, value) => {
+    if (!appModel || !mainWindow || event.sender !== mainWindow.webContents) {
+      return { success: false, message: 'Saving INSP lens FOV is unavailable.' };
+    }
+    return appModel.saveInspLensFov(value);
+  });
+  ipcMain.handle('save-insp-lens-correction', async (event, payload) => {
+    if (!appModel || !mainWindow || event.sender !== mainWindow.webContents) {
+      return { success: false, message: 'Saving INSP lens corrections is unavailable.' };
+    }
+    return appModel.saveInspLensCorrection(payload);
+  });
+  ipcMain.on('cancel-insp-lens-correction', (event, payload) => {
+    if (appModel && mainWindow && event.sender === mainWindow.webContents) {
+      appModel.cancelInspLensCorrection(payload);
+    }
+  });
+  ipcMain.handle('save-insv-lens-correction', async (event, payload) => {
+    if (!appModel || !mainWindow || event.sender !== mainWindow.webContents) {
+      return { success: false, message: 'Saving INSV lens corrections is unavailable.' };
+    }
+    return appModel.saveInsvLensCorrection(payload);
+  });
+  ipcMain.on('cancel-insv-lens-correction', (event, payload) => {
+    if (appModel && mainWindow && event.sender === mainWindow.webContents) {
+      appModel.cancelInsvLensCorrection(payload);
+    }
   });
 
   await createWindow();

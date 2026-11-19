@@ -7,6 +7,7 @@ const mediaTools = require('./mediaTools');
 const { renameWithRetry } = require('./fsRetry');
 const { projectInsvThumbnail } = require('./insvThumbnailProjection');
 const geometry = require('../insvGeometry.json');
+const { isValidLensFov } = require('./lensFov');
 
 const THUMBNAIL_VERSION = `insv-projection-450x225-v5-${JSON.stringify(geometry)}`;
 const SOURCE_SIZE = 720;
@@ -31,7 +32,7 @@ function runFfmpeg(args, { input, ...options } = {}) {
   });
 }
 
-async function isValidThumbnail(file) {
+async function isValidThumbnail(file, signal) {
   let stat;
   try {
     stat = await fs.promises.lstat(file);
@@ -41,39 +42,56 @@ async function isValidThumbnail(file) {
   }
   if (!stat.isFile() || stat.size === 0) return false;
   try {
-    await runFfmpeg([
-      '-nostdin',
-      '-v',
-      'error',
-      '-xerror',
-      '-abort_on',
-      'empty_output',
-      '-i',
-      file,
-      '-frames:v',
-      '1',
-      '-f',
-      'null',
-      '-',
-    ]);
+    await runFfmpeg(
+      [
+        '-nostdin',
+        '-v',
+        'error',
+        '-xerror',
+        '-abort_on',
+        'empty_output',
+        '-i',
+        file,
+        '-frames:v',
+        '1',
+        '-f',
+        'null',
+        '-',
+      ],
+      { signal }
+    );
     return true;
   } catch (error) {
+    if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
     if (typeof error.code === 'number' && !error.killed) return false;
     throw new Error('Unable to verify the INSV thumbnail. Make sure ffmpeg is available.');
   }
 }
 
-async function createInsvThumbnail(pair, smallDir, rotation = [0, 0, 0, 1]) {
+async function createInsvThumbnail(
+  pair,
+  smallDir,
+  rotation = [0, 0, 0, 1],
+  fieldOfViewDegrees = geometry.fieldOfViewDegrees,
+  { signal } = {}
+) {
+  if (!isValidLensFov(fieldOfViewDegrees)) {
+    throw new Error('Invalid INSV lens field of view.');
+  }
+  if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
   await assertCurrentPair(pair);
   const hash = crypto
     .createHash('sha256')
-    .update(JSON.stringify([THUMBNAIL_VERSION, pair.paths, pair.snapshots, pair.sampleTime, rotation]))
+    .update(
+      JSON.stringify([THUMBNAIL_VERSION, pair.paths, pair.snapshots, pair.sampleTime, rotation, fieldOfViewDegrees])
+    )
     .digest('hex');
   const name = `insv-${hash}.jpg`;
   const target = path.join(smallDir, name);
   await fs.promises.mkdir(smallDir, { recursive: true });
-  if (await isValidThumbnail(target)) {
+  if (await isValidThumbnail(target, signal)) {
     await assertCurrentPair(pair);
+    if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
     return name;
   }
 
@@ -111,11 +129,13 @@ async function createInsvThumbnail(pair, smallDir, rotation = [0, 0, 0, 1]) {
             'rawvideo',
             'pipe:1',
           ],
-          { encoding: 'buffer' }
+          { encoding: 'buffer', signal }
         )
       );
     }
-    const pixels = projectInsvThumbnail(frames, SOURCE_SIZE, WIDTH, HEIGHT, rotation);
+    if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
+    const pixels = projectInsvThumbnail(frames, SOURCE_SIZE, WIDTH, HEIGHT, rotation, fieldOfViewDegrees);
+    if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
     image = await runFfmpeg(
       [
         '-v',
@@ -141,9 +161,10 @@ async function createInsvThumbnail(pair, smallDir, rotation = [0, 0, 0, 1]) {
         'image2pipe',
         'pipe:1',
       ],
-      { encoding: 'buffer', input: pixels }
+      { encoding: 'buffer', input: pixels, signal }
     );
   } catch (error) {
+    if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
     throw new Error('Unable to create the INSV panorama thumbnail. Check both lenses and ffmpeg.');
   }
   if (
@@ -162,13 +183,18 @@ async function createInsvThumbnail(pair, smallDir, rotation = [0, 0, 0, 1]) {
   try {
     await fs.promises.writeFile(temporary, image, { flag: 'wx', mode: 0o600 });
     created = true;
-    if (!(await isValidThumbnail(temporary))) throw new Error('FFmpeg produced an invalid INSV thumbnail.');
+    if (!(await isValidThumbnail(temporary, signal))) throw new Error('FFmpeg produced an invalid INSV thumbnail.');
     await assertCurrentPair(pair);
+    if (signal?.aborted) throw new Error('The INSV lens correction was cancelled.');
     await renameWithRetry(temporary, target);
     created = false;
     return name;
   } finally {
-    if (created) await fs.promises.unlink(temporary);
+    if (created) {
+      await fs.promises.unlink(temporary).catch((error) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    }
   }
 }
 

@@ -145,37 +145,38 @@ describe('cached image EXIF', () => {
   });
 
   test('imports an INSP derivative with EXIF and exports the exact cached bytes', async () => {
-    const staticDir = path.join(directory, 'static');
+    const previousHome = process.env.SHT_VR_HOME;
+    process.env.SHT_VR_HOME = directory;
+    const storageRoot = path.join(directory, '.sht-vr-player');
+    const staticDir = path.join(storageRoot, 'static');
     const bigDir = path.join(staticDir, 'big');
     const sourceDir = path.join(directory, 'source');
     fs.mkdirSync(bigDir, { recursive: true });
     fs.mkdirSync(sourceDir);
     const jpg = path.join(sourceDir, 'photo.jpg');
     const source = path.join(sourceDir, 'photo.insp');
-    const cached = path.join(bigDir, 'derived.jpg');
     const exported = path.join(directory, 'export.jpg');
     fs.writeFileSync(jpg, jpeg);
     tool('-overwrite_original', '-Make=Insta360', '-Model=Camera', jpg);
     fs.renameSync(jpg, source);
-    fs.writeFileSync(cached, jpeg);
-    jest
-      .spyOn(Media, 'saveInsta360Image')
-      .mockImplementation((file, _win, onResult) =>
-        onResult({ origPath: file, type: 'image', bigName: 'derived.jpg', thumpName: 'derived.jpg', error: null })
-      );
-    const send = jest.fn();
-    const model = new MainModelClass({ webContents: { send } });
-    model.static_dir = staticDir;
-    await new Promise((resolve) => {
-      send.mockImplementation((channel) => {
-        if (channel === 'read-media-file') resolve();
-      });
-      model.readDir(sourceDir);
-    });
-    expect(exif(cached)).toEqual(exif(source));
-    dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: exported });
-    await expect(model.saveCurrentMedia({ origPath: source })).resolves.toEqual({ success: true });
-    expect(fs.readFileSync(exported)).toEqual(fs.readFileSync(cached));
-    expect(exif(exported)).toEqual(exif(source));
-  });
+    try {
+      const send = jest.fn();
+      const model = new MainModelClass({ webContents: { send } });
+      model.homedir = storageRoot;
+      model.static_dir = staticDir;
+      model.config.configPath = path.join(storageRoot, 'config.json');
+      await model.readDir(sourceDir);
+      const imported = send.mock.calls.find(([channel]) => channel === 'read-media-file')?.[1];
+      expect(imported).toMatchObject({ origPath: source, insp: true });
+      const cached = path.join(bigDir, imported.bigName);
+      expect(exif(cached)).toEqual(exif(source));
+      dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: exported });
+      await expect(model.saveCurrentMedia({ origPath: source })).resolves.toEqual({ success: true });
+      expect(fs.readFileSync(exported)).toEqual(fs.readFileSync(cached));
+      expect(exif(exported)).toEqual(exif(source));
+    } finally {
+      if (previousHome === undefined) delete process.env.SHT_VR_HOME;
+      else process.env.SHT_VR_HOME = previousHome;
+    }
+  }, 20000);
 });

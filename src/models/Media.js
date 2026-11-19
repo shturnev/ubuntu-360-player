@@ -8,6 +8,8 @@ const { getStorageRoot } = require('../config/env');
 const mediaTools = require('./mediaTools');
 const mediaCache = require('./mediaCache');
 const { renameWithRetry, renameSyncWithRetry } = require('./fsRetry');
+const { isValidLensFov } = require('./lensFov');
+const { assertCurrentInsp } = require('./inspSource');
 function execExiftool(args, ...rest) {
   let invocation;
   try {
@@ -69,6 +71,36 @@ class Media {
     return operation;
   }
 
+  static renderInsta360Image(filePath, options) {
+    const operation = insta360ImageQueue.then(() => renderInsta360Image(filePath, options));
+    insta360ImageQueue = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
+  }
+
+  static saveInsta360OrientationCorrection(filePath, orientation, options) {
+    const operation = insta360ImageQueue.then(() => Media.saveOrientationCorrection(filePath, orientation, options));
+    insta360ImageQueue = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
+  }
+
+  static hasLegacyInsta360Image(filePath, staticDir) {
+    const cachePath = path.join(staticDir, 'big', getInsta360ImageName(filePath));
+    try {
+      const stat = fs.lstatSync(cachePath);
+      if (!stat.isFile() || stat.size === 0) throw new Error('The old INSP cache is invalid.');
+      return true;
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+
   static async processInsta360Image(filePath, win, onResult, signal) {
     if (signal?.aborted) {
       const res = { origPath: filePath, error: new Error('Insta360 photo import was cancelled.') };
@@ -117,7 +149,7 @@ class Media {
     }
   }
 
-  static async saveOrientationCorrection(filePath, orientation) {
+  static async saveOrientationCorrection(filePath, orientation, { signal, isCurrent = () => true } = {}) {
     const bigName =
       path.extname(filePath).toLowerCase() === '.insp' ? getInsta360ImageName(filePath) : getNewFileName(filePath);
     const bigPath = path.join(getBigDir(), bigName);
@@ -132,9 +164,16 @@ class Media {
     }
 
     try {
-      await renderEquirectangularOrientation(bigPath, renderedPath, orientation);
+      const checkCurrent = () => {
+        if (signal?.aborted || !isCurrent()) throw new Error('The orientation correction was cancelled.');
+      };
+      checkCurrent();
+      await renderEquirectangularOrientation(bigPath, renderedPath, orientation, signal);
+      checkCurrent();
       await queueExifTask(() => copyExif(filePath, renderedPath));
+      checkCurrent();
       await createImageThumbnail(renderedPath, thumbnailPath);
+      checkCurrent();
       replaceCachePair(bigPath, renderedPath, thumpPath, thumbnailPath, suffix);
       return { bigName };
     } catch (error) {
@@ -807,15 +846,10 @@ function createLink(origPath, newFileName, kind) {
   }
 }
 
-async function convertInsta360Image(filePath, outputPath, signal) {
+async function convertInsta360Image(filePath, outputPath, signal, fieldOfView = 199) {
   const orientation = await getInsta360Orientation(filePath);
   if (signal?.aborted) throw new Error('Insta360 photo import was cancelled.');
-  const filter = [
-    'v360=input=dfisheye:output=equirect:ih_fov=199:iv_fov=199:w=6080:h=3040:interp=lanczos',
-    `yaw=${orientation.yaw}`,
-    `pitch=${orientation.pitch}`,
-    `roll=${orientation.roll}`,
-  ].join(':');
+  const filter = buildInsta360Filter(fieldOfView, orientation);
   return new Promise((resolve, reject) => {
     const child = spawn(mediaTools.ffmpeg(), [
       '-y',
@@ -870,7 +904,94 @@ async function convertInsta360Image(filePath, outputPath, signal) {
   });
 }
 
-function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
+async function renderInsta360Image(filePath, { fieldOfView, rotations, snapshot, signal, isCurrent }) {
+  if (
+    !isValidLensFov(fieldOfView) ||
+    !Array.isArray(rotations) ||
+    rotations.some(
+      (rotation) =>
+        !rotation ||
+        !Number.isFinite(rotation.yaw) ||
+        !Number.isFinite(rotation.pitch) ||
+        !Number.isFinite(rotation.roll) ||
+        Math.abs(rotation.yaw) > 180 ||
+        Math.abs(rotation.pitch) > 90 ||
+        Math.abs(rotation.roll) > 180
+    ) ||
+    typeof isCurrent !== 'function'
+  ) {
+    throw new Error('Invalid Insta360 photo correction.');
+  }
+
+  const checkCurrent = () => {
+    if (signal?.aborted || !isCurrent()) throw new Error('The Insta360 photo correction was cancelled.');
+    assertCurrentInsp(filePath, snapshot);
+  };
+  checkCurrent();
+  const hash = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(['insp-fov-v1', filePath, snapshot, fieldOfView, rotations]))
+    .digest('hex');
+  const bigName = `insp-${hash}.jpg`;
+  const bigPath = path.join(getBigDir(), bigName);
+  const thumpPath = path.join(getStorageRoot(), 'static', 'small', bigName);
+  fs.mkdirSync(path.dirname(bigPath), { recursive: true });
+  fs.mkdirSync(path.dirname(thumpPath), { recursive: true });
+
+  if (isCompleteJpeg(bigPath) && isCompleteJpeg(thumpPath)) {
+    checkCurrent();
+    return { type: 'image', origPath: filePath, bigName, thumpName: bigName };
+  }
+
+  const suffix = crypto.randomUUID();
+  const temporary = `${bigPath}.${suffix}.jpg`;
+  const rotated = `${bigPath}.${suffix}.rotated.jpg`;
+  const thumbnail = `${thumpPath}.${suffix}.jpg`;
+  try {
+    await convertInsta360Image(filePath, temporary, signal, fieldOfView);
+    checkCurrent();
+    for (const rotation of rotations) {
+      await renderEquirectangularOrientation(temporary, rotated, rotation, signal);
+      checkCurrent();
+      await renameWithRetry(rotated, temporary);
+    }
+    await queueExifTask(() => copyExif(filePath, temporary));
+    checkCurrent();
+    await createImageThumbnail(temporary, thumbnail);
+    checkCurrent();
+    if (!isCompleteJpeg(temporary) || !isCompleteJpeg(thumbnail)) {
+      throw new Error('The Insta360 photo cache is incomplete.');
+    }
+    replaceCachePair(bigPath, temporary, thumpPath, thumbnail, suffix);
+    return { type: 'image', origPath: filePath, bigName, thumpName: bigName };
+  } finally {
+    removeFileIfPresent(temporary);
+    removeFileIfPresent(rotated);
+    removeFileIfPresent(thumbnail);
+  }
+}
+
+function buildInsta360Filter(fieldOfView, orientation, { width = 6080, height = 3040 } = {}) {
+  if (
+    !isValidLensFov(fieldOfView) ||
+    !orientation ||
+    !['yaw', 'pitch', 'roll'].every((key) => Number.isFinite(orientation[key])) ||
+    !Number.isSafeInteger(width) ||
+    width <= 0 ||
+    !Number.isSafeInteger(height) ||
+    height <= 0
+  ) {
+    throw new Error('Invalid Insta360 photo projection parameters.');
+  }
+  return [
+    `v360=input=dfisheye:output=equirect:ih_fov=${fieldOfView}:iv_fov=${fieldOfView}:w=${width}:h=${height}:interp=lanczos`,
+    `yaw=${orientation.yaw}`,
+    `pitch=${orientation.pitch}`,
+    `roll=${orientation.roll}`,
+  ].join(':');
+}
+
+function renderEquirectangularOrientation(inputPath, outputPath, orientation, signal) {
   const filter = [
     'v360=input=equirect:output=equirect',
     `yaw=${orientation.yaw}`,
@@ -896,21 +1017,36 @@ function renderEquirectangularOrientation(inputPath, outputPath, orientation) {
       outputPath,
     ]);
     let output = '';
+    let settled = false;
+    const abort = () => child.kill();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', abort);
+      if (error) reject(error);
+      else resolve();
+    };
 
     child.stderr.on('data', (chunk) => {
       output += String(chunk);
     });
-    child.on('error', () => reject(new Error('ffmpeg is not available for orientation correction.')));
+    child.on('error', () => finish(new Error('ffmpeg is not available for orientation correction.')));
     child.on('close', (code) => {
+      if (signal?.aborted) {
+        finish(new Error('The Insta360 photo correction was cancelled.'));
+        return;
+      }
       if (code !== 0) {
-        reject(new Error(output || 'ffmpeg failed to render orientation correction.'));
+        finish(new Error(output || 'ffmpeg failed to render orientation correction.'));
         return;
       }
       if (!isUsableFile(outputPath) || !hasExpectedImageFormat(outputPath)) {
-        reject(new Error('ffmpeg did not create a valid corrected panorama.'));
+        finish(new Error('ffmpeg did not create a valid corrected panorama.'));
         return;
       }
-      resolve();
+      finish();
     });
   });
 }
@@ -1115,6 +1251,23 @@ function isJpegFile(filePath) {
   }
 }
 
+function isCompleteJpeg(filePath) {
+  if (!isJpegFile(filePath)) return false;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, 'r');
+    const size = fs.fstatSync(descriptor).size;
+    if (size < 4) return false;
+    const trailer = Buffer.alloc(2);
+    return fs.readSync(descriptor, trailer, 0, 2, size - 2) === 2 && trailer[0] === 0xff && trailer[1] === 0xd9;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 function hasExpectedImageFormat(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   if (['.jpg', '.jpeg'].includes(extension)) return isJpegFile(filePath);
@@ -1177,7 +1330,7 @@ function getPathHash(origPath) {
   return crypto.createHash('sha256').update(origPath).digest('hex').slice(0, 12);
 }
 
-module.exports = { Media, formatImageMetadata, formatVideoMetadata };
+module.exports = { Media, buildInsta360Filter, formatImageMetadata, formatVideoMetadata };
 Object.defineProperty(module.exports, 'default', {
   value: Media,
   enumerable: false,

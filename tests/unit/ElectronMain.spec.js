@@ -48,6 +48,13 @@ function loadMain({ isPackaged = true, hasSingleInstanceLock = true } = {}) {
     savePanoramaScreenshot: jest.fn(),
     saveCurrentMedia: jest.fn(),
     saveSelectedMedia: jest.fn(),
+    saveInsvLensFov: jest.fn(),
+    saveInsvLensCorrection: jest.fn(),
+    cancelInsvLensCorrection: jest.fn(),
+    saveInspLensFov: jest.fn(),
+    saveInspLensCorrection: jest.fn(),
+    cancelInspLensCorrection: jest.fn(),
+    saveOrientationCorrection: jest.fn(),
   };
   const MainModelClass = jest.fn(() => appModel);
 
@@ -248,7 +255,68 @@ describe('Electron main process directory launch flow', () => {
       success: false,
       message: 'Saving media is unavailable.',
     });
+
     await ready;
+  });
+
+  test('accepts INSV lens settings only from the current application window', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { appModel, getReadyCallback, windows } = loadMain();
+    const { ipcMain } = require('electron');
+    await getReadyCallback()();
+    const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'save-insv-lens-fov')[1];
+    appModel.saveInsvLensFov.mockReturnValue({ success: true, insvLensFov: 200 });
+    await expect(handler({ sender: {} }, 200)).resolves.toMatchObject({ success: false });
+    expect(appModel.saveInsvLensFov).not.toHaveBeenCalled();
+    await expect(handler({ sender: windows[0].webContents }, 200)).resolves.toEqual({
+      success: true,
+      insvLensFov: 200,
+    });
+    expect(appModel.saveInsvLensFov).toHaveBeenCalledWith(200);
+  });
+
+  test('authorizes INSV correction requests and cancellation against the current window', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { appModel, getReadyCallback, windows } = loadMain();
+    const { ipcMain } = require('electron');
+    await getReadyCallback()();
+    const save = ipcMain.handle.mock.calls.find(([name]) => name === 'save-insv-lens-correction')[1];
+    const cancel = ipcMain.on.mock.calls.find(([name]) => name === 'cancel-insv-lens-correction')[1];
+    const payload = { origPath: '/video/00.INSV', requestId: 1, value: 200 };
+    appModel.saveInsvLensCorrection.mockResolvedValue({ success: true });
+    await expect(save({ sender: {} }, payload)).resolves.toMatchObject({ success: false });
+    cancel({ sender: {} }, payload);
+    expect(appModel.saveInsvLensCorrection).not.toHaveBeenCalled();
+    expect(appModel.cancelInsvLensCorrection).not.toHaveBeenCalled();
+    await expect(save({ sender: windows[0].webContents }, payload)).resolves.toEqual({ success: true });
+    cancel({ sender: windows[0].webContents }, payload);
+    expect(appModel.cancelInsvLensCorrection).toHaveBeenCalledWith(payload);
+  });
+
+  test('authorizes INSP settings, correction, orientation and cancellation against the current window', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { appModel, getReadyCallback, windows } = loadMain();
+    const { ipcMain } = require('electron');
+    await getReadyCallback()();
+    const payload = { origPath: '/image/photo.INSP', requestId: 1, value: 200 };
+    const handlers = [
+      ['save-insp-lens-fov', 'saveInspLensFov', 200],
+      ['save-insp-lens-correction', 'saveInspLensCorrection', payload],
+      ['save-orientation-correction', 'saveOrientationCorrection', payload],
+    ];
+    for (const [channel, method, argument] of handlers) {
+      const handler = ipcMain.handle.mock.calls.find(([name]) => name === channel)[1];
+      appModel[method].mockResolvedValue({ success: true });
+      await expect(handler({ sender: {} }, argument)).resolves.toMatchObject({ success: false });
+      expect(appModel[method]).not.toHaveBeenCalled();
+      await expect(handler({ sender: windows[0].webContents }, argument)).resolves.toEqual({ success: true });
+      expect(appModel[method]).toHaveBeenCalledWith(argument);
+    }
+    const cancel = ipcMain.on.mock.calls.find(([name]) => name === 'cancel-insp-lens-correction')[1];
+    cancel({ sender: {} }, payload);
+    expect(appModel.cancelInspLensCorrection).not.toHaveBeenCalled();
+    cancel({ sender: windows[0].webContents }, payload);
+    expect(appModel.cancelInspLensCorrection).toHaveBeenCalledWith(payload);
   });
 
   test('declares supported media and directory MIME types for Linux packaging', () => {
@@ -299,6 +367,17 @@ describe('Electron main process directory launch flow', () => {
       expect(filter(modulePath, fs.statSync(modulePath))).toBe(true);
       expect(filter(geometry, fs.statSync(geometry))).toBe(true);
     }
+  });
+
+  test('packages shared lens limits required by main-process FOV validation', () => {
+    const { FileMatcher } = require('app-builder-lib/out/fileMatcher');
+    const config = require('../../electron-builder.json');
+    const root = path.resolve(__dirname, '../..');
+    const filter = new FileMatcher(root, root, (value) => value, config.files).createFilter();
+    const validator = path.join(root, 'src', 'models', 'lensFov.js');
+    const limits = require.resolve('../lensFov.json', { paths: [path.dirname(validator)] });
+    expect(filter(validator, fs.statSync(validator))).toBe(true);
+    expect(filter(limits, fs.statSync(limits))).toBe(true);
   });
 
   test('parses multiple file URIs and relative paths using the second process working directory', () => {
