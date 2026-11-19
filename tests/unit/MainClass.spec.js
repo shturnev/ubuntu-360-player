@@ -1691,7 +1691,12 @@ describe('MainModelClass', () => {
     dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: output });
     await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({ success: true });
     expect(fs.readFileSync(output, 'utf8')).toBe('converted video');
-    mainModelClass.readDir(path.join(tempDir, 'new-library'));
+    await mainModelClass.readDir(path.join(tempDir, 'missing-library'));
+    expect(mainModelClass.exportMedia.has(original)).toBe(true);
+    const newLibrary = path.join(tempDir, 'new-library');
+    fs.mkdirSync(newLibrary);
+    fs.writeFileSync(path.join(newLibrary, 'invalid.insv'), 'video');
+    await mainModelClass.readDir(newLibrary);
     expect((await mainModelClass.saveCurrentMedia({ origPath: original })).success).toBe(false);
   });
 
