@@ -7,7 +7,7 @@
 It's straightforward: I love 360 photos and videos, and I also like Linux. To view them, I had to switch to Windows, so I started developing this application. That is how **360 Media Viewer** began, and I hope it will be useful to you too.
 
 ## What can?
-* Open a media directory or add individual media files and browse them in a thumbnail grid.
+* Open a media directory, add individual media files, or drag and drop files from your file manager, then browse them in a thumbnail grid.
 * View ordinary photos and videos as well as 360° photos and videos, including Insta360 `.insp` photos and paired `.insv` videos.
 * Explore 360° media in an interactive panorama viewer, with a flat-view fallback.
 * Correct panorama orientation with yaw, pitch, and roll controls; use center guides in Flat view and save the correction locally.
@@ -31,6 +31,15 @@ Windows: JPG, JPEG, PNG, MP4, INSP, and INSV).
 Opening files in an already running instance appends them. A directory passed
 alongside files replaces the library first, then the files are added.
 
+You can also drag one or multiple supported media files from your file manager
+onto any area of the app, including the open viewer and fullscreen view.
+Dropped files are appended without replacing the current library or closing
+the viewer. Drops made during an import are queued; files already in the
+library are not added again. A highlighted drop area shows where to release
+the files, and import progress and errors remain visible in the viewer.
+Folders cannot be imported by dropping them; use **Import folder** instead.
+Unsupported or inaccessible files are reported as errors.
+
 ### Insta360 lens field of view
 
 Open **Settings → Lenses** to set separate INSP and INSV defaults (199° and
@@ -50,8 +59,9 @@ Lens FOV adjustments are approximate and do not replace factory calibration.
 
 ### Insta360 INSV video
 
-Import a folder containing both lens files, or select both files together with
-**Import files**. The filenames must match the Insta360 pattern
+Import a folder containing both lens files, select both files together with
+**Import files**, or drop both files together onto the app. The filenames must
+match the Insta360 pattern
 `VID_YYYYMMDD_HHMMSS_00_NNN.insv` and `VID_YYYYMMDD_HHMMSS_10_NNN.insv`,
 with the same date, time, and numeric identifier in the same folder. A valid
 pair appears as one item; incomplete, ambiguous, or incompatible pairs are
