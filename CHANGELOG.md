@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.10.1] - 2026-11-19
+### Changed
+- Fix Unicode EXIF paths and empty folder imports ([#104](https://github.com/shturnev/ubuntu-360-player/pull/104))
+
 ## [3.10.0] - 2026-11-19
 ### Changed
 - Add lens FOV correction for INSP and INSV ([#102](https://github.com/shturnev/ubuntu-360-player/pull/102))
