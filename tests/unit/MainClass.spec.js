@@ -4,7 +4,12 @@ const path = require('path');
 const { Writable } = require('stream');
 
 jest.mock('electron', () => ({
-  dialog: { showOpenDialogSync: jest.fn(), showOpenDialog: jest.fn(), showSaveDialog: jest.fn() },
+  dialog: {
+    showOpenDialogSync: jest.fn(),
+    showOpenDialog: jest.fn(),
+    showSaveDialog: jest.fn(),
+    showMessageBox: jest.fn(),
+  },
   ipcMain: { on: jest.fn(), handle: jest.fn() },
   shell: { trashItem: jest.fn(async () => {}) },
 }));
@@ -28,6 +33,7 @@ const { MainModelClass, removeFilesHelper } = require('../../src/models/MainMode
 const { Media } = require('../../src/models/Media');
 const { createInsvThumbnail } = require('../../src/models/insvCache');
 const { prepareInsvMotion } = require('../../src/models/insvMotion');
+const { InspCorrections } = require('../../src/models/inspCorrections');
 const renameNoReplace = require('../../src/models/renameNoReplace');
 
 describe('MainModelClass', () => {
@@ -39,6 +45,7 @@ describe('MainModelClass', () => {
   ]).buffer;
 
   beforeEach(() => {
+    dialog.showMessageBox.mockReset();
     tempDir = fs.mkdtempSync(path.join(getTempDir(), 'sht-vr-main-'));
     const staticDir = path.join(tempDir, '.sht-vr-player', 'static');
     fs.mkdirSync(path.join(staticDir, 'small'), { recursive: true });
@@ -47,6 +54,7 @@ describe('MainModelClass', () => {
     mainModelClass = new MainModelClass({ webContents: { send: jest.fn() } });
     mainModelClass.static_dir = staticDir;
     mainModelClass.homedir = path.join(tempDir, '.sht-vr-player');
+    mainModelClass.config.configPath = path.join(mainModelClass.homedir, 'config.json');
     prepareInsvMotion.mockResolvedValue({
       mode: 'gyro',
       frames: [{ time: 0, rotation: [0, 1, 0, 0] }],
@@ -57,6 +65,259 @@ describe('MainModelClass', () => {
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
     jest.restoreAllMocks();
+  });
+
+  function mockInspRenderer() {
+    let revision = 0;
+    return jest.spyOn(Media, 'renderInsta360Image').mockImplementation(async (file, options) => {
+      if (!options.isCurrent()) throw new Error('cancelled');
+      const bigName = `render-${++revision}.jpg`;
+      fs.writeFileSync(path.join(mainModelClass.static_dir, 'big', bigName), `panorama ${revision}`);
+      fs.writeFileSync(path.join(mainModelClass.static_dir, 'small', bigName), `thumbnail ${revision}`);
+      return { type: 'image', origPath: file, bigName, thumpName: bigName };
+    });
+  }
+
+  test('imports INSP defaults, preserves orientation and overrides through reimport and cache clearing', async () => {
+    const file = path.join(tempDir, 'photo.INSP');
+    fs.writeFileSync(file, 'original');
+    const render = mockInspRenderer();
+    expect(mainModelClass.saveInspLensFov(201.2)).toEqual({ success: true, inspLensFov: 201.2 });
+    await mainModelClass.readFiles([file]);
+    expect(render).toHaveBeenLastCalledWith(file, expect.objectContaining({ fieldOfView: 201.2, rotations: [] }));
+    expect(mainModelClass.win.webContents.send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ origPath: file, insp: true, lensFieldOfView: 201.2, lensFovOverride: false })
+    );
+    const orientation = { yaw: 10, pitch: -5, roll: 1 };
+    expect(await mainModelClass.saveOrientationCorrection({ origPath: file, orientation, requestId: 1 })).toMatchObject(
+      {
+        success: true,
+      }
+    );
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 2, value: 210 })).toMatchObject({
+      success: true,
+      lensFieldOfView: 210,
+      lensFovOverride: true,
+    });
+    expect(render).toHaveBeenLastCalledWith(
+      file,
+      expect.objectContaining({ fieldOfView: 210, rotations: [orientation] })
+    );
+    const corrected = mainModelClass.exportMedia.get(file).bigName;
+    expect(mainModelClass.saveInspLensFov(205)).toMatchObject({ success: true });
+    expect(mainModelClass.exportMedia.get(file).bigName).toBe(corrected);
+    mainModelClass.removeFromLibrary([{ origPath: file }]);
+    await mainModelClass.readDir(tempDir);
+    expect(render).toHaveBeenLastCalledWith(
+      file,
+      expect.objectContaining({ fieldOfView: 210, rotations: [orientation] })
+    );
+    mainModelClass.deleteCache({ reply: jest.fn() });
+    await mainModelClass.readFiles([file]);
+    expect(render).toHaveBeenLastCalledWith(
+      file,
+      expect.objectContaining({ fieldOfView: 210, rotations: [orientation] })
+    );
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 3, value: null })).toMatchObject({
+      success: true,
+      lensFieldOfView: 205,
+      lensFovOverride: false,
+    });
+    expect(render).toHaveBeenLastCalledWith(
+      file,
+      expect.objectContaining({ fieldOfView: 205, rotations: [orientation] })
+    );
+    mainModelClass.saveInspLensFov(206);
+    mainModelClass.removeFromLibrary([{ origPath: file }]);
+    await mainModelClass.readFiles([file]);
+    expect(render).toHaveBeenLastCalledWith(
+      file,
+      expect.objectContaining({ fieldOfView: 206, rotations: [orientation] })
+    );
+    expect(fs.readFileSync(file, 'utf8')).toBe('original');
+  });
+
+  test('uses a new INSP identity after an original is moved or changed', async () => {
+    const file = path.join(tempDir, 'photo.insp');
+    const moved = path.join(tempDir, 'moved.insp');
+    fs.writeFileSync(file, 'original');
+    const render = mockInspRenderer();
+    await mainModelClass.readFiles([file]);
+    await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 1, value: 210 });
+    mainModelClass.removeFromLibrary([{ origPath: file }]);
+    fs.renameSync(file, moved);
+    await mainModelClass.readFiles([moved]);
+    expect(render).toHaveBeenLastCalledWith(moved, expect.objectContaining({ fieldOfView: 199, rotations: [] }));
+    await mainModelClass.saveInspLensCorrection({ origPath: moved, requestId: 2, value: 205 });
+    mainModelClass.removeFromLibrary([{ origPath: moved }]);
+    fs.appendFileSync(moved, 'changed');
+    await mainModelClass.readFiles([moved]);
+    expect(render).toHaveBeenLastCalledWith(moved, expect.objectContaining({ fieldOfView: 199, rotations: [] }));
+  });
+
+  test('keeps the previous export and correction if INSP persistence fails', async () => {
+    const file = path.join(tempDir, 'photo.insp');
+    fs.writeFileSync(file, 'original');
+    mockInspRenderer();
+    await mainModelClass.readFiles([file]);
+    const previous = mainModelClass.exportMedia.get(file);
+    const state = mainModelClass.inspMedia.get(file);
+    jest.spyOn(InspCorrections.prototype, 'set').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 1, value: 210 })).toEqual({
+      success: false,
+      message: 'disk full',
+    });
+    expect(mainModelClass.exportMedia.get(file)).toBe(previous);
+    expect(mainModelClass.inspMedia.get(file)).toBe(state);
+  });
+
+  test.each(['cancel', 'remove', 'source change', 'cache clear', 'window close'])(
+    'does not commit an INSP correction after %s',
+    async (action) => {
+      const file = path.join(tempDir, 'photo.insp');
+      fs.writeFileSync(file, 'original');
+      const render = mockInspRenderer();
+      await mainModelClass.readFiles([file]);
+      let finish;
+      let signal;
+      render.mockImplementation((_file, options) => {
+        signal = options.signal;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      });
+      const state = mainModelClass.inspMedia.get(file);
+      const previous = mainModelClass.exportMedia.get(file);
+      const pending = mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 4, value: 210 });
+      if (action === 'cancel') mainModelClass.cancelInspLensCorrection({ origPath: file, requestId: 4 });
+      if (action === 'remove') mainModelClass.removeFromLibrary([{ origPath: file }]);
+      if (action === 'source change') fs.appendFileSync(file, 'changed');
+      if (action === 'cache clear') mainModelClass.deleteCache({ reply: jest.fn() });
+      if (action === 'window close') mainModelClass.setWindow(null);
+      if (action !== 'source change') expect(signal.aborted).toBe(true);
+      finish({ type: 'image', origPath: file, bigName: 'late.jpg', thumpName: 'late.jpg' });
+      expect(await pending).toMatchObject({ success: false });
+      expect(mainModelClass.inspCorrections().get(state.identity)).toEqual(state.correction);
+      if (action === 'cancel' || action === 'source change')
+        expect(mainModelClass.exportMedia.get(file)).toBe(previous);
+      if (action === 'source change') {
+        expect(await mainModelClass.saveCurrentMedia({ origPath: file })).toMatchObject({
+          success: false,
+          message: expect.stringMatching(/changed/i),
+        });
+      }
+    }
+  );
+
+  test('warns before replacing a legacy INSP panorama and retains the old cache', async () => {
+    const file = path.join(tempDir, 'photo.insp');
+    fs.writeFileSync(file, 'original');
+    fs.writeFileSync(path.join(mainModelClass.static_dir, 'big', 'legacy.jpg'), 'old corrected image');
+    fs.writeFileSync(path.join(mainModelClass.static_dir, 'small', 'legacy.jpg'), 'old thumbnail');
+    jest.spyOn(Media, 'hasLegacyInsta360Image').mockReturnValue(true);
+    jest.spyOn(Media, 'saveInsta360Image').mockResolvedValue({
+      type: 'image',
+      origPath: file,
+      bigName: 'legacy.jpg',
+      thumpName: 'legacy.jpg',
+    });
+    jest.spyOn(Media, 'syncCachedExif').mockResolvedValue();
+    const render = mockInspRenderer();
+    dialog.showMessageBox
+      .mockResolvedValueOnce({ response: 0 })
+      .mockResolvedValueOnce({ response: 0 })
+      .mockResolvedValueOnce({ response: 1 });
+    await mainModelClass.readFiles([file]);
+    expect(render).not.toHaveBeenCalled();
+    expect(mainModelClass.inspMedia.get(file).legacy).toBe(true);
+    const saveLegacyOrientation = jest
+      .spyOn(Media, 'saveInsta360OrientationCorrection')
+      .mockResolvedValue({ bigName: 'legacy.jpg' });
+    expect(
+      await mainModelClass.saveOrientationCorrection({
+        origPath: file,
+        requestId: 3,
+        orientation: { yaw: 2, pitch: 0, roll: 0 },
+      })
+    ).toMatchObject({ success: true });
+    expect(saveLegacyOrientation).toHaveBeenCalledWith(
+      file,
+      { yaw: 2, pitch: 0, roll: 0 },
+      expect.objectContaining({ signal: expect.any(AbortSignal), isCurrent: expect.any(Function) })
+    );
+    expect(mainModelClass.inspMedia.get(file).legacy).toBe(true);
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 1, value: 210 })).toMatchObject({
+      success: false,
+    });
+    expect(mainModelClass.exportMedia.get(file).bigName).toBe('legacy.jpg');
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 2, value: 210 })).toMatchObject({
+      success: true,
+    });
+    expect(fs.readFileSync(path.join(mainModelClass.static_dir, 'big', 'legacy.jpg'), 'utf8')).toBe(
+      'old corrected image'
+    );
+    expect(mainModelClass.inspMedia.get(file).legacy).toBe(false);
+  });
+
+  test('requires confirmation before clearing old INSP caches and keeps them on cancellation', async () => {
+    const legacy = path.join(mainModelClass.static_dir, 'big', 'photo-10-abcd-insta360-v6.jpg');
+    fs.writeFileSync(legacy, 'old orientation');
+    const event = { reply: jest.fn() };
+    dialog.showMessageBox.mockResolvedValueOnce({ response: 0 }).mockResolvedValueOnce({ response: 1 });
+    await mainModelClass.requestDeleteCache(event, []);
+    expect(fs.readFileSync(legacy, 'utf8')).toBe('old orientation');
+    expect(event.reply).not.toHaveBeenCalledWith('delete-cache-finish', true);
+    await mainModelClass.requestDeleteCache(event, []);
+    expect(fs.existsSync(legacy)).toBe(false);
+    expect(event.reply).toHaveBeenCalledWith('delete-cache-finish', true);
+  });
+
+  test('does not clear a replacement library when a legacy cache confirmation becomes stale', async () => {
+    const legacy = path.join(mainModelClass.static_dir, 'big', 'photo-10-abcd-insta360-v6.jpg');
+    fs.writeFileSync(legacy, 'old orientation');
+    let respond;
+    dialog.showMessageBox.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        })
+    );
+    const event = { reply: jest.fn() };
+    const pending = mainModelClass.requestDeleteCache(event, []);
+    mainModelClass.setWindow({ webContents: { send: jest.fn() } });
+    respond({ response: 1 });
+    await pending;
+    expect(fs.existsSync(legacy)).toBe(true);
+    expect(event.reply).not.toHaveBeenCalledWith('delete-cache-finish', true);
+  });
+
+  test('rejects unauthorized, invalid, and corrupted INSP corrections', async () => {
+    const file = path.join(tempDir, 'photo.insp');
+    fs.writeFileSync(file, 'original');
+    mainModelClass.authorizedMedia.set(file, 'image');
+    expect(
+      await mainModelClass.saveOrientationCorrection({
+        origPath: file,
+        requestId: 1,
+        orientation: { yaw: 0, pitch: 0, roll: 0 },
+      })
+    ).toMatchObject({ success: false, message: expect.stringMatching(/not ready/i) });
+    mainModelClass.authorizedMedia.delete(file);
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 1, value: 200 })).toMatchObject({
+      success: false,
+    });
+    expect(await mainModelClass.saveInspLensCorrection({ origPath: file, requestId: 1, value: 200.01 })).toMatchObject({
+      success: false,
+    });
+    fs.writeFileSync(path.join(mainModelClass.homedir, 'insp-corrections.json'), '{broken');
+    await mainModelClass.readFiles([file]);
+    expect(mainModelClass.win.webContents.send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ error: expect.objectContaining({ message: expect.stringMatching(/corrupted/i) }) })
+    );
   });
 
   test('deleteSelected moves the original to the trash and clears its cache files', async () => {
@@ -203,6 +464,33 @@ describe('MainModelClass', () => {
     expect(fs.existsSync(path.join(smallDir, 'remove.png'))).toBe(false);
   });
 
+  test('validates and stores the INSV lens default without changing other settings', () => {
+    mainModelClass.config.loadSettings({ ...mainModelClass.config.getSettings(), checkUpdates: false });
+    expect(mainModelClass.saveInsvLensFov(200.2)).toEqual({ success: true, insvLensFov: 200.2 });
+    expect(mainModelClass.config.getSettings()).toMatchObject({ checkUpdates: false, insvLensFov: 200.2 });
+    for (const value of ['200', null, NaN, 179, 220.1, 200.01]) {
+      expect(mainModelClass.saveInsvLensFov(value)).toMatchObject({ success: false });
+    }
+    expect(mainModelClass.config.getSettings().insvLensFov).toBe(200.2);
+  });
+
+  test('reports INSV default persistence errors', () => {
+    jest.spyOn(mainModelClass.config, 'loadSettings').mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    jest.spyOn(mainModelClass.config, 'getSettings').mockReturnValue({});
+    expect(mainModelClass.saveInsvLensFov(200)).toEqual({ success: false, message: 'storage unavailable' });
+  });
+
+  test('updating the check-for-updates setting does not overwrite a newer lens setting', () => {
+    jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
+    mainModelClass.init();
+    const handler = ipcMain.on.mock.calls.filter(([channel]) => channel === 'save-config').pop()[1];
+    mainModelClass.saveInsvLensFov(205);
+    handler({ reply: jest.fn() }, { checkUpdates: false, insvLensFov: 183.3 });
+    expect(mainModelClass.config.getSettings()).toMatchObject({ checkUpdates: false, insvLensFov: 205 });
+  });
+
   test('readDir processes each supported media file once and reports the matching total', async () => {
     const sourceDir = path.join(tempDir, 'media');
     fs.mkdirSync(sourceDir);
@@ -253,6 +541,7 @@ describe('MainModelClass', () => {
     const verifyVideo = jest.spyOn(Media, 'verifyInsvVideo').mockResolvedValue(0.001);
     createInsvThumbnail.mockResolvedValue('pair.jpg');
     const send = mainModelClass.win.webContents.send;
+    mainModelClass.config.loadSettings({ ...mainModelClass.config.getSettings(), insvLensFov: 200.2 });
 
     await mainModelClass.readDir(sourceDir);
 
@@ -269,13 +558,22 @@ describe('MainModelClass', () => {
     expect(mainModelClass.insvSources.records.has(item.insvToken)).toBe(true);
     expect(item.frameRate).toBeCloseTo(30000 / 1001);
     expect(item.motionMode).toBe('gyro');
+    expect(item.lensFieldOfView).toBe(200.2);
     expect(mainModelClass.insvSources.horizonTracks.get(item.insvToken)).toEqual([{ time: 0, rotation: [0, 1, 0, 0] }]);
-    expect(createInsvThumbnail).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), [0, 1, 0, 0]);
+    expect(createInsvThumbnail).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), [0, 1, 0, 0], 200.2, {
+      signal: expect.anything(),
+    });
     expect(send).toHaveBeenCalledWith('insv-progress', { active: true, name: names[0], stage: 'checking' });
     expect(send).toHaveBeenCalledWith('insv-progress', { active: true, name: names[0], stage: 'stabilizing' });
     expect(send).toHaveBeenCalledWith('insv-progress', { active: false });
     names.forEach((name) => expect(fs.readFileSync(path.join(sourceDir, name), 'utf8')).toBe('original'));
 
+    expect(await mainModelClass.saveInsvLensCorrection({ origPath: item.origPath, requestId: 1, value: 210 })).toEqual({
+      success: true,
+      thumpName: 'pair.jpg',
+      lensFieldOfView: 210,
+      lensFovOverride: true,
+    });
     mainModelClass.deleteSelected([item]);
     expect(send).toHaveBeenCalledWith(
       'delete-error',
@@ -292,6 +590,40 @@ describe('MainModelClass', () => {
       expect.objectContaining({ error: expect.objectContaining({ message: expect.stringContaining('Incomplete') }) })
     );
     expect(mainModelClass.authorizedMedia.size).toBe(0);
+
+    mainModelClass.config.loadSettings({ ...mainModelClass.config.getSettings(), insvLensFov: 205 });
+    send.mockClear();
+    await mainModelClass.readFiles(names.slice(0, 2).map((name) => path.join(sourceDir, name)));
+    expect(send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ insv: true, lensFieldOfView: 210, lensFovOverride: true })
+    );
+    expect(createInsvThumbnail).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), [0, 1, 0, 0], 210, {
+      signal: expect.anything(),
+    });
+    expect(await mainModelClass.saveInsvLensCorrection({ origPath: item.origPath, requestId: 2, value: null })).toEqual(
+      {
+        success: true,
+        thumpName: 'pair.jpg',
+        lensFieldOfView: 205,
+        lensFovOverride: false,
+      }
+    );
+    expect(
+      await mainModelClass.saveInsvLensCorrection({ origPath: item.origPath, requestId: 3, value: 208 })
+    ).toMatchObject({
+      success: true,
+    });
+    mainModelClass.deleteCache({ reply: jest.fn() }, []);
+    const restarted = new MainModelClass({ webContents: { send: jest.fn() } });
+    restarted.homedir = mainModelClass.homedir;
+    restarted.static_dir = mainModelClass.static_dir;
+    restarted.config.configPath = mainModelClass.config.configPath;
+    await restarted.readFiles(names.slice(0, 2).map((name) => path.join(sourceDir, name)));
+    expect(restarted.win.webContents.send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ insv: true, lensFieldOfView: 208, lensFovOverride: true })
+    );
   });
 
   test('reports thumbnail failure without authorizing or importing an INSV pair', async () => {
@@ -325,6 +657,106 @@ describe('MainModelClass', () => {
     expect(mainModelClass.authorizedMedia.size).toBe(0);
     expect(mainModelClass.insvSources.records.size).toBe(0);
     names.forEach((name) => expect(fs.readFileSync(path.join(sourceDir, name), 'utf8')).toBe('original'));
+  });
+
+  test.each(['cancel', 'remove', 'source-change', 'cache-clear', 'window-close'])(
+    'does not persist an INSV correction when %s occurs during thumbnail generation',
+    async (action) => {
+      const files = [path.join(tempDir, '00.insv'), path.join(tempDir, '10.insv')];
+      files.forEach((file) => fs.writeFileSync(file, 'original'));
+      const pair = {
+        paths: files,
+        snapshots: files.map((file) => {
+          const { dev, ino, size, mtimeMs, ctimeMs } = fs.statSync(file);
+          return { dev, ino, size, mtimeMs, ctimeMs };
+        }),
+        sampleTime: 1,
+      };
+      const token = mainModelClass.insvSources.register(pair, []);
+      mainModelClass.insvTokens.set(files[0], token);
+      mainModelClass.authorizedMedia.set(files[0], 'insv');
+      let finish;
+      let started;
+      const ready = new Promise((resolve) => {
+        started = resolve;
+      });
+      createInsvThumbnail.mockImplementationOnce(() => {
+        started();
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      });
+      const request = { origPath: files[0], requestId: 7, value: 200 };
+      const result = mainModelClass.saveInsvLensCorrection(request);
+      await ready;
+      await expect(
+        mainModelClass.saveInsvLensCorrection({ origPath: files[0], requestId: 8, value: 205 })
+      ).resolves.toMatchObject({ success: false, message: expect.stringContaining('processing') });
+      const { signal } = createInsvThumbnail.mock.calls.at(-1)[4];
+      if (action === 'cancel') mainModelClass.cancelInsvLensCorrection(request);
+      if (action === 'remove') mainModelClass.removeFromLibrary([{ origPath: files[0] }]);
+      if (action === 'source-change') fs.appendFileSync(files[1], 'changed');
+      if (action === 'cache-clear') mainModelClass.deleteCache({ reply: jest.fn() }, []);
+      if (action === 'window-close') mainModelClass.setWindow(null);
+      if (action !== 'source-change') expect(signal.aborted).toBe(true);
+      finish('pair.jpg');
+      expect(await result).toMatchObject({ success: false });
+      expect(fs.existsSync(path.join(mainModelClass.homedir, 'lens-overrides.json'))).toBe(false);
+    }
+  );
+
+  test('rejects unauthorized and malformed INSV lens corrections', async () => {
+    for (const payload of [
+      { origPath: '/missing.insv', requestId: 1, value: 200 },
+      { origPath: '/missing.insv', requestId: 1, value: '200' },
+      { origPath: '/missing.insv', requestId: 0, value: null },
+    ]) {
+      await expect(mainModelClass.saveInsvLensCorrection(payload)).resolves.toMatchObject({ success: false });
+    }
+  });
+
+  test('cancels the INSV thumbnail decoder when an import is superseded by cache clearing', async () => {
+    const files = ['VID_20250125_151712_00_105.insv', 'VID_20250125_151712_10_105.insv'].map((name) =>
+      path.join(tempDir, name)
+    );
+    files.forEach((file) => fs.writeFileSync(file, 'original'));
+    jest.spyOn(Media, 'probeVideo').mockResolvedValue({
+      streams: [
+        {
+          codec_type: 'video',
+          codec_name: 'h264',
+          width: 2880,
+          height: 2880,
+          r_frame_rate: '30/1',
+          start_time: '0',
+          duration: '10',
+        },
+      ],
+    });
+    jest.spyOn(Media, 'verifyInsvVideo').mockResolvedValue(0);
+    let started;
+    let finish;
+    const ready = new Promise((resolve) => {
+      started = resolve;
+    });
+    createInsvThumbnail.mockImplementationOnce(() => {
+      started();
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    const importing = mainModelClass.readFiles(files);
+    await ready;
+    const { signal } = createInsvThumbnail.mock.calls.at(-1)[4];
+    mainModelClass.deleteCache({ reply: jest.fn() }, []);
+    expect(signal.aborted).toBe(true);
+    finish('stale.jpg');
+    await importing;
+    expect(mainModelClass.win.webContents.send).not.toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ insv: true })
+    );
+    expect(mainModelClass.authorizedMedia.size).toBe(0);
   });
 
   test('reuses stabilization on repeated directory imports', async () => {
@@ -449,7 +881,9 @@ describe('MainModelClass', () => {
     const send = jest.fn();
     mainModelClass.win.webContents.send = send;
     const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation(() => {});
-    const saveInsta360Image = jest.spyOn(Media, 'saveInsta360Image').mockImplementation(() => Promise.resolve());
+    const renderInsta360Image = jest
+      .spyOn(Media, 'renderInsta360Image')
+      .mockImplementation(() => new Promise(() => {}));
 
     await new Promise((resolve) => {
       send.mockImplementation((channel) => {
@@ -460,7 +894,7 @@ describe('MainModelClass', () => {
 
     expect(send).toHaveBeenCalledWith('start-read-dir', 3);
     expect(saveImage.mock.calls.map(([file]) => path.basename(file))).toEqual(['regular.jpg']);
-    expect(saveInsta360Image.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual([
+    expect(renderInsta360Image.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual([
       'one-x2-uppercase.INSP',
       'one-x2.insp',
     ]);
@@ -677,9 +1111,7 @@ describe('MainModelClass', () => {
       .mockImplementation((file, _win, cb) =>
         cb(file === paths[1] ? { origPath: file, error: { message: 'Thumbnail failed' } } : { origPath: file })
       );
-    const saveInsta = jest
-      .spyOn(Media, 'saveInsta360Image')
-      .mockImplementation((file, _win, cb) => cb({ origPath: file }));
+    const saveInsta = jest.spyOn(Media, 'renderInsta360Image').mockImplementation(async (file) => ({ origPath: file }));
     const saveVideo = jest.spyOn(Media, 'saveVideo').mockImplementation((file, _win, cb) => cb({ origPath: file }));
     await mainModelClass.readFiles(paths);
     expect(saveImage).toHaveBeenCalledTimes(3);
@@ -739,8 +1171,10 @@ describe('MainModelClass', () => {
     jest.spyOn(Media, 'saveImage').mockImplementation((_file, _win, cb) => {
       firstCallback = cb;
     });
-    jest.spyOn(Media, 'saveInsta360Image').mockImplementation((_file, _win, cb) => {
-      secondCallback = cb;
+    jest.spyOn(Media, 'renderInsta360Image').mockImplementation((file) => {
+      return new Promise((resolve) => {
+        secondCallback = () => resolve({ origPath: file });
+      });
     });
     mainModelClass.enqueueExternalImport({ files: [first] });
     mainModelClass.enqueueExternalImport({ files: [second] });
@@ -749,7 +1183,7 @@ describe('MainModelClass', () => {
     firstCallback({ origPath: first });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(secondCallback).toEqual(expect.any(Function));
-    secondCallback({ origPath: second });
+    secondCallback();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mainModelClass.importBusy).toBe(false);
   });
@@ -779,13 +1213,14 @@ describe('MainModelClass', () => {
           finishExif = resolve;
         })
     );
-    jest
-      .spyOn(Media, 'saveInsta360Image')
-      .mockImplementation((_file, _win, cb) => cb({ origPath: first, bigName: 'derived.jpg' }));
+    jest.spyOn(Media, 'hasLegacyInsta360Image').mockReturnValue(true);
+    dialog.showMessageBox.mockResolvedValueOnce({ response: 0 });
+    jest.spyOn(Media, 'saveInsta360Image').mockResolvedValue({ origPath: first, bigName: 'derived.jpg' });
     const saveImage = jest.spyOn(Media, 'saveImage').mockImplementation((_file, _win, cb) => cb({ origPath: second }));
     mainModelClass.enqueueExternalImport({ files: [first] });
     mainModelClass.enqueueExternalImport({ files: [second] });
     expect(saveImage).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     finishExif();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(saveImage).toHaveBeenCalledTimes(1);
@@ -816,9 +1251,11 @@ describe('MainModelClass', () => {
       fs.writeFileSync(file, 'image');
       let callback;
       let signal;
-      jest.spyOn(Media, 'saveInsta360Image').mockImplementation((_file, _win, cb, options) => {
-        callback = cb;
+      jest.spyOn(Media, 'renderInsta360Image').mockImplementation((_file, options) => {
         signal = options.signal;
+        return new Promise((resolve) => {
+          callback = resolve;
+        });
       });
       const pending = mainModelClass.readFiles([file]);
       expect(signal.aborted).toBe(false);
@@ -843,8 +1280,8 @@ describe('MainModelClass', () => {
     const files = ['active.insp', 'queued.insp'].map((name) => path.join(tempDir, name));
     files.forEach((file) => fs.writeFileSync(file, 'image'));
     const operations = [];
-    jest.spyOn(Media, 'saveInsta360Image').mockImplementation((file, _win, callback, { signal }) => {
-      operations.push({ file, callback, signal });
+    jest.spyOn(Media, 'renderInsta360Image').mockImplementation((file, { signal }) => {
+      return new Promise((resolve) => operations.push({ file, callback: resolve, signal }));
     });
     const oldWindow = mainModelClass.win;
     const oldImport = mainModelClass.readFiles(files);
@@ -864,7 +1301,10 @@ describe('MainModelClass', () => {
     expect(newWindow.webContents.send).not.toHaveBeenCalledWith('read-media-file', expect.anything());
     operations[2].callback({ origPath: files[0] });
     await newImport;
-    expect(newWindow.webContents.send).toHaveBeenCalledWith('read-media-file', { origPath: files[0] });
+    expect(newWindow.webContents.send).toHaveBeenCalledWith(
+      'read-media-file',
+      expect.objectContaining({ origPath: files[0] })
+    );
     expect(mainModelClass.pendingMedia.size).toBe(0);
   });
 

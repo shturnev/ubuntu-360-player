@@ -329,6 +329,39 @@ describe('Media', () => {
     spawn.mockReturnValueOnce(child);
   }
 
+  test('serializes legacy INSP orientation saves with INSP conversions', async () => {
+    let finish;
+    jest.spyOn(Media, 'processInsta360Image').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const orientation = jest.spyOn(Media, 'saveOrientationCorrection').mockResolvedValue({ bigName: 'legacy.jpg' });
+    const first = Media.saveInsta360Image('/a.insp', null);
+    const second = Media.saveInsta360OrientationCorrection('/b.insp', { yaw: 1, pitch: 0, roll: 0 });
+    await Promise.resolve();
+    expect(orientation).not.toHaveBeenCalled();
+    finish({ success: true });
+    await first;
+    await expect(second).resolves.toEqual({ bigName: 'legacy.jpg' });
+  });
+
+  test('reports an invalid legacy INSP cache instead of silently ignoring it', () => {
+    const file = path.join(tempDir, 'photo.insp');
+    fs.writeFileSync(file, 'image');
+    const staticDir = path.join(tempDir, '.sht-vr-player', 'static');
+    expect(Media.hasLegacyInsta360Image(file, staticDir)).toBe(false);
+    const cache = path.join(staticDir, 'big', getInsta360CacheName(file));
+    for (const invalid of [Buffer.alloc(0), Buffer.from('not a JPEG'), Buffer.from([0xff, 0xd8, 0xff, 0xe0])]) {
+      fs.writeFileSync(cache, invalid);
+      expect(() => Media.hasLegacyInsta360Image(file, staticDir)).toThrow(/invalid/i);
+      expect(fs.readFileSync(cache)).toEqual(invalid);
+    }
+    writeJpeg(cache);
+    expect(Media.hasLegacyInsta360Image(file, staticDir)).toBe(true);
+  });
+
   test('saves an orientation correction with the same rotation mapping as the preview', async () => {
     const filePath = path.join(tempDir, 'panorama.jpg');
     fs.writeFileSync(filePath, 'image');
@@ -365,6 +398,27 @@ describe('Media', () => {
     );
     expect(fs.existsSync(bigPath)).toBe(true);
     expect(fs.existsSync(thumpPath)).toBe(true);
+  });
+
+  test('does not replace an older panorama when its orientation operation is no longer current', async () => {
+    const filePath = path.join(tempDir, 'panorama.jpg');
+    fs.writeFileSync(filePath, 'image');
+    const bigName = getCacheName(filePath);
+    const bigPath = path.join(tempDir, '.sht-vr-player', 'static', 'big', bigName);
+    const thumpPath = path.join(tempDir, '.sht-vr-player', 'static', 'small', bigName);
+    writeJpeg(bigPath);
+    writeJpeg(thumpPath);
+    const previous = fs.readFileSync(bigPath);
+    let current = true;
+    mockOrientationRender((output) => {
+      writeJpeg(output);
+      current = false;
+    });
+    await expect(
+      Media.saveOrientationCorrection(filePath, { yaw: 1, pitch: 0, roll: 0 }, { isCurrent: () => current })
+    ).rejects.toThrow(/cancelled/i);
+    expect(fs.readFileSync(bigPath)).toEqual(previous);
+    expect(fs.readdirSync(path.dirname(bigPath))).toEqual([bigName]);
   });
 
   test('preserves PNG bytes and extension when saving an orientation correction', async () => {

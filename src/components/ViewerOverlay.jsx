@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import PanoramaViewer from '../PanoramaViewer.jsx';
 import InsvViewer from './InsvViewer.jsx';
 import { shortcutKey } from '../shortcutKey.js';
+import lensFov from '../lensFov.json';
 import './PanoramaViewer.scss';
 
 const OpenFullScreenIcon = () => (
@@ -141,6 +142,14 @@ const OrientationIcon = (props) => (
   </svg>
 );
 
+const LensIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" strokeWidth="2" />
+    <circle cx="12" cy="12" r="4" strokeWidth="2" />
+    <path d="M12 3v3m0 12v3" strokeWidth="2" />
+  </svg>
+);
+
 const DEFAULT_ORIENTATION = { yaw: 0, pitch: 0, roll: 0 };
 const ORIENTATION_CONTROLS = [
   { key: 'yaw', label: 'Yaw', min: -180, max: 180 },
@@ -178,6 +187,8 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     onSaveScreenshot,
     onScreenshotError,
     onSaveOrientation,
+    onSaveInsvLensCorrection,
+    onCancelInsvLensCorrection,
     shortcutsBlocked,
   },
   ref
@@ -197,6 +208,11 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
   const [orientation, setOrientation] = useState(DEFAULT_ORIENTATION);
   const [isSavingOrientation, setIsSavingOrientation] = useState(false);
   const [orientationSaveError, setOrientationSaveError] = useState('');
+  const [lensOpen, setLensOpen] = useState(false);
+  const [lensValue, setLensValue] = useState(String(showingItem.lensFieldOfView ?? ''));
+  const [lensStatus, setLensStatus] = useState('');
+  const [savingLens, setSavingLens] = useState(false);
+  const lensOperationRef = useRef(0);
   const convertButton =
     showingItem.type === 'video' &&
     !showingItem.insv &&
@@ -211,6 +227,14 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     setOrientation(DEFAULT_ORIENTATION);
     setOrientationSaveError('');
   }, [showingItem?.origPath, showingItem?.bigName]);
+
+  useEffect(() => {
+    lensOperationRef.current += 1;
+    setLensOpen(false);
+    setLensValue(String(showingItem?.lensFieldOfView ?? ''));
+    setLensStatus('');
+    setSavingLens(false);
+  }, [showingItem?.origPath]);
 
   useEffect(() => {
     flatVideoHasFrame.current = false;
@@ -239,6 +263,11 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (metadataOpen || shortcutsBlocked) return;
+      if (lensOpen && event.key === 'Escape') {
+        event.preventDefault();
+        closeLensCorrection();
+        return;
+      }
       if (orientationOpen && event.key === 'Escape') {
         event.preventDefault();
         setOrientationOpen(false);
@@ -276,6 +305,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     flatView,
     items.length,
     metadataOpen,
+    lensOpen,
     onNext,
     onPrevious,
     onVideoPlaybackFailure,
@@ -492,6 +522,44 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     }
   };
 
+  function closeLensCorrection() {
+    lensOperationRef.current += 1;
+    onCancelInsvLensCorrection?.();
+    setSavingLens(false);
+    setLensOpen(false);
+    setLensStatus('');
+  }
+
+  const saveLensCorrection = async (value) => {
+    if (savingLens || !onSaveInsvLensCorrection) return;
+    if (
+      value !== null &&
+      (typeof value !== 'number' ||
+        !Number.isFinite(value) ||
+        value < lensFov.minimum ||
+        value > lensFov.maximum ||
+        Math.abs(value * 10 - Math.round(value * 10)) > 1e-8)
+    ) {
+      setLensStatus('Enter a value between 180 and 220 degrees in 0.1 degree steps.');
+      return;
+    }
+    const operation = ++lensOperationRef.current;
+    setSavingLens(true);
+    setLensStatus('');
+    try {
+      const result = await onSaveInsvLensCorrection(value);
+      if (lensOperationRef.current !== operation) return;
+      setLensValue(String(result.lensFieldOfView));
+      setLensStatus(value === null ? 'Using the current global default.' : 'Lens correction saved.');
+    } catch (error) {
+      if (lensOperationRef.current === operation) {
+        setLensStatus(error?.message || 'Unable to save the lens correction.');
+      }
+    } finally {
+      if (lensOperationRef.current === operation) setSavingLens(false);
+    }
+  };
+
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
@@ -503,6 +571,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
             ref={panoramaRef}
             sources={insvSources}
             frameRate={showingItem.frameRate}
+            lensFieldOfView={showingItem.lensFieldOfView}
             flatProjection={flatView}
             motionMode={showingItem.motionMode}
             motionWarning={showingItem.motionWarning}
@@ -622,6 +691,18 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
                 <OrientationIcon />
               </button>
             )}
+            {(showingItem.insv || showingItem.insp) && (
+              <button
+                type="button"
+                onClick={() => (lensOpen ? closeLensCorrection() : setLensOpen(true))}
+                aria-expanded={lensOpen}
+                aria-controls="lens-correction"
+                aria-label="Adjust lens field of view"
+                title="Adjust lens field of view"
+              >
+                <LensIcon />
+              </button>
+            )}
             <button
               ref={metadataButtonRef}
               type="button"
@@ -701,6 +782,73 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
                 {orientationSaveError}
               </p>
             )}
+          </section>
+        )}
+        {lensOpen && (showingItem.insv || showingItem.insp) && (
+          <section
+            id="lens-correction"
+            className="lens-correction"
+            aria-label={`${showingItem.insp ? 'INSP' : 'INSV'} lens correction`}
+          >
+            <div className="orientation-correction-header">
+              <div>
+                <strong>Lens field of view</strong>
+                <p>One value for both lenses and axes. This does not replace factory calibration.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button small"
+                onClick={closeLensCorrection}
+                aria-label="Close lens correction"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <label className="lens-control">
+              <span>Lens FOV (degrees)</span>
+              <input
+                type="number"
+                min={lensFov.minimum}
+                max={lensFov.maximum}
+                step={lensFov.step}
+                value={lensValue}
+                disabled={savingLens}
+                onChange={(event) => {
+                  setLensValue(event.target.value);
+                  setLensStatus('');
+                }}
+              />
+            </label>
+            <p className="lens-correction-help">
+              180–220°, step 0.1°. Moving or changing {showingItem.insv ? 'either original' : 'the original'} starts a
+              new correction.
+            </p>
+            <div className="lens-correction-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={savingLens}
+                onClick={() => saveLensCorrection(null)}
+              >
+                Use global default
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={savingLens}
+                onClick={() => saveLensCorrection(lensValue.trim() === '' ? NaN : Number(lensValue))}
+              >
+                {savingLens ? 'Saving…' : 'Save lens correction'}
+              </button>
+            </div>
+            <p role="status" className="lens-correction-help">
+              {lensStatus ||
+                (showingItem.legacyInsp
+                  ? 'Using the older cached image (199°); restitching requires confirmation.'
+                  : showingItem.lensFovOverride
+                    ? 'Using a saved override.'
+                    : 'Using the import default.')}
+            </p>
           </section>
         )}
         {metadataOpen && (

@@ -85,6 +85,12 @@ describe('INSV viewer', () => {
     expect(gl.texImage2D.mock.calls.map((call) => call[5])).toEqual([...videos]);
     expect(gl.drawArrays).toHaveBeenCalledTimes(1);
     expect(gl.uniform1i).toHaveBeenCalledWith('flatProjection', 0);
+    expect(gl.uniform1f).toHaveBeenCalledWith('lensFieldOfView', 183.3);
+    gl.uniform1f.mockClear();
+    rerender(<InsvViewer sources={sources} frameRate={30} lensFieldOfView={200} />);
+    expect(gl.uniform1f).toHaveBeenCalledWith('lensFieldOfView', 200);
+    expect(createInsvPlayback).toHaveBeenCalledTimes(1);
+    expect(controller.destroy).not.toHaveBeenCalled();
     rerender(<InsvViewer sources={sources} frameRate={30} flatProjection />);
     expect(gl.uniform1i).toHaveBeenLastCalledWith('flatProjection', 1);
     rerender(<InsvViewer sources={sources} frameRate={30} />);
@@ -281,6 +287,42 @@ describe('INSV viewer', () => {
     expect(onDelete).not.toHaveBeenCalled();
     expect(onOpenMetadata).toHaveBeenCalledTimes(1);
     expect(controller.pause).toHaveBeenCalled();
+  });
+
+  test('edits and resets the INSV lens override without restarting playback', async () => {
+    const item = {
+      type: 'video',
+      insv: true,
+      bigName: 'pair',
+      origPath: '/video/00.INSV',
+      lensFieldOfView: 183.3,
+    };
+    const save = jest
+      .fn()
+      .mockResolvedValueOnce({ lensFieldOfView: 200 })
+      .mockResolvedValueOnce({ lensFieldOfView: 185 });
+    render(
+      <ViewerOverlay
+        showingItem={item}
+        items={[item]}
+        insvSources={['http://localhost/00', 'http://localhost/10']}
+        onSaveInsvLensCorrection={save}
+      />
+    );
+    await waitFor(() => expect(createInsvPlayback).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust lens field of view' }));
+    expect(screen.getByRole('button', { name: 'Use global default' }).parentElement).toBe(
+      screen.getByRole('button', { name: 'Save lens correction' }).parentElement
+    );
+    fireEvent.change(screen.getByLabelText('Lens FOV (degrees)'), { target: { value: '200' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save lens correction' }));
+    expect(await screen.findByText('Lens correction saved.')).toBeInTheDocument();
+    expect(save).toHaveBeenCalledWith(200);
+    fireEvent.click(screen.getByRole('button', { name: 'Use global default' }));
+    expect(await screen.findByText('Using the current global default.')).toBeInTheDocument();
+    expect(save).toHaveBeenCalledWith(null);
+    expect(createInsvPlayback).toHaveBeenCalledTimes(1);
+    expect(controller.destroy).not.toHaveBeenCalled();
   });
 
   test.each([false, true])(

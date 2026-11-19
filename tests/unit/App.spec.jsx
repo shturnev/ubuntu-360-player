@@ -156,6 +156,21 @@ describe('App', () => {
     expect(container.querySelector('.media-card').title).toContain('Stabilization unavailable');
   });
 
+  test('shows the INSP badge only on imported INSP thumbnails', () => {
+    renderApp();
+    act(() => {
+      listeners['read-media-file'](
+        {},
+        { type: 'image', insp: true, origPath: '/media/photo.INSP', thumpName: 'insp.jpg', bigName: 'insp.jpg' }
+      );
+      listeners['read-media-file']({}, media);
+    });
+    const cards = container.querySelectorAll('.media-card');
+    expect(cards[0].querySelector('.insp-badge').textContent).toBe('INSP');
+    expect(cards[1].querySelector('.insp-badge')).toBeNull();
+    expect(cards[0].querySelector('.insv-badge')).toBeNull();
+  });
+
   test('shows shortcut hints only in the empty library and keeps them in Settings', () => {
     renderApp();
     const emptyState = container.querySelector('.empty-state');
@@ -173,6 +188,7 @@ describe('App', () => {
     expect(container.querySelector('.empty-state')).toBeNull();
     expect(container.querySelector('.home-shortcuts')).toBeNull();
     click(button('Open settings'));
+    click(button('Shortcuts'));
     expect(container.querySelector('.shortcuts-box').textContent).toContain('Toggle orientation correction');
     click(button('Close settings'));
     act(() => listeners['delete-cache-finish']());
@@ -265,6 +281,7 @@ describe('App', () => {
     click(button('Open settings'));
     expect(keydown('O', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
     expect(api.send.mock.calls.filter(([channel]) => channel === 'add-files')).toHaveLength(1);
+    click(button('Shortcuts'));
     expect(container.querySelector('.shortcuts-box').textContent).toContain('Ctrl+Shift+O');
     click(button('Close settings'));
     keydown('O', { ctrlKey: true, shiftKey: true });
@@ -568,6 +585,7 @@ describe('App', () => {
     keydown('i');
     expect(container.querySelector('.metadata-dialog')).toBeNull();
     expect(api.send.mock.calls.filter(([channel]) => channel === 'get-media-metadata')).toHaveLength(0);
+    click(button('Shortcuts'));
     expect(container.querySelector('.shortcuts-box').textContent).toContain('Show media information');
   });
 
@@ -626,6 +644,7 @@ describe('App', () => {
     click(container.querySelector('.media-card'));
     const panorama = container.querySelector('[data-testid="panorama-viewer"]');
     click(button('Open settings'));
+    click(button('About'));
 
     const settings = container.querySelector('[role="dialog"][aria-label="Settings"]');
     expect(settings.textContent).toContain('Project website');
@@ -652,6 +671,7 @@ describe('App', () => {
     api.openExternal.mockResolvedValue(false);
     renderApp();
     click(button('Open settings'));
+    click(button('About'));
 
     await act(async () => {
       click(button('Visit website'));
@@ -665,6 +685,7 @@ describe('App', () => {
     api.openExternal.mockRejectedValue(new Error('Browser launch failed'));
     renderApp();
     click(button('Open settings'));
+    click(button('About'));
 
     await act(async () => {
       click(button('Visit website'));
@@ -679,6 +700,7 @@ describe('App', () => {
     const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null);
     renderApp();
     click(button('Open settings'));
+    click(button('About'));
 
     await act(async () => {
       click(button('Visit website'));
@@ -695,6 +717,7 @@ describe('App', () => {
   ])('preserves the %s external link in Settings', async (label, url) => {
     renderApp();
     click(button('Open settings'));
+    click(button('About'));
 
     await act(async () => {
       click(button(label));

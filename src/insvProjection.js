@@ -19,6 +19,7 @@ export const INSV_FRAGMENT_SHADER = `
   uniform float yaw;
   uniform float pitch;
   uniform float fieldOfView;
+  uniform float lensFieldOfView;
   uniform float aspectRatio;
   uniform vec4 horizonRotation;
   varying vec2 screenPosition;
@@ -26,7 +27,7 @@ export const INSV_FRAGMENT_SHADER = `
 
   vec2 lensCoordinates(vec3 direction, float facing) {
     float angle = acos(clamp(direction.z * facing, -1.0, 1.0));
-    float radius = angle / (${geometry.fieldOfViewDegrees.toFixed(1)} * PI / 360.0) * ${geometry.radius.toFixed(3)};
+    float radius = angle / (lensFieldOfView * PI / 360.0) * ${geometry.radius.toFixed(3)};
     vec2 axis = vec2(direction.x * facing, direction.y);
     float axisLength = length(axis);
     return vec2(0.5) + (axisLength > 0.00001 ? axis / axisLength * radius : vec2(0.0));

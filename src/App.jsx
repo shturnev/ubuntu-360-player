@@ -54,15 +54,25 @@ function App() {
   const mediaSaveInProgress = useRef(false);
   const exportRequestId = useRef(0);
   const activeExportId = useRef(null);
+  const lensRequestIdRef = useRef(0);
+  const activeLensRequestRef = useRef(null);
+  const api = typeof window !== 'undefined' ? window.shtVR : null;
+
+  const cancelInsvLensCorrection = (origPath) => {
+    const active = activeLensRequestRef.current;
+    if (!active || (origPath && active.origPath !== origPath)) return;
+    activeLensRequestRef.current = null;
+    if (active.insp) api?.cancelInspLensCorrection?.(active);
+    else api?.cancelInsvLensCorrection?.(active);
+  };
 
   const closeViewer = () => {
+    cancelInsvLensCorrection();
     setShowingItem(null);
     setFlatView(false);
     setPlaybackFailedVideoId('');
     setMetadata({ identity: '', status: 'idle', entries: [], error: '' });
   };
-
-  const api = typeof window !== 'undefined' ? window.shtVR : null;
 
   const totalSelected = useMemo(() => items.filter((item) => item.selected).length, [items]);
 
@@ -301,6 +311,11 @@ function App() {
     showingItemIdRef.current = getMediaIdentity(showingItem);
   }, [showingItem]);
 
+  useEffect(() => {
+    const origPath = showingItem?.origPath;
+    return () => cancelInsvLensCorrection(origPath);
+  }, [showingItem?.origPath, api]);
+
   const openExternalLink = async (url) => {
     try {
       if (api && typeof api.openExternal === 'function') {
@@ -530,26 +545,94 @@ function App() {
       throw new Error('Saving orientation corrections is unavailable.');
     }
 
-    const result = await api.saveOrientationCorrection({ origPath: showingItem.origPath, orientation });
-    if (!result?.success) {
-      throw new Error(result?.message || 'Unable to save orientation correction.');
+    const origPath = showingItem.origPath;
+    let request;
+    if (showingItem.insp) {
+      if (activeLensRequestRef.current) throw new Error('Another lens or orientation correction is still processing.');
+      request = { origPath, requestId: ++lensRequestIdRef.current, insp: true, orientation: true };
+      activeLensRequestRef.current = request;
     }
-
-    setViewerRevision((current) => current + 1);
-    setItems((current) =>
-      current.map((item) =>
-        item.origPath === showingItem.origPath ? { ...item, thumbnailRevision: Date.now() } : item
-      )
-    );
+    try {
+      const result = await api.saveOrientationCorrection({
+        origPath,
+        orientation,
+        ...(request ? { requestId: request.requestId } : {}),
+      });
+      if (request && activeLensRequestRef.current !== request)
+        throw new Error('The orientation correction was cancelled.');
+      if (!result?.success) throw new Error(result?.message || 'Unable to save orientation correction.');
+      setViewerRevision((current) => current + 1);
+      const update = (item) =>
+        item.origPath === origPath
+          ? {
+              ...item,
+              ...(request && result.bigName
+                ? { bigName: result.bigName, thumpName: result.thumpName || result.bigName }
+                : {}),
+              thumbnailRevision: Date.now(),
+            }
+          : item;
+      setItems((current) => current.map(update));
+      if (request) setShowingItem((current) => (current ? update(current) : current));
+    } finally {
+      if (request && activeLensRequestRef.current === request) activeLensRequestRef.current = null;
+    }
   };
 
   const updateCheckSetting = () => {
     const nextValue = !configData.checkUpdates;
     const payload = { ...configData, checkUpdates: nextValue };
     setConfigData(payload);
-    request('save-config', payload);
+    request('save-config', { checkUpdates: nextValue });
     if (nextValue) {
       request('check-for-update', null);
+    }
+  };
+
+  const saveInsvLensFov = async (value) => {
+    if (typeof api?.saveInsvLensFov !== 'function') throw new Error('Saving INSV lens FOV is unavailable.');
+    const result = await api.saveInsvLensFov(value);
+    if (!result?.success) throw new Error(result?.message || 'Unable to save the INSV lens FOV.');
+    setConfigData((current) => ({ ...current, insvLensFov: result.insvLensFov }));
+  };
+
+  const saveInspLensFov = async (value) => {
+    if (typeof api?.saveInspLensFov !== 'function') throw new Error('Saving INSP lens FOV is unavailable.');
+    const result = await api.saveInspLensFov(value);
+    if (!result?.success) throw new Error(result?.message || 'Unable to save the INSP lens FOV.');
+    setConfigData((current) => ({ ...current, inspLensFov: result.inspLensFov }));
+  };
+
+  const saveInsvLensCorrection = async (value) => {
+    const origPath = showingItem?.origPath;
+    const insp = Boolean(showingItem?.insp);
+    const save = insp ? api?.saveInspLensCorrection : api?.saveInsvLensCorrection;
+    if ((!showingItem?.insv && !insp) || !origPath || typeof save !== 'function') {
+      throw new Error('Saving lens corrections is unavailable.');
+    }
+    if (activeLensRequestRef.current) throw new Error('Another lens correction is still processing.');
+    const request = { origPath, requestId: ++lensRequestIdRef.current, ...(insp ? { insp: true } : {}) };
+    activeLensRequestRef.current = request;
+    try {
+      const result = await save({ ...request, value });
+      if (activeLensRequestRef.current !== request) throw new Error('The lens correction was cancelled.');
+      if (!result?.success) throw new Error(result?.message || 'Unable to save the lens correction.');
+      const update = (item) =>
+        item.origPath === origPath
+          ? {
+              ...item,
+              thumpName: result.thumpName,
+              bigName: result.bigName || result.thumpName,
+              lensFieldOfView: result.lensFieldOfView,
+              lensFovOverride: result.lensFovOverride,
+              ...(insp ? { legacyInsp: false } : {}),
+            }
+          : item;
+      setItems((current) => current.map(update));
+      setShowingItem((current) => (current ? update(current) : current));
+      return result;
+    } finally {
+      if (activeLensRequestRef.current === request) activeLensRequestRef.current = null;
     }
   };
 
@@ -714,9 +797,14 @@ function App() {
           onSaveScreenshot={savePanoramaScreenshot}
           onScreenshotError={setErrorMessage}
           onSaveOrientation={saveOrientationCorrection}
+          onSaveInsvLensCorrection={saveInsvLensCorrection}
+          onCancelInsvLensCorrection={() => {
+            if (!activeLensRequestRef.current?.orientation) cancelInsvLensCorrection(showingItem.origPath);
+          }}
           onDelete={() => handleDelete(showingItem)}
           onPrevious={() => {
             if (items.length < 2) return;
+            cancelInsvLensCorrection(showingItem.origPath);
             const currentIndex = items.findIndex(
               (item) => item.origPath === showingItem.origPath && item.bigName === showingItem.bigName
             );
@@ -727,6 +815,7 @@ function App() {
           }}
           onNext={() => {
             if (items.length < 2) return;
+            cancelInsvLensCorrection(showingItem.origPath);
             const currentIndex = items.findIndex(
               (item) => item.origPath === showingItem.origPath && item.bigName === showingItem.bigName
             );
@@ -750,6 +839,10 @@ function App() {
             <SettingsPanel
               cacheSize={cacheSize}
               checkUpdates={Boolean(configData.checkUpdates)}
+              inspLensFov={configData.inspLensFov}
+              onSaveInspLensFov={saveInspLensFov}
+              insvLensFov={configData.insvLensFov}
+              onSaveInsvLensFov={saveInsvLensFov}
               onDeleteCache={deleteCache}
               onUpdateSetting={updateCheckSetting}
               onOpenExternal={openExternalLink}

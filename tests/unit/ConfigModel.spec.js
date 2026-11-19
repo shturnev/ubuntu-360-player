@@ -39,6 +39,45 @@ describe('ConfigModel', () => {
     expect(stored.version).toBe(require('../../package.json').version);
   });
 
+  test('adds lens defaults to an existing config even when the version matches', () => {
+    fs.writeFileSync(configModel.configPath, JSON.stringify({ version: baseConfig.version, checkUpdates: false }));
+
+    const settings = configModel.getSettings();
+    expect(settings).toMatchObject({ checkUpdates: false, inspLensFov: 199, insvLensFov: 183.3 });
+    expect(JSON.parse(fs.readFileSync(configModel.configPath, 'utf8'))).toEqual(settings);
+  });
+
+  test('preserves saved lens defaults during migration', () => {
+    fs.writeFileSync(
+      configModel.configPath,
+      JSON.stringify({ version: '0.0.1', inspLensFov: 201, insvLensFov: 185.2 })
+    );
+
+    expect(configModel.getSettings()).toMatchObject({ inspLensFov: 201, insvLensFov: 185.2 });
+  });
+
+  test.each([NaN, Infinity, '199', 179.9, 220.1, 199.01, null])('rejects invalid lens FOV %s', (value) => {
+    expect(() => configModel.loadSettings({ ...baseConfig, inspLensFov: value })).toThrow(/invalid inspLensFov/i);
+    expect(fs.existsSync(configModel.configPath)).toBe(false);
+  });
+
+  test('reports invalid stored lens settings rather than silently replacing them', () => {
+    fs.writeFileSync(configModel.configPath, JSON.stringify({ ...baseConfig, insvLensFov: 0 }));
+    expect(() => configModel.getSettings()).toThrow(/invalid insvLensFov/i);
+  });
+
+  test('keeps the previous config if the atomic replacement fails', () => {
+    configModel.loadSettings(baseConfig);
+    const previous = fs.readFileSync(configModel.configPath, 'utf8');
+    const rename = jest.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('disk error');
+    });
+    expect(() => configModel.loadSettings({ ...baseConfig, insvLensFov: 200 })).toThrow('disk error');
+    rename.mockRestore();
+    expect(fs.readFileSync(configModel.configPath, 'utf8')).toBe(previous);
+    expect(fs.readdirSync(tempDir)).toEqual(['config.json']);
+  });
+
   test('migrates the version and removes legacy updater settings while preserving user settings', () => {
     const legacySettings = {
       version: '0.0.1',

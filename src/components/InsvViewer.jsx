@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createInsvPlayback } from '../insvPlayback.js';
 import { INSV_FRAGMENT_SHADER, INSV_VERTEX_SHADER } from '../insvProjection.js';
+import geometry from '../insvGeometry.json';
+import lensFov from '../lensFov.json';
 import VideoControls from './VideoControls.jsx';
 import './PanoramaViewer.scss';
 
@@ -37,6 +39,7 @@ const InsvViewer = forwardRef(function InsvViewer(
     flatProjection = false,
     motionMode = 'gyro',
     motionWarning,
+    lensFieldOfView = geometry.fieldOfViewDegrees,
     onToggleFullscreen,
     isFullscreen,
     onCaptureReadyChange,
@@ -55,6 +58,7 @@ const InsvViewer = forwardRef(function InsvViewer(
   const correctionReadyRef = useRef(false);
   const captureReadyRef = useRef(false);
   const frameTimeRef = useRef(0);
+  const lensFovRef = useRef(null);
   const [message, setMessage] = useState('');
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(false);
@@ -63,11 +67,27 @@ const InsvViewer = forwardRef(function InsvViewer(
   const [correctionLoading, setCorrectionLoading] = useState(true);
   const firstSource = sources?.[0];
   const secondSource = sources?.[1];
+  const validLensFov =
+    typeof lensFieldOfView === 'number' &&
+    Number.isFinite(lensFieldOfView) &&
+    lensFieldOfView >= lensFov.minimum &&
+    lensFieldOfView <= lensFov.maximum &&
+    Math.abs(lensFieldOfView * 10 - Math.round(lensFieldOfView * 10)) <= 1e-8;
 
   useEffect(() => {
     flatRef.current = flatProjection;
     drawRef.current();
   }, [flatProjection]);
+
+  useEffect(() => {
+    if (!validLensFov) {
+      lensFovRef.current = null;
+      setMessage('Invalid INSV lens field of view.');
+      return;
+    }
+    lensFovRef.current = lensFieldOfView;
+    drawRef.current();
+  }, [lensFieldOfView, validLensFov]);
 
   useImperativeHandle(ref, () => ({
     pause: () => {
@@ -94,6 +114,7 @@ const InsvViewer = forwardRef(function InsvViewer(
   }));
 
   useEffect(() => {
+    if (!validLensFov) return undefined;
     const canvas = canvasRef.current;
     const videos = [firstRef.current, secondRef.current];
     if (!canvas || videos.some((video) => !video)) return undefined;
@@ -163,6 +184,7 @@ const InsvViewer = forwardRef(function InsvViewer(
       gl.uniform1f(gl.getUniformLocation(program, 'yaw'), camera.current.yaw);
       gl.uniform1f(gl.getUniformLocation(program, 'pitch'), camera.current.pitch);
       gl.uniform1f(gl.getUniformLocation(program, 'fieldOfView'), camera.current.fov);
+      gl.uniform1f(gl.getUniformLocation(program, 'lensFieldOfView'), lensFovRef.current);
       gl.uniform1f(gl.getUniformLocation(program, 'aspectRatio'), width / height);
       const track = horizonRef.current;
       const rotation = track.length ? closestHorizonRotation(track, frameTimeRef.current) : [0, 0, 0, 1];
@@ -343,7 +365,7 @@ const InsvViewer = forwardRef(function InsvViewer(
       if (vertex) gl.deleteShader(vertex);
       if (fragment) gl.deleteShader(fragment);
     };
-  }, [firstSource, secondSource, frameRate, motionMode, onCaptureReadyChange]);
+  }, [firstSource, secondSource, frameRate, motionMode, onCaptureReadyChange, validLensFov]);
 
   const handlePointerMove = (event) => {
     const drag = camera.current.drag;
