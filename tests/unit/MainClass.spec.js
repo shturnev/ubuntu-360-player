@@ -799,6 +799,35 @@ describe('MainModelClass', () => {
     );
   });
 
+  test.each(['replace directory', 'remove from library', 'delete cache'])(
+    'cancels a pending INSP conversion on %s',
+    async (action) => {
+      const file = path.join(tempDir, 'pending.insp');
+      fs.writeFileSync(file, 'image');
+      let callback;
+      let signal;
+      jest.spyOn(Media, 'saveInsta360Image').mockImplementation((_file, _win, cb, options) => {
+        callback = cb;
+        signal = options.signal;
+      });
+      const pending = mainModelClass.readFiles([file]);
+      expect(signal.aborted).toBe(false);
+      if (action === 'replace directory') {
+        const directory = path.join(tempDir, 'empty');
+        fs.mkdirSync(directory);
+        await mainModelClass.readDir(directory);
+      } else if (action === 'remove from library') {
+        mainModelClass.removeFromLibrary([{ origPath: file }]);
+      } else {
+        mainModelClass.deleteCache({ reply: jest.fn() });
+      }
+      expect(signal.aborted).toBe(true);
+      callback({ origPath: file, error: new Error('cancelled') });
+      await pending;
+      expect(mainModelClass.authorizedMedia.has(file)).toBe(false);
+      expect(mainModelClass.pendingMedia.has(file)).toBe(false);
+    }
+  );
   test('returns metadata using the original path as its correlation key', async () => {
     jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }]);
     jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
