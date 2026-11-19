@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.11.0] - 2026-11-19
+### Changed
+- Add drag\-and\-drop media import ([#106](https://github.com/shturnev/ubuntu-360-player/pull/106))
+
 ## [3.10.1] - 2026-11-19
 ### Changed
 - Fix Unicode EXIF paths and empty folder imports ([#104](https://github.com/shturnev/ubuntu-360-player/pull/104))
