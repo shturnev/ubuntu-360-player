@@ -290,6 +290,20 @@ async function initializeApplication() {
     importPendingDirectory();
     appModel?.setExternalImportReady(true);
   });
+  ipcMain.handle('import-dropped-files', (event, files) => {
+    if (!appModel || !mainWindow || event.sender !== mainWindow.webContents) {
+      return { success: false, message: 'Importing dropped files is unavailable.' };
+    }
+    if (
+      !Array.isArray(files) ||
+      !files.length ||
+      !files.every((file) => typeof file === 'string' && !file.includes('\0') && path.isAbsolute(file))
+    ) {
+      return { success: false, message: 'Invalid dropped media file list.' };
+    }
+    appModel.enqueueExternalImport({ files });
+    return { success: true };
+  });
   ipcMain.handle('open-external-url', async (_, url) => {
     try {
       await shell.openExternal(url);

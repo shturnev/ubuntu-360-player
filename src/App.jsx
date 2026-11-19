@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './App.scss';
 import AppHeader from './components/AppHeader.jsx';
 import EmptyLibraryState from './components/EmptyLibraryState.jsx';
@@ -34,6 +35,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [savingMedia, setSavingMedia] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [fileDragActive, setFileDragActive] = useState(false);
   const [conversionProgress, setConversionProgress] = useState({
     active: false,
     percent: 0,
@@ -75,6 +77,56 @@ function App() {
   };
 
   const totalSelected = useMemo(() => items.filter((item) => item.selected).length, [items]);
+
+  useEffect(() => {
+    let depth = 0;
+    const isFileDrag = (event) =>
+      Array.from(event.dataTransfer?.types || []).includes('Files') ||
+      Array.from(event.dataTransfer?.items || []).some((item) => item.kind === 'file') ||
+      Boolean(event.dataTransfer?.files?.length);
+    const reset = () => {
+      depth = 0;
+      setFileDragActive(false);
+    };
+    const enter = (event) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      depth += 1;
+      setFileDragActive(true);
+    };
+    const over = (event) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setFileDragActive(true);
+    };
+    const leave = () => {
+      depth = Math.max(0, depth - 1);
+      if (!depth) setFileDragActive(false);
+    };
+    const drop = async (event) => {
+      const hasFiles = isFileDrag(event);
+      reset();
+      if (!hasFiles) return;
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer.files || []);
+      try {
+        if (!api?.importDroppedFiles) throw new Error('Importing dropped files is unavailable.');
+        const result = await api.importDroppedFiles(files);
+        if (!result?.success) throw new Error(result?.message || 'Unable to import dropped files.');
+      } catch (error) {
+        setErrorMessage(error?.message || 'Unable to import dropped files.');
+      }
+    };
+    const blur = (event) => {
+      if (event.target === window) reset();
+    };
+    const handlers = { dragenter: enter, dragover: over, dragleave: leave, drop, dragend: reset, blur };
+    Object.entries(handlers).forEach(([name, handler]) => window.addEventListener(name, handler, true));
+    return () => {
+      Object.entries(handlers).forEach(([name, handler]) => window.removeEventListener(name, handler, true));
+    };
+  }, [api]);
 
   useEffect(() => {
     if (!api) {
@@ -657,9 +709,22 @@ function App() {
       <ShortcutList />
     </section>
   );
+  const errorNotice = errorMessage && (
+    <NoticeBanner kind="error" title={errorMessage} onDismiss={() => setErrorMessage('')} />
+  );
+  const importProgress = loadingProgress.show && (
+    <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} detail={insvProgress} />
+  );
 
   return (
     <div className="app-shell">
+      {fileDragActive &&
+        createPortal(
+          <div className="file-drop-overlay" role="status">
+            Drop media files to add to your library
+          </div>,
+          document.fullscreenElement || document.body
+        )}
       <AppHeader
         version={configData.version}
         selectedPath={selectedPath}
@@ -677,7 +742,7 @@ function App() {
         onThumbnailSizeChange={setMaxSizePx}
       />
 
-      {errorMessage && <NoticeBanner kind="error" title={errorMessage} onDismiss={() => setErrorMessage('')} />}
+      {!showingItem && errorNotice}
 
       {updateState.status === 'available' && (
         <NoticeBanner
@@ -744,9 +809,7 @@ function App() {
         </EmptyLibraryState>
       )}
 
-      {loadingProgress.show && (
-        <LoadingProgress complete={loadingProgress.complete} total={loadingProgress.total} detail={insvProgress} />
-      )}
+      {!showingItem && importProgress}
       {exportProgress.show && (
         <LoadingProgress
           complete={exportProgress.complete}
@@ -772,6 +835,14 @@ function App() {
       {showingItem && (
         <ViewerOverlay
           ref={viewerRef}
+          importStatus={
+            (errorNotice || importProgress) && (
+              <div className="viewer-import-status">
+                {errorNotice}
+                {importProgress}
+              </div>
+            )
+          }
           shortcutsBlocked={showSettings}
           showingItem={showingItem}
           items={items}

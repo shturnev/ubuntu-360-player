@@ -79,6 +79,7 @@ describe('App', () => {
       saveCurrentMedia: jest.fn().mockResolvedValue({ success: true }),
       saveSelectedMedia: jest.fn().mockResolvedValue({ success: true, saved: 1, errors: [] }),
       saveOrientationCorrection: jest.fn().mockResolvedValue({ success: true }),
+      importDroppedFiles: jest.fn().mockResolvedValue({ success: true }),
     };
     window.shtVR = api;
     media = { type: 'image', thumpName: 'photo.jpg', bigName: 'photo-1000.jpg', origPath: '/media/photo.jpg' };
@@ -120,6 +121,176 @@ describe('App', () => {
     act(() => target.dispatchEvent(event));
     return event;
   };
+
+  const drag = (name, target = window, dataTransfer = { types: ['Files'], files: [] }) => {
+    const event = new Event(name, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+    act(() => target.dispatchEvent(event));
+    return event;
+  };
+  const dropOverlay = () => document.querySelector('.file-drop-overlay');
+
+  test.each([
+    ['empty library', '.empty-state', 1],
+    ['header', 'header', 2],
+    ['library', '.media-card', 2],
+    ['viewer', '[data-testid="panorama-viewer"]', 1],
+    ['settings', '.settings-dialog', 2],
+    ['window', null, 1],
+  ])('imports dropped files over the %s without replacing existing media', async (area, selector, count) => {
+    renderApp();
+    if (area !== 'empty library') loadMedia();
+    if (area === 'viewer') click(container.querySelector('.media-card'));
+    if (area === 'settings') click(button('Open settings'));
+    const target = selector ? container.querySelector(selector) : window;
+    expect(target).toBeTruthy();
+    const files = Array.from({ length: count }, (_, index) => new File(['image'], `${index}.jpg`));
+    const transfer = { types: ['Files'], files, dropEffect: 'none' };
+    expect(drag('dragenter', target, transfer).defaultPrevented).toBe(true);
+    expect(dropOverlay().textContent).toContain('Drop media files');
+    expect(drag('dragover', target, transfer).defaultPrevented).toBe(true);
+    expect(transfer.dropEffect).toBe('copy');
+    await act(async () => {
+      expect(drag('drop', target, transfer).defaultPrevented).toBe(true);
+    });
+    expect(api.importDroppedFiles).toHaveBeenCalledWith(files);
+    expect(dropOverlay()).toBeNull();
+    if (area !== 'empty library') expect(container.querySelectorAll('.media-card')).toHaveLength(1);
+    if (area === 'viewer') {
+      expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+      expect(mockPanoramaPause).not.toHaveBeenCalled();
+    }
+  });
+
+  test('submits every drop during an active import without waiting for earlier requests', async () => {
+    renderApp();
+    act(() => listeners['start-read-files']({}, 1));
+    let acceptFirst;
+    api.importDroppedFiles.mockImplementationOnce(() => new Promise((resolve) => (acceptFirst = resolve)));
+    const first = new File(['image'], 'first.jpg');
+    const second = new File(['image'], 'second.jpg');
+    drag('drop', window, { types: ['Files'], files: [first] });
+    await act(async () => drag('drop', window, { types: ['Files'], files: [second] }));
+    expect(api.importDroppedFiles.mock.calls).toEqual([[[first]], [[second]]]);
+    await act(async () => acceptFirst({ success: true }));
+  });
+
+  test('keeps the file highlight across nested elements and clears it on leave, cancellation and drop', async () => {
+    renderApp();
+    const child = container.querySelector('button');
+    drag('dragenter', container);
+    drag('dragenter', child);
+    drag('dragleave', container);
+    expect(dropOverlay()).not.toBeNull();
+    drag('dragleave', child);
+    expect(dropOverlay()).toBeNull();
+    for (const event of ['dragend', 'blur', 'drop']) {
+      drag('dragenter');
+      expect(dropOverlay()).not.toBeNull();
+      await act(async () => drag(event));
+      expect(dropOverlay()).toBeNull();
+    }
+  });
+
+  test('renders the drop hint inside the fullscreen viewer', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    const viewer = container.querySelector('[data-testid="panorama-viewer"]');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: viewer });
+    try {
+      drag('dragenter', viewer);
+      expect(viewer.contains(dropOverlay())).toBe(true);
+    } finally {
+      delete document.fullscreenElement;
+    }
+  });
+
+  test('keeps import progress and errors visible inside the viewer, including its fullscreen panel', async () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    const panel = container.querySelector('.viewer-panel');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: panel });
+    try {
+      act(() => listeners['start-read-files']({}, 2));
+      expect(panel.querySelector('[role="progressbar"]')).not.toBeNull();
+      act(() =>
+        listeners['read-media-file']({}, { origPath: '/bad.txt', error: { message: 'Unsupported media file.' } })
+      );
+      const notice = panel.querySelector('.notice.error');
+      expect(notice.textContent).toContain('Unsupported media file.');
+      click(notice.querySelector('button'));
+      expect(panel.querySelector('.notice.error')).toBeNull();
+      act(() => listeners['import-finished']());
+      expect(panel.querySelector('.viewer-import-status')).toBeNull();
+      api.importDroppedFiles.mockRejectedValueOnce(new Error('Cannot resolve dropped file.'));
+      await act(async () => drag('drop', panel, { types: ['Files'], files: [new File(['image'], 'photo.jpg')] }));
+      expect(panel.querySelector('.notice.error').textContent).toContain('Cannot resolve dropped file.');
+      expect(container.querySelectorAll('.media-card')).toHaveLength(1);
+      expect(container.querySelector('.viewer-panel')).toBe(panel);
+    } finally {
+      delete document.fullscreenElement;
+    }
+  });
+
+  test('leaves internal text/image drags and panorama pointer gestures untouched', () => {
+    renderApp();
+    loadMedia();
+    click(container.querySelector('.media-card'));
+    const viewer = container.querySelector('[data-testid="panorama-viewer"]');
+    const pointer = jest.fn();
+    viewer.addEventListener('pointermove', pointer);
+    const transfer = { types: ['text/uri-list', 'text/html'], files: [], dropEffect: 'move' };
+    for (const name of ['dragenter', 'dragover', 'drop']) {
+      expect(drag(name, viewer, transfer).defaultPrevented).toBe(false);
+    }
+    const event = new MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: 120, clientY: 80 });
+    act(() => viewer.dispatchEvent(event));
+    expect(pointer).toHaveBeenCalledWith(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(api.importDroppedFiles).not.toHaveBeenCalled();
+    expect(mockPanoramaPause).not.toHaveBeenCalled();
+    expect(dropOverlay()).toBeNull();
+  });
+
+  test.each(['resolution', 'main', 'unavailable'])(
+    'reports %s failures using the existing error notice',
+    async (mode) => {
+      renderApp();
+      if (mode === 'resolution') api.importDroppedFiles.mockRejectedValue(new Error('Cannot resolve dropped file.'));
+      if (mode === 'main') api.importDroppedFiles.mockResolvedValue({ success: false, message: 'Invalid file list.' });
+      if (mode === 'unavailable') delete api.importDroppedFiles;
+      drag('dragenter');
+      await act(async () => drag('drop', window, { types: ['Files'], files: [new File(['data'], 'file.jpg')] }));
+      expect(container.querySelector('.notice.error')).not.toBeNull();
+      expect(container.textContent).toContain(
+        mode === 'resolution'
+          ? 'Cannot resolve dropped file.'
+          : mode === 'main'
+            ? 'Invalid file list.'
+            : 'Importing dropped files is unavailable.'
+      );
+      expect(dropOverlay()).toBeNull();
+    }
+  );
+
+  test('cleans up global drop listeners during StrictMode remounts and unmounting', async () => {
+    act(() =>
+      root.render(
+        <StrictMode>
+          <App />
+        </StrictMode>
+      )
+    );
+    const transfer = { types: ['Files'], files: [new File(['image'], 'photo.jpg')] };
+    await act(async () => drag('drop', window, transfer));
+    expect(api.importDroppedFiles).toHaveBeenCalledTimes(1);
+    act(() => root.render(null));
+    drag('drop', window, transfer);
+    expect(api.importDroppedFiles).toHaveBeenCalledTimes(1);
+    expect(dropOverlay()).toBeNull();
+  });
 
   test('shows INSV import progress, badge, and correction fallback warning', () => {
     renderApp();

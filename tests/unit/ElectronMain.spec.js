@@ -275,6 +275,43 @@ describe('Electron main process directory launch flow', () => {
     expect(appModel.saveInsvLensFov).toHaveBeenCalledWith(200);
   });
 
+  test('queues dropped files only from the current window and never treats them as a directory import', async () => {
+    process.argv = ['/app/360-media-viewer'];
+    const { appModel, getReadyCallback, windows, main } = loadMain();
+    const { ipcMain } = require('electron');
+    await getReadyCallback()();
+    const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'import-dropped-files')[1];
+    const files = [path.join(tempDir, 'photo.jpg'), path.join(tempDir, 'clip.mp4')];
+    expect(handler({ sender: {} }, files)).toMatchObject({ success: false });
+    expect(appModel.enqueueExternalImport).not.toHaveBeenCalled();
+    expect(handler({ sender: windows[0].webContents }, files)).toEqual({ success: true });
+    expect(appModel.enqueueExternalImport).toHaveBeenCalledWith({ files });
+    expect(appModel.readDir).not.toHaveBeenCalled();
+    windows[0].on.mock.calls.find(([name]) => name === 'closed')[1]();
+    await main.createWindow();
+    appModel.enqueueExternalImport.mockClear();
+    expect(handler({ sender: windows[0].webContents }, files)).toMatchObject({ success: false });
+    expect(handler({ sender: windows[1].webContents }, [files[0]])).toEqual({ success: true });
+    expect(appModel.enqueueExternalImport).toHaveBeenCalledTimes(1);
+    expect(ipcMain.handle.mock.calls.filter(([name]) => name === 'import-dropped-files')).toHaveLength(1);
+  });
+
+  test.each([null, [], 'photo.jpg', [null], [42], ['relative.jpg'], ['file:///media/photo.jpg'], ['C:\\bad\0.jpg']])(
+    'rejects malformed dropped paths before queueing: %j',
+    async (files) => {
+      process.argv = ['/app/360-media-viewer'];
+      const { appModel, getReadyCallback, windows } = loadMain();
+      const { ipcMain } = require('electron');
+      await getReadyCallback()();
+      const handler = ipcMain.handle.mock.calls.find(([name]) => name === 'import-dropped-files')[1];
+      expect(handler({ sender: windows[0].webContents }, files)).toMatchObject({
+        success: false,
+        message: 'Invalid dropped media file list.',
+      });
+      expect(appModel.enqueueExternalImport).not.toHaveBeenCalled();
+    }
+  );
+
   test('authorizes INSV correction requests and cancellation against the current window', async () => {
     process.argv = ['/app/360-media-viewer'];
     const { appModel, getReadyCallback, windows } = loadMain();

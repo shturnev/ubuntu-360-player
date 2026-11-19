@@ -1206,6 +1206,62 @@ describe('MainModelClass', () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 
+  test('appends dropped batches after a manual import, preserving the library and reporting invalid entries', async () => {
+    const manual = path.join(tempDir, 'manual.jpg');
+    const dropped = path.join(tempDir, 'dropped.jpg');
+    const folder = path.join(tempDir, 'folder.jpg');
+    const missing = path.join(tempDir, 'missing.png');
+    const unsupported = path.join(tempDir, 'notes.txt');
+    fs.writeFileSync(manual, 'image');
+    fs.writeFileSync(dropped, 'image');
+    fs.writeFileSync(unsupported, 'text');
+    fs.mkdirSync(folder);
+    const callbacks = new Map();
+    const save = jest.spyOn(Media, 'saveImage').mockImplementation((file, _win, cb) => callbacks.set(file, cb));
+    mainModelClass.authorizedMedia.set('/existing.jpg', 'image');
+    dialog.showOpenDialogSync.mockReturnValueOnce([manual]);
+    mainModelClass.openFiles({ reply: jest.fn() });
+    mainModelClass.enqueueExternalImport({ files: [dropped, folder, missing, unsupported] });
+    mainModelClass.enqueueExternalImport({ files: [dropped] });
+    expect(save).toHaveBeenCalledTimes(1);
+    callbacks.get(manual)({ origPath: manual });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(mainModelClass.importBusy).toBe(true);
+    callbacks.get(dropped)({ origPath: dropped });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mainModelClass.importBusy).toBe(false);
+    expect(mainModelClass.externalImports).toEqual([]);
+    expect([...mainModelClass.authorizedMedia.keys()]).toEqual(['/existing.jpg', manual, dropped]);
+    const send = mainModelClass.win.webContents.send;
+    const errors = send.mock.calls
+      .filter(([channel, payload]) => channel === 'read-media-file' && payload.error)
+      .map(([, payload]) => [payload.origPath, payload.error.message]);
+    expect(errors).toEqual([
+      [folder, 'The selected path is not a regular file.'],
+      [missing, 'Unable to access this media file.'],
+      [unsupported, 'Unsupported media file.'],
+    ]);
+    expect(send.mock.calls.filter(([channel]) => channel === 'start-read-dir')).toHaveLength(0);
+    expect(send.mock.calls.filter(([channel]) => channel === 'import-finished')).toHaveLength(3);
+    expect(send).toHaveBeenCalledWith('start-read-files', 0);
+  });
+
+  test('keeps processing queued dropped INSV pairs after a batch fails', async () => {
+    const pair = ['VID_20260101_120000_00_001.insv', 'VID_20260101_120000_10_001.insv'].map((name) =>
+      path.join(tempDir, name)
+    );
+    const read = jest.spyOn(mainModelClass, 'readFiles').mockRejectedValueOnce(new Error('Import failed.'));
+    read.mockResolvedValueOnce();
+    mainModelClass.enqueueExternalImport({ files: [path.join(tempDir, 'first.jpg')] });
+    mainModelClass.enqueueExternalImport({ files: pair });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(read).toHaveBeenNthCalledWith(2, pair);
+    expect(mainModelClass.win.webContents.send).toHaveBeenCalledWith('show-error', { message: 'Import failed.' });
+    expect(mainModelClass.importBusy).toBe(false);
+    expect(mainModelClass.externalImports).toEqual([]);
+  });
+
   test('waits for derived image EXIF synchronization before importing the next batch', async () => {
     const first = path.join(tempDir, 'a.insp');
     const second = path.join(tempDir, 'b.jpg');

@@ -190,6 +190,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
     onSaveInsvLensCorrection,
     onCancelInsvLensCorrection,
     shortcutsBlocked,
+    importStatus,
   },
   ref
 ) {
@@ -563,6 +564,7 @@ const ViewerOverlay = forwardRef(function ViewerOverlay(
   return (
     <div className="viewer-overlay" onClick={onClose}>
       <div ref={panelRef} className="viewer-panel" onClick={(event) => event.stopPropagation()}>
+        {importStatus}
         <button type="button" className="close-viewer" onClick={onClose}>
           ✕
         </button>

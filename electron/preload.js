@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const allowedChannels = [
   'open-dir',
@@ -39,6 +39,15 @@ const allowedChannels = [
 ];
 
 contextBridge.exposeInMainWorld('shtVR', {
+  async importDroppedFiles(files) {
+    if (!Array.isArray(files) || !files.length) throw new Error('No dropped files were provided.');
+    const paths = files.map((file) => {
+      const filePath = webUtils.getPathForFile(file);
+      if (!filePath) throw new Error('Unable to access a dropped file. Drop files from your file manager.');
+      return filePath;
+    });
+    return ipcRenderer.invoke('import-dropped-files', paths);
+  },
   send(channel, payload) {
     if (allowedChannels.includes(channel)) {
       ipcRenderer.send(channel, payload);
