@@ -44,8 +44,11 @@ not relicensed under BUSL-1.1.
 
 ## Linux packages (`.deb`, AppImage)
 
-The Linux builds do not bundle FFmpeg, ExifTool or sharp. The `.deb` depends on the distribution packages `ffmpeg`,
-`graphicsmagick` and `perl`, which are installed and licensed separately by your distribution.
+The Linux builds do not bundle FFmpeg, FFprobe or sharp. They do bundle the Perl ExifTool from
+[`exiftool-vendored.pl`](https://github.com/photostructure/exiftool-vendored.js) (ExifTool by Phil Harvey,
+**Artistic License or GNU GPL v1+**, source: <https://exiftool.org/>), which runs on the system Perl. The `.deb`
+depends on the distribution packages `ffmpeg`, `graphicsmagick` and `perl`, which are installed and licensed
+separately by your distribution.
 
 ## Electron and Chromium
 
