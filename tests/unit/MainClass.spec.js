@@ -832,6 +832,7 @@ describe('MainModelClass', () => {
     const newDir = path.join(tempDir, 'new-library');
     fs.mkdirSync(sourceDir);
     fs.mkdirSync(newDir);
+    fs.writeFileSync(path.join(newDir, 'invalid.insv'), 'video');
     ['VID_20250125_151712_00_105.insv', 'VID_20250125_151712_10_105.insv'].forEach((name) =>
       fs.writeFileSync(path.join(sourceDir, name), 'original')
     );
@@ -902,24 +903,29 @@ describe('MainModelClass', () => {
     expect(mainModelClass.authorizedMedia.get(path.join(sourceDir, 'one-x2-uppercase.INSP'))).toBe('image');
   });
 
-  test('readDir keeps the empty-directory behavior when no media files are supported', async () => {
-    const sourceDir = path.join(tempDir, 'empty-media');
-    fs.mkdirSync(sourceDir);
-    fs.writeFileSync(path.join(sourceDir, 'notes.txt'), 'text');
-    const send = jest.fn();
-    mainModelClass.win.webContents.send = send;
+  test.each(['empty', 'unsupported', 'directory with media extension'])(
+    'rejects a folder with %s and preserves the current library',
+    async (contents) => {
+      const sourceDir = path.join(tempDir, 'empty-media');
+      fs.mkdirSync(sourceDir);
+      if (contents === 'unsupported') fs.writeFileSync(path.join(sourceDir, 'notes.txt'), 'text');
+      if (contents === 'directory with media extension') fs.mkdirSync(path.join(sourceDir, 'album.jpg'));
+      const send = jest.fn();
+      mainModelClass.win.webContents.send = send;
+      mainModelClass.authorizedMedia.set('existing', 'image');
+      mainModelClass.exportMedia.set('existing', { bigName: 'existing.jpg' });
+      const generation = mainModelClass.directoryImportGeneration;
 
-    await new Promise((resolve) => {
-      send.mockImplementation((channel) => {
-        if (channel === 'open-dir') resolve();
-      });
+      await mainModelClass.readDir(sourceDir);
 
-      mainModelClass.readDir(sourceDir);
-    });
-
-    expect(send).toHaveBeenCalledWith('start-read-dir', 0);
-    expect(send).toHaveBeenCalledWith('open-dir', false);
-  });
+      expect(send).not.toHaveBeenCalledWith('start-read-dir', expect.anything());
+      expect(send).toHaveBeenCalledWith('show-error', { message: 'This folder contains no supported media files.' });
+      expect(send).toHaveBeenCalledWith('open-dir', false);
+      expect(mainModelClass.authorizedMedia.get('existing')).toBe('image');
+      expect(mainModelClass.exportMedia.get('existing')).toEqual({ bigName: 'existing.jpg' });
+      expect(mainModelClass.directoryImportGeneration).toBe(generation);
+    }
+  );
 
   test('skips an inaccessible media entry without interrupting the directory import', async () => {
     const sourceDir = path.join(tempDir, 'partially-accessible-media');
@@ -1262,6 +1268,7 @@ describe('MainModelClass', () => {
       if (action === 'replace directory') {
         const directory = path.join(tempDir, 'empty');
         fs.mkdirSync(directory);
+        fs.writeFileSync(path.join(directory, 'invalid.insv'), 'video');
         await mainModelClass.readDir(directory);
       } else if (action === 'remove from library') {
         mainModelClass.removeFromLibrary([{ origPath: file }]);
@@ -1684,7 +1691,12 @@ describe('MainModelClass', () => {
     dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: output });
     await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({ success: true });
     expect(fs.readFileSync(output, 'utf8')).toBe('converted video');
-    mainModelClass.readDir(path.join(tempDir, 'new-library'));
+    await mainModelClass.readDir(path.join(tempDir, 'missing-library'));
+    expect(mainModelClass.exportMedia.has(original)).toBe(true);
+    const newLibrary = path.join(tempDir, 'new-library');
+    fs.mkdirSync(newLibrary);
+    fs.writeFileSync(path.join(newLibrary, 'invalid.insv'), 'video');
+    await mainModelClass.readDir(newLibrary);
     expect((await mainModelClass.saveCurrentMedia({ origPath: original })).success).toBe(false);
   });
 

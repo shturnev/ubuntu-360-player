@@ -13,12 +13,29 @@ const { assertCurrentInsp } = require('./inspSource');
 function execExiftool(args, ...rest) {
   let invocation;
   try {
-    invocation = mediaTools.exiftool(args);
+    invocation = mediaTools.exiftool(mediaTools.bundled ? ['-charset', 'filename=utf8', '-@', '-'] : args);
   } catch (error) {
     rest[rest.length - 1](error, '', '');
     return undefined;
   }
-  return execFile(invocation.command, invocation.args, ...rest);
+  if (!mediaTools.bundled) return execFile(invocation.command, invocation.args, ...rest);
+
+  const callback = rest[rest.length - 1];
+  let finished = false;
+  rest[rest.length - 1] = (...result) => {
+    if (finished) return;
+    finished = true;
+    callback(...result);
+  };
+  const child = execFile(invocation.command, invocation.args, ...rest);
+  child.stdin.on('error', (error) => {
+    if (finished) return;
+    finished = true;
+    child.kill();
+    callback(error, '', '');
+  });
+  child.stdin.end(`${args.join('\n')}\n`, 'utf8');
+  return child;
 }
 const exifQueue = [];
 let activeExifJobs = 0;

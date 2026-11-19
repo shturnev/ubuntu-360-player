@@ -53,6 +53,7 @@ class MainModelClass {
     this.authorizedMedia = new Map();
     this.exportMedia = new Map();
     this.directoryImportGeneration = 0;
+    this.directoryReadGeneration = 0;
     this.mediaSaveInProgress = false;
     this.importBusy = false;
     this.externalImports = [];
@@ -938,7 +939,6 @@ class MainModelClass {
       return false;
     }
 
-    event.reply('open-dir', resOpen[0]);
     Promise.resolve(this.readDir(resOpen[0])).finally(() => this.finishImport());
     return resOpen;
   }
@@ -993,7 +993,6 @@ class MainModelClass {
     const { directory, files } = this.externalImports.shift();
     try {
       if (directory) {
-        this.win?.webContents?.send('open-dir', directory);
         await this.readDir(directory);
       }
       if (files?.length) await this.readFiles(files);
@@ -1006,16 +1005,14 @@ class MainModelClass {
   }
 
   readDir(pathDir) {
-    const importGeneration = ++this.directoryImportGeneration;
-    this.cancelPendingMedia();
-    this.authorizedMedia = new Map();
-    this.exportMedia = new Map();
-    this.insvSources.clear();
-    this.insvTokens.clear();
-    this.inspMedia.clear();
+    const readGeneration = ++this.directoryReadGeneration;
+    const previousImportGeneration = this.directoryImportGeneration;
     return new Promise((resolve) =>
-      fs.readdir(pathDir, async (err, files) => {
-        if (importGeneration !== this.directoryImportGeneration) {
+      fs.readdir(pathDir, { withFileTypes: true }, async (err, entries) => {
+        if (
+          readGeneration !== this.directoryReadGeneration ||
+          previousImportGeneration !== this.directoryImportGeneration
+        ) {
           resolve();
           return;
         }
@@ -1030,11 +1027,34 @@ class MainModelClass {
         }
 
         try {
-          await this.prepareMedia(
-            files.filter(isSupportedMediaPath).map((file) => path.join(pathDir, file)),
-            false,
-            importGeneration
-          );
+          const files = entries
+            .filter((entry) => {
+              if (!isSupportedMediaPath(entry.name)) return false;
+              if (entry.isFile()) return true;
+              if (!entry.isSymbolicLink()) return false;
+              try {
+                return !fs.statSync(path.join(pathDir, entry.name)).isDirectory();
+              } catch {
+                // Let prepareMedia report inaccessible links as individual import errors.
+                return true;
+              }
+            })
+            .map((entry) => path.join(pathDir, entry.name));
+          if (!files.length) {
+            this.win?.webContents?.send('show-error', { message: 'This folder contains no supported media files.' });
+            this.win?.webContents?.send('open-dir', false);
+            resolve();
+            return;
+          }
+          const importGeneration = ++this.directoryImportGeneration;
+          this.cancelPendingMedia();
+          this.authorizedMedia = new Map();
+          this.exportMedia = new Map();
+          this.insvSources.clear();
+          this.insvTokens.clear();
+          this.inspMedia.clear();
+          this.win?.webContents?.send('open-dir', pathDir);
+          await this.prepareMedia(files, false, importGeneration);
         } catch (error) {
           this.win?.webContents?.send('show-error', { message: error.message || 'Unable to import media.' });
           this.win?.webContents?.send('open-dir', false);
