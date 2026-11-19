@@ -17,7 +17,6 @@ jest.mock('electron-updater', () => ({
 
 const { dialog, ipcMain, shell } = require('electron');
 
-jest.mock('trash', () => jest.fn(async () => true));
 jest.mock('../../src/models/renameNoReplace', () => jest.fn(jest.requireActual('../../src/models/renameNoReplace')));
 jest.mock('../../src/models/insvCache', () => ({ createInsvThumbnail: jest.fn() }));
 jest.mock('../../src/models/insvMotion', () => ({
