@@ -186,11 +186,17 @@ class MainModelClass {
     this.win = win;
     if (!win) this.externalImportReady = false;
     this.directoryImportGeneration += 1;
+    this.cancelPendingMedia();
     this.authorizedMedia.clear();
     this.exportMedia.clear();
     this.insvSources.clear();
     this.insvTokens.clear();
     if (win?.webContents && this.serverUrl) win.webContents.send('start-file-server', this.serverUrl);
+  }
+
+  cancelPendingMedia() {
+    for (const token of this.pendingMedia.values()) token.controller?.abort();
+    this.pendingMedia.clear();
   }
 
   recordExportMedia(origPath, bigName) {
@@ -716,12 +722,11 @@ class MainModelClass {
 
   readDir(pathDir) {
     const importGeneration = ++this.directoryImportGeneration;
-    for (const token of this.pendingMedia.values()) token.controller?.abort();
+    this.cancelPendingMedia();
     this.authorizedMedia = new Map();
     this.exportMedia = new Map();
     this.insvSources.clear();
     this.insvTokens.clear();
-    this.pendingMedia.clear();
     return new Promise((resolve) =>
       fs.readdir(pathDir, async (err, files) => {
         if (importGeneration !== this.directoryImportGeneration) {
@@ -1035,8 +1040,7 @@ class MainModelClass {
 
   deleteCache(event, items = []) {
     this.directoryImportGeneration += 1;
-    for (const token of this.pendingMedia.values()) token.controller?.abort();
-    this.pendingMedia.clear();
+    this.cancelPendingMedia();
     this.authorizedMedia.clear();
     this.exportMedia.clear();
     this.insvSources.clear();

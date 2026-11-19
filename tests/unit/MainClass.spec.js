@@ -828,6 +828,36 @@ describe('MainModelClass', () => {
       expect(mainModelClass.pendingMedia.has(file)).toBe(false);
     }
   );
+
+  test.each(['close', 'replace'])('cancels pending INSP imports when the window is %sd', async (action) => {
+    const files = ['active.insp', 'queued.insp'].map((name) => path.join(tempDir, name));
+    files.forEach((file) => fs.writeFileSync(file, 'image'));
+    const operations = [];
+    jest.spyOn(Media, 'saveInsta360Image').mockImplementation((file, _win, callback, { signal }) => {
+      operations.push({ file, callback, signal });
+    });
+    const oldWindow = mainModelClass.win;
+    const oldImport = mainModelClass.readFiles(files);
+    expect(operations).toHaveLength(2);
+    const newWindow = { webContents: { send: jest.fn() } };
+    mainModelClass.setWindow(action === 'close' ? null : newWindow);
+    expect(operations.every(({ signal }) => signal.aborted)).toBe(true);
+    expect(mainModelClass.pendingMedia.size).toBe(0);
+
+    if (action === 'close') mainModelClass.setWindow(newWindow);
+    const newImport = mainModelClass.readFiles([files[0]]);
+    expect(operations).toHaveLength(3);
+    operations.slice(0, 2).forEach(({ file, callback }) => callback({ origPath: file, error: new Error('cancelled') }));
+    await oldImport;
+    expect(mainModelClass.pendingMedia.has(files[0])).toBe(true);
+    expect(oldWindow.webContents.send).not.toHaveBeenCalledWith('read-media-file', expect.anything());
+    expect(newWindow.webContents.send).not.toHaveBeenCalledWith('read-media-file', expect.anything());
+    operations[2].callback({ origPath: files[0] });
+    await newImport;
+    expect(newWindow.webContents.send).toHaveBeenCalledWith('read-media-file', { origPath: files[0] });
+    expect(mainModelClass.pendingMedia.size).toBe(0);
+  });
+
   test('returns metadata using the original path as its correlation key', async () => {
     jest.spyOn(Media, 'getMetadata').mockResolvedValue([{ key: 'dimensions', label: 'Dimensions', value: '1 × 1' }]);
     jest.spyOn(mainModelClass, 'startFileServer').mockImplementation(() => {});
