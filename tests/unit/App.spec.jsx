@@ -980,6 +980,27 @@ describe('App', () => {
     }
   });
 
+  test('keeps the library and viewer when a folder import is rejected', () => {
+    renderApp();
+    act(() => {
+      listeners['open-dir']({}, '/tmp/media-library');
+      listeners['start-read-dir']({}, 1);
+      listeners['read-media-file']({}, media);
+      listeners['import-finished']();
+    });
+    click(container.querySelector('.media-card'));
+
+    act(() => {
+      listeners['show-error']({}, { message: 'This folder contains no supported media files.' });
+      listeners['open-dir']({}, false);
+    });
+
+    expect(container.querySelector('.path-label').textContent).toBe('/tmp/media-library');
+    expect(container.querySelectorAll('.media-card')).toHaveLength(1);
+    expect(container.querySelector('[data-testid="panorama-viewer"]')).not.toBeNull();
+    expect(container.textContent).toContain('This folder contains no supported media files.');
+  });
+
   test('deletes the item requested from the viewer even if it was not selected first', () => {
     renderApp();
     loadMedia();
