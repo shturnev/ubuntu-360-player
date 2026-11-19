@@ -10,7 +10,8 @@ It's straightforward: I love 360 photos and videos, and I also like Linux. To vi
 * Open a media directory or add individual media files and browse them in a thumbnail grid.
 * View ordinary photos and videos as well as 360° photos and videos, including Insta360 `.insp` photos and paired `.insv` videos.
 * Explore 360° media in an interactive panorama viewer, with a flat-view fallback.
-* Correct panorama orientation with yaw, pitch, and roll controls; use center guides in Flat view and save the correction to the local cache.
+* Correct panorama orientation with yaw, pitch, and roll controls; use center guides in Flat view and save the correction locally.
+* Adjust lens field of view for Insta360 INSP photos and INSV video pairs, globally or per item.
 * Navigate between media items, adjust thumbnail size, and select multiple items.
 * Play MP4 video (H.264/HEVC) and convert incompatible videos to H.264 with progress reporting.
 * View the original filename, EXIF, and other media metadata, including date, time, and location when available.
@@ -29,6 +30,23 @@ also offers 360 Media Viewer in **Open With** (Linux: JPG, JPEG, PNG, INSP, and 
 Windows: JPG, JPEG, PNG, MP4, INSP, and INSV).
 Opening files in an already running instance appends them. A directory passed
 alongside files replaces the library first, then the files are added.
+
+### Insta360 lens field of view
+
+Open **Settings → Lenses** to set separate INSP and INSV defaults (199° and
+183.3° initially). Values range from 180° to 220° in 0.1° steps; one value
+applies to both lenses and axes. Changes apply to subsequent imports.
+
+For an open INSP photo or INSV pair, use **Adjust lens field of view** to save
+an individual correction or choose **Use global default**. Changing the FOV
+restitches INSP photos from the original and updates INSV playback and its
+thumbnail. Per-item lens corrections and orientation corrections for newly
+stitched INSP photos are stored outside the cache and survive cache clearing;
+moving or changing an original file starts a new correction.
+
+Older cached INSP panoramas may contain orientation corrections that cannot
+be recovered. The app asks before restitching them or clearing the cache.
+Lens FOV adjustments are approximate and do not replace factory calibration.
 
 ### Insta360 INSV video
 
