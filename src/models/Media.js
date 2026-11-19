@@ -20,6 +20,7 @@ function execExiftool(args, ...rest) {
 }
 const exifQueue = [];
 let activeExifJobs = 0;
+let insta360ImageQueue = Promise.resolve();
 
 const getBigDir = () => path.join(getStorageRoot(), 'static', 'big');
 const sendMediaResult = (win, result, onResult) => {
@@ -59,7 +60,21 @@ class Media {
     }
   }
 
-  static async saveInsta360Image(filePath, win, onResult) {
+  static saveInsta360Image(filePath, win, onResult, { signal } = {}) {
+    const operation = insta360ImageQueue.then(() => Media.processInsta360Image(filePath, win, onResult, signal));
+    insta360ImageQueue = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    return operation;
+  }
+
+  static async processInsta360Image(filePath, win, onResult, signal) {
+    if (signal?.aborted) {
+      const res = { origPath: filePath, error: new Error('Insta360 photo import was cancelled.') };
+      sendMediaResult(win, res, onResult);
+      return res;
+    }
     const bigName = getInsta360ImageName(filePath);
     const thumpName = bigName;
     const bigPath = path.join(getBigDir(), bigName);
@@ -79,14 +94,16 @@ class Media {
       const hadBigCache = isUsableFile(bigPath);
       if (!hadBigCache) {
         removeFileIfPresent(bigPath);
-        await convertInsta360Image(filePath, bigPath);
+        await convertInsta360Image(filePath, bigPath, signal);
       }
 
+      if (signal?.aborted) throw new Error('Insta360 photo import was cancelled.');
       if (!isUsableFile(thumpPath)) {
         removeFileIfPresent(thumpPath);
         await createImageThumbnail(bigPath, thumpPath);
       }
 
+      if (signal?.aborted) throw new Error('Insta360 photo import was cancelled.');
       sendMediaResult(win, res, onResult);
       return res;
     } catch (error) {
@@ -790,8 +807,9 @@ function createLink(origPath, newFileName, kind) {
   }
 }
 
-async function convertInsta360Image(filePath, outputPath) {
+async function convertInsta360Image(filePath, outputPath, signal) {
   const orientation = await getInsta360Orientation(filePath);
+  if (signal?.aborted) throw new Error('Insta360 photo import was cancelled.');
   const filter = [
     'v360=input=dfisheye:output=equirect:ih_fov=199:iv_fov=199:w=6080:h=3040:interp=lanczos',
     `yaw=${orientation.yaw}`,
@@ -815,10 +833,14 @@ async function convertInsta360Image(filePath, outputPath) {
     ]);
     let output = '';
     let settled = false;
+    const abort = () => child.kill();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
 
     const fail = (error) => {
       if (settled) return;
       settled = true;
+      signal?.removeEventListener('abort', abort);
       removeFileIfPresent(outputPath);
       reject(error instanceof Error ? error : new Error(String(error)));
     };
@@ -829,6 +851,10 @@ async function convertInsta360Image(filePath, outputPath) {
     child.on('error', () => fail(new Error('ffmpeg is not available for Insta360 photo conversion.')));
     child.on('close', (code) => {
       if (settled) return;
+      if (signal?.aborted) {
+        fail(new Error('Insta360 photo import was cancelled.'));
+        return;
+      }
       if (code !== 0) {
         fail(new Error(output || 'ffmpeg failed to convert the Insta360 photo.'));
         return;
@@ -838,6 +864,7 @@ async function convertInsta360Image(filePath, outputPath) {
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', abort);
       resolve();
     });
   });

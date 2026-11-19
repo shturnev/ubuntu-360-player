@@ -186,11 +186,17 @@ class MainModelClass {
     this.win = win;
     if (!win) this.externalImportReady = false;
     this.directoryImportGeneration += 1;
+    this.cancelPendingMedia();
     this.authorizedMedia.clear();
     this.exportMedia.clear();
     this.insvSources.clear();
     this.insvTokens.clear();
     if (win?.webContents && this.serverUrl) win.webContents.send('start-file-server', this.serverUrl);
+  }
+
+  cancelPendingMedia() {
+    for (const token of this.pendingMedia.values()) token.controller?.abort();
+    this.pendingMedia.clear();
   }
 
   recordExportMedia(origPath, bigName) {
@@ -716,11 +722,11 @@ class MainModelClass {
 
   readDir(pathDir) {
     const importGeneration = ++this.directoryImportGeneration;
+    this.cancelPendingMedia();
     this.authorizedMedia = new Map();
     this.exportMedia = new Map();
     this.insvSources.clear();
     this.insvTokens.clear();
-    this.pendingMedia.clear();
     return new Promise((resolve) =>
       fs.readdir(pathDir, async (err, files) => {
         if (importGeneration !== this.directoryImportGeneration) {
@@ -859,7 +865,7 @@ class MainModelClass {
           }
           const ext = path.extname(filePath).slice(1).toLowerCase();
           const type = ext === 'mp4' ? 'video' : 'image';
-          const token = {};
+          const token = ext === 'insp' ? { controller: new AbortController() } : {};
           this.pendingMedia.set(origPath, token);
           this.authorizedMedia.set(origPath, type);
           let completed = false;
@@ -936,7 +942,9 @@ class MainModelClass {
             if (type === 'video') {
               operation = Media.saveVideo(origPath, this.win, sendMediaResult);
             } else if (ext === 'insp') {
-              operation = Media.saveInsta360Image(origPath, this.win, sendMediaResult);
+              operation = Media.saveInsta360Image(origPath, this.win, sendMediaResult, {
+                signal: token.controller.signal,
+              });
             } else {
               operation = Media.saveImage(origPath, this.win, sendMediaResult);
             }
@@ -996,6 +1004,8 @@ class MainModelClass {
 
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
+      this.pendingMedia.get(item.origPath)?.controller?.abort();
+      this.pendingMedia.delete(item.origPath);
       mediaCache.unregisterSource(item.bigName);
       const thumpPath = this.static_dir + '/small/' + item.thumpName;
       const symlPath = this.static_dir + '/big/' + item.bigName;
@@ -1023,11 +1033,14 @@ class MainModelClass {
       this.insvTokens.delete(item.origPath);
       this.authorizedMedia.delete(item.origPath);
       this.exportMedia.delete(item.origPath);
+      this.pendingMedia.get(item.origPath)?.controller?.abort();
+      this.pendingMedia.delete(item.origPath);
     }
   }
 
   deleteCache(event, items = []) {
     this.directoryImportGeneration += 1;
+    this.cancelPendingMedia();
     this.authorizedMedia.clear();
     this.exportMedia.clear();
     this.insvSources.clear();

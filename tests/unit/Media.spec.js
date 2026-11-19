@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { EventEmitter } = require('events');
 const { execFile, exec, spawn } = require('child_process');
 
 jest.mock('exifr', () => ({ parse: jest.fn() }));
@@ -250,6 +251,69 @@ describe('Media', () => {
     expect(fs.existsSync(thumpPath)).toBe(true);
   });
 
+  test('serializes INSP conversions across calls, skips cancelled jobs and continues after errors', async () => {
+    const files = ['first.insp', 'cancelled.insp', 'last.insp'].map((name) => path.join(tempDir, name));
+    files.forEach((file) => fs.writeFileSync(file, 'image'));
+    const children = [];
+    spawn.mockImplementation(() => {
+      const child = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = jest.fn();
+      children.push(child);
+      return child;
+    });
+    const gm = require('gm');
+    gm.mockImplementation(() => ({
+      resize: jest.fn().mockReturnThis(),
+      autoOrient: jest.fn().mockReturnThis(),
+      write: jest.fn((target, callback) => {
+        writeJpeg(target);
+        callback(null);
+      }),
+    }));
+
+    const controller = new AbortController();
+    const first = Media.saveInsta360Image(files[0], null);
+    const cancelled = Media.saveInsta360Image(files[1], null, undefined, { signal: controller.signal });
+    const last = Media.saveInsta360Image(files[2], null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(children).toHaveLength(1);
+    controller.abort();
+    children[0].emit('close', 1);
+    expect((await first).error).toBeInstanceOf(Error);
+    expect((await cancelled).error.message).toMatch(/cancelled/);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(children).toHaveLength(2);
+    writeJpeg(path.join(tempDir, '.sht-vr-player', 'static', 'big', getInsta360CacheName(files[2])));
+    children[1].emit('close', 0);
+    expect((await last).error).toBeNull();
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  test('waits for a cancelled INSP converter to exit and removes its partial output', async () => {
+    const file = path.join(tempDir, 'active.insp');
+    fs.writeFileSync(file, 'image');
+    const output = path.join(tempDir, '.sht-vr-player', 'static', 'big', getInsta360CacheName(file));
+    const child = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn();
+    spawn.mockReturnValueOnce(child);
+    const controller = new AbortController();
+    let finished = false;
+    const pending = Media.saveInsta360Image(file, null, undefined, { signal: controller.signal }).then((result) => {
+      finished = true;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fs.writeFileSync(output, 'partial');
+    controller.abort();
+    await Promise.resolve();
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(finished).toBe(false);
+    child.emit('close', null);
+    expect((await pending).error.message).toMatch(/cancelled/);
+    expect(fs.existsSync(output)).toBe(false);
+  });
   function mockOrientationRender(writeOutput) {
     const child = {
       stderr: { on: jest.fn() },
