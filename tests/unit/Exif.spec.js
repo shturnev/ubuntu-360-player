@@ -167,6 +167,7 @@ describe('cached image EXIF', () => {
       model.config.configPath = path.join(storageRoot, 'config.json');
       await model.readDir(sourceDir);
       const imported = send.mock.calls.find(([channel]) => channel === 'read-media-file')?.[1];
+      expect(imported?.error).toBeUndefined();
       expect(imported).toMatchObject({ origPath: source, insp: true });
       const cached = path.join(bigDir, imported.bigName);
       expect(exif(cached)).toEqual(exif(source));

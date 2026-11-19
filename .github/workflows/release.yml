@@ -60,6 +60,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Linux media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg graphicsmagick perl
+
       - name: Test and check formatting
         run: |
           npm test
