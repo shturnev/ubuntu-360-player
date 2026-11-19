@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.9.3] - 2026-11-19
+### Changed
+- docs: license note in every release, Zeranoe wording ([#98](https://github.com/shturnev/ubuntu-360-player/pull/98))
+
 ## [3.9.2] - 2026-11-19
 ### Changed
 - chore: remove unused trash dependency ([#97](https://github.com/shturnev/ubuntu-360-player/pull/97))
