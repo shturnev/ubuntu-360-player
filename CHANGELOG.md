@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.9.2] - 2026-11-19
+### Changed
+- chore: remove unused trash dependency ([#97](https://github.com/shturnev/ubuntu-360-player/pull/97))
+
 ## [3.9.1] - 2026-11-19
 ### Changed
 - docs: third\-party licenses \(\#92\) ([#96](https://github.com/shturnev/ubuntu-360-player/pull/96))
