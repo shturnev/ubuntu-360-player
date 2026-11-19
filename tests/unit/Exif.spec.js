@@ -31,8 +31,11 @@ const png = Buffer.from(
 );
 
 const tool = (...args) => {
-  const invocation = mediaTools.exiftool(args);
-  return execFileSync(invocation.command, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const invocation = mediaTools.exiftool(mediaTools.bundled ? ['-charset', 'filename=utf8', '-@', '-'] : args);
+  return execFileSync(invocation.command, invocation.args, {
+    input: mediaTools.bundled ? `${args.join('\n')}\n` : undefined,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 };
 const exif = (file) => tool('-b', '-EXIF', file);
 
@@ -114,6 +117,21 @@ describe('cached image EXIF', () => {
     await Media.syncCachedExif(source, target, () => true);
     expect(exif(target)).toEqual(exif(source));
     expect(exif(target).length).toBeGreaterThan(0);
+  });
+
+  test('copies EXIF between paths containing non-ASCII characters', async () => {
+    const source = path.join(directory, 'фото.jpg');
+    const target = path.join(directory, 'копія.jpg');
+    fs.writeFileSync(source, jpegWithUnknownMakerNotes());
+    fs.writeFileSync(target, jpeg);
+    const original = fs.readFileSync(source);
+    const originalExif = exif(source);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await Media.syncCachedExif(source, target, () => true);
+
+    expect(exif(target)).toEqual(originalExif);
+    expect(fs.readFileSync(source)).toEqual(original);
   });
 
   test('copies the complete EXIF block when the source has unrecognized maker notes', async () => {
