@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.10.0] - 2026-11-19
+### Changed
+- Add lens FOV correction for INSP and INSV ([#102](https://github.com/shturnev/ubuntu-360-player/pull/102))
+
 ## [3.9.4] - 2026-11-19
 ### Changed
 - Limit memory peaks during INSP imports ([#100](https://github.com/shturnev/ubuntu-360-player/pull/100))
