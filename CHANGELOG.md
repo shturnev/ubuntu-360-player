@@ -1,6 +1,10 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
+## [3.9.1] - 2026-11-19
+### Changed
+- docs: third\-party licenses \(\#92\) ([#96](https://github.com/shturnev/ubuntu-360-player/pull/96))
+
 ## [3.9.0] - 2026-11-18
 ### Changed
 - feat: Delete moves original files to the trash \(\#92\) ([#95](https://github.com/shturnev/ubuntu-360-player/pull/95))
