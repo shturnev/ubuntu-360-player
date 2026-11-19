@@ -353,8 +353,11 @@ describe('Media', () => {
     const staticDir = path.join(tempDir, '.sht-vr-player', 'static');
     expect(Media.hasLegacyInsta360Image(file, staticDir)).toBe(false);
     const cache = path.join(staticDir, 'big', getInsta360CacheName(file));
-    fs.writeFileSync(cache, '');
-    expect(() => Media.hasLegacyInsta360Image(file, staticDir)).toThrow(/invalid/i);
+    for (const invalid of [Buffer.alloc(0), Buffer.from('not a JPEG'), Buffer.from([0xff, 0xd8, 0xff, 0xe0])]) {
+      fs.writeFileSync(cache, invalid);
+      expect(() => Media.hasLegacyInsta360Image(file, staticDir)).toThrow(/invalid/i);
+      expect(fs.readFileSync(cache)).toEqual(invalid);
+    }
     writeJpeg(cache);
     expect(Media.hasLegacyInsta360Image(file, staticDir)).toBe(true);
   });

@@ -93,7 +93,7 @@ class Media {
     const cachePath = path.join(staticDir, 'big', getInsta360ImageName(filePath));
     try {
       const stat = fs.lstatSync(cachePath);
-      if (!stat.isFile() || stat.size === 0) throw new Error('The old INSP cache is invalid.');
+      if (!stat.isFile() || !isCompleteJpeg(cachePath)) throw new Error('The old INSP cache is invalid.');
       return true;
     } catch (error) {
       if (error.code === 'ENOENT') return false;
