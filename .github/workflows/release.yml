@@ -21,13 +21,19 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/release-license-note.md
+          sparse-checkout-cone-mode: false
+          ref: ${{ inputs.tag || github.ref_name }}
       - name: Create GitHub Release if missing
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release view "$RELEASE_TAG" >/dev/null 2>&1 ||
-            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes --notes-file .github/release-license-note.md
 
   release:
     needs: create-release
