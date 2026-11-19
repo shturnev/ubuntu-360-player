@@ -1124,6 +1124,7 @@ describe('MainModelClass', () => {
     fs.writeFileSync(original, 'new image');
     fs.writeFileSync(destination, 'old image');
     fs.chmodSync(destination, 0o640);
+    const originalMode = fs.statSync(destination).mode & 0o777;
     fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
     mainModelClass.authorizedMedia.set(original, 'image');
     mainModelClass.recordExportMedia(original, 'linked.jpg');
@@ -1131,7 +1132,7 @@ describe('MainModelClass', () => {
 
     await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({ success: true });
     expect(fs.readFileSync(destination, 'utf8')).toBe('new image');
-    expect(fs.statSync(destination).mode & 0o777).toBe(0o640);
+    expect(fs.statSync(destination).mode & 0o777).toBe(originalMode);
     expect(fs.readdirSync(tempDir).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
   });
 
