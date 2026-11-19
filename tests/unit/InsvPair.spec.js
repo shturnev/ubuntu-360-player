@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 const { validateInsvPair } = require('../../src/models/insvPair');
 
@@ -10,7 +10,7 @@ describe('INSV stream validation', () => {
   let verifyVideo;
 
   beforeEach(() => {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'insv-pair-'));
+    directory = fs.mkdtempSync(path.join(getTempDir(), 'insv-pair-'));
     files = [path.join(directory, 'first.insv'), path.join(directory, 'second.insv')];
     files.forEach((file) => fs.writeFileSync(file, 'video'));
     verifyVideo = jest.fn().mockResolvedValue(0.001);
@@ -69,7 +69,7 @@ describe('INSV stream validation', () => {
   });
 
   test('rejects a lens linking outside its directory', async () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'insv-outside-'));
+    const outside = fs.mkdtempSync(path.join(getTempDir(), 'insv-outside-'));
     try {
       const target = path.join(outside, 'lens.insv');
       fs.writeFileSync(target, 'video');

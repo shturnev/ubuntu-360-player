@@ -1,0 +1,79 @@
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build_args: ''
+          - os: windows-latest
+            build_args: --win
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Smoke-test bundled Windows media tools
+        if: runner.os == 'Windows'
+        run: node electron/smoke-tools.js
+
+      - name: Build packages without publishing
+        run: npm run electron:build -- ${{ matrix.build_args }} --publish never
+
+      - name: Check Linux package artifacts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -n "$(find dist_electron -maxdepth 1 -name '*.deb' -print -quit)"
+          test -n "$(find dist_electron -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -f dist_electron/latest-linux.yml
+
+      - name: Smoke-test packaged Windows media tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist_electron/win-unpacked/*.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          $script = "$($exe.DirectoryName)/resources/app.asar/electron/smoke-tools.js"
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "`"$script`"" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "Packaged smoke test failed ($($p.ExitCode))" }
+
+      - name: Check Windows package artifacts
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          test -n "$(find dist_electron -maxdepth 1 -name '*-setup.exe' -print -quit)"
+          test -n "$(find dist_electron -maxdepth 1 -name '*-setup.exe.blockmap' -print -quit)"
+          test -f dist_electron/latest.yml

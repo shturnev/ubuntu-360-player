@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 const { openFileNoFollow } = require('../../src/models/safeOpen');
 const mediaCache = require('../../src/models/mediaCache');
@@ -7,7 +7,7 @@ const mediaCache = require('../../src/models/mediaCache');
 describe('openFileNoFollow', () => {
   let dir;
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'safeopen-'));
+    dir = fs.mkdtempSync(path.join(getTempDir(), 'safeopen-'));
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

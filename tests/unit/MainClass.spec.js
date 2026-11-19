@@ -1,5 +1,5 @@
 const fs = require('fs');
-const os = require('os');
+const getTempDir = require('../tempDir');
 const path = require('path');
 const { Writable } = require('stream');
 
@@ -39,7 +39,7 @@ describe('MainModelClass', () => {
   ]).buffer;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sht-vr-main-'));
+    tempDir = fs.mkdtempSync(path.join(getTempDir(), 'sht-vr-main-'));
     const staticDir = path.join(tempDir, '.sht-vr-player', 'static');
     fs.mkdirSync(path.join(staticDir, 'small'), { recursive: true });
     fs.mkdirSync(path.join(staticDir, 'big'), { recursive: true });
@@ -572,18 +572,28 @@ describe('MainModelClass', () => {
     fs.writeFileSync(secondFile, 'second image');
 
     const callbacks = new Map();
+    const callbackWaiters = new Map();
     jest.spyOn(Media, 'saveImage').mockImplementation((filePath, _win, onResult) => {
       callbacks.set(filePath, onResult);
+      callbackWaiters.get(filePath)(onResult);
     });
+    const waitForCallback = (filePath) =>
+      new Promise((resolve) => {
+        callbackWaiters.set(filePath, resolve);
+      });
 
-    mainModelClass.readDir(firstDirectory);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    mainModelClass.readDir(secondDirectory);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const firstReady = waitForCallback(firstFile);
+    const firstImport = mainModelClass.readDir(firstDirectory);
+    await firstReady;
+    const secondReady = waitForCallback(secondFile);
+    const secondImport = mainModelClass.readDir(secondDirectory);
+    await secondReady;
 
     callbacks.get(firstFile)({ error: new Error('first import failed') });
 
     expect(mainModelClass.authorizedMedia.get(secondFile)).toBe('image');
+    callbacks.get(secondFile)({ origPath: secondFile });
+    await Promise.all([firstImport, secondImport]);
   });
 
   test('deleteCache removes the cache directory and only reports completion on success', async () => {
@@ -1114,6 +1124,7 @@ describe('MainModelClass', () => {
     fs.writeFileSync(original, 'new image');
     fs.writeFileSync(destination, 'old image');
     fs.chmodSync(destination, 0o640);
+    const originalMode = fs.statSync(destination).mode & 0o777;
     fs.symlinkSync(original, path.join(mainModelClass.static_dir, 'big', 'linked.jpg'));
     mainModelClass.authorizedMedia.set(original, 'image');
     mainModelClass.recordExportMedia(original, 'linked.jpg');
@@ -1121,7 +1132,7 @@ describe('MainModelClass', () => {
 
     await expect(mainModelClass.saveCurrentMedia({ origPath: original })).resolves.toEqual({ success: true });
     expect(fs.readFileSync(destination, 'utf8')).toBe('new image');
-    expect(fs.statSync(destination).mode & 0o777).toBe(0o640);
+    expect(fs.statSync(destination).mode & 0o777).toBe(originalMode);
     expect(fs.readdirSync(tempDir).filter((name) => name.startsWith('.sht-vr-export-'))).toEqual([]);
   });
 
