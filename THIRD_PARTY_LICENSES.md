@@ -20,7 +20,7 @@ not relicensed under BUSL-1.1.
 ### FFprobe (`ffprobe.exe`)
 
 - Package: [`ffprobe-static`](https://github.com/joshwnj/ffprobe-static) 3.1.0 (package license: MIT).
-- Binary: FFmpeg 4.0.2 static build from Zeranoe (<http://ffmpeg.zeranoe.com/builds/>), configured with
+- Binary: FFmpeg 4.0.2 static Windows build (historical Zeranoe build; Zeranoe shut down in 2020), configured with
   `--enable-gpl --enable-version3`, so the binary is licensed under the **GNU GPL v3**.
 - Source code: FFmpeg 4.0.2, <https://ffmpeg.org/releases/ffmpeg-4.0.2.tar.xz>.
 - Shipped in `resources\app.asar.unpacked\node_modules\ffprobe-static\`.
